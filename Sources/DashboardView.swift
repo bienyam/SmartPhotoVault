@@ -110,6 +110,7 @@ struct DashboardView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }
+            .buttonStyle(.borderless)
             .navigationTitle("SmartPhotoVault")
             .task {
                 if ProcessInfo.processInfo.arguments.contains("--demo") { model.showDemo() }

@@ -12,12 +12,16 @@ final class DashboardUITests: XCTestCase {
         }
         XCTAssertTrue(samples.waitForExistence(timeout: 5))
         samples.tap()
+        XCTAssertTrue(app.staticTexts["Sample data — not your photo library"].firstMatch.waitForExistence(timeout: 5))
         let review = app.buttons["Review duplicate groups"]
         for _ in 0..<8 {
             if review.exists && review.isHittable { break }
             app.swipeUp()
         }
-        XCTAssertTrue(review.waitForExistence(timeout: 5))
+        guard review.waitForExistence(timeout: 5) else {
+            XCTFail("Duplicate review is missing. UI: \(app.debugDescription)")
+            return
+        }
         review.tap()
         XCTAssertTrue(app.navigationBars["Exact duplicates"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Beach.heic"].exists)

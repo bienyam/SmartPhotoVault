@@ -52,6 +52,11 @@ final class DashboardModel: ObservableObject {
             }
             activity = try store?.activity() ?? []
         } catch { errorMessage = "Could not open local inventory: \(error.localizedDescription)" }
+        if authorization == .authorized || authorization == .limited { startObserving() }
+    }
+
+    private func startObserving() {
+        guard changeObserver == nil else { return }
         changeObserver = LibraryChangeObserver { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self, !self.isDemo else { return }
@@ -98,6 +103,7 @@ final class DashboardModel: ObservableObject {
                 activity = try store?.activity() ?? []
                 return
             }
+            startObserving()
             try Task.checkCancellation()
             try store?.log("Duplicate scan started. Cloud downloads: \(allowCloudDownloads ? "enabled" : "disabled").")
             let downloads = allowCloudDownloads
@@ -151,6 +157,7 @@ final class DashboardModel: ObservableObject {
             authorization = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
         }
         guard authorization == .authorized || authorization == .limited else { return }
+        startObserving()
         let result = await PhotoLibraryService.inventory()
         guard !Task.isCancelled else { return }
         inventory = result
