@@ -70,6 +70,11 @@ final class DashboardModel: ObservableObject {
 
     func cancel() { scanTask?.cancel() }
 
+    func startMetadataScan() {
+        guard !isScanning else { return }
+        scanTask = Task { await scan() }
+    }
+
     private func scanDuplicates() async {
         guard store != nil else {
             errorMessage = "Local inventory storage is unavailable. Restart the app to try opening it again."
@@ -77,6 +82,7 @@ final class DashboardModel: ObservableObject {
         }
         isScanning = true
         isDemo = false
+        inventory = nil
         completed = 0
         total = 0
         errorMessage = nil
@@ -105,6 +111,7 @@ final class DashboardModel: ObservableObject {
             }
             let result = ScanSnapshot(date: Date(), limitedAccess: authorization == .limited, includedCloudDownloads: downloads, assets: records)
             snapshot = result
+            inventory = counts(for: records)
             try store?.save(result)
             activity = try store?.activity() ?? []
         } catch is CancellationError {
@@ -123,19 +130,30 @@ final class DashboardModel: ObservableObject {
         guard !isScanning else { return }
         isDemo = true
         snapshot = DemoLibrary.snapshot
+        inventory = counts(for: DemoLibrary.snapshot.assets)
+    }
+
+    private func counts(for records: [AssetRecord]) -> PhotoInventory {
+        PhotoInventory(photos: records.filter { $0.mediaType == PHAssetMediaType.image.rawValue }.count,
+                       videos: records.filter { $0.mediaType == PHAssetMediaType.video.rawValue }.count,
+                       favorites: records.filter(\.favorite).count)
     }
 
     func scan() async {
         guard !isScanning else { return }
+        isDemo = false
+        snapshot = nil
         isScanning = true
-        defer { isScanning = false }
+        defer { isScanning = false; scanTask = nil }
         inventory = nil
         authorization = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         if authorization == .notDetermined {
             authorization = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
         }
         guard authorization == .authorized || authorization == .limited else { return }
-        inventory = await PhotoLibraryService.inventory()
+        let result = await PhotoLibraryService.inventory()
+        guard !Task.isCancelled else { return }
+        inventory = result
     }
 
     func refreshAuthorization() {

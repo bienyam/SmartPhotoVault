@@ -6,6 +6,9 @@ xcuserdata/
 *.xcodeproj/
 *.xcworkspace/
 *.p12
+*.p8
+*.pem
+*.key
 *.mobileprovision
 .env
 

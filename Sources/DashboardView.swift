@@ -9,6 +9,12 @@ struct DashboardView: View {
     var body: some View {
         NavigationStack {
             List {
+                if model.isDemo {
+                    Section {
+                        Label("Sample data — not your photo library", systemImage: "testtube.2")
+                            .foregroundStyle(.orange)
+                    }
+                }
                 Section {
                     Label("Your memories, accounted for", systemImage: "photo.on.rectangle.angled")
                         .font(.title2.bold())
@@ -38,7 +44,7 @@ struct DashboardView: View {
                         }
                     }
                     Button(model.inventory == nil ? "Scan Apple Photos" : "Rescan Apple Photos") {
-                        Task { await model.scan() }
+                        model.startMetadataScan()
                     }
                     .disabled(model.isScanning)
                 }
