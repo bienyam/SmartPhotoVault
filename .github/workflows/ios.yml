@@ -25,9 +25,22 @@ jobs:
           xcodebuild test
           -project SmartPhotoVault.xcodeproj
           -scheme SmartPhotoVault
+          -derivedDataPath build/DerivedData
+          -parallel-testing-enabled NO
           -destination "platform=iOS Simulator,id=$DEVICE_ID"
           -resultBundlePath build/TestResults.xcresult
           CODE_SIGNING_ALLOWED=NO
+      - name: Capture dashboard preview
+        run: |
+          xcrun simctl install "$DEVICE_ID" build/DerivedData/Build/Products/Debug-iphonesimulator/SmartPhotoVault.app
+          xcrun simctl launch "$DEVICE_ID" com.bienyam.SmartPhotoVault --demo
+          sleep 3
+          xcrun simctl io "$DEVICE_ID" screenshot build/dashboard.png
+      - name: Save dashboard preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-preview
+          path: build/dashboard.png
       - name: Save test results
         if: always()
         uses: actions/upload-artifact@v4

@@ -31,11 +31,20 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
+  SmartPhotoVaultUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [UITests]
+    dependencies:
+      - target: SmartPhotoVault
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
 schemes:
   SmartPhotoVault:
     build:
       targets:
         SmartPhotoVault: all
     test:
-      targets: [SmartPhotoVaultTests]
+      targets: [SmartPhotoVaultTests, SmartPhotoVaultUITests]
 

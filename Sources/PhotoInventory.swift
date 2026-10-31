@@ -1,5 +1,6 @@
 import Photos
 import Foundation
+import Combine
 
 struct PhotoInventory: Equatable {
     var photos = 0
@@ -41,15 +42,25 @@ final class DashboardModel: ObservableObject {
     private var store: InventoryStore?
     private let scanner = DuplicateScanner()
     private var scanTask: Task<Void, Never>?
+    private var changeObserver: LibraryChangeObserver?
 
     init() {
         do {
             store = try InventoryStore.openDefault()
-            if authorization == .authorized || authorization == .limited {
+            if authorization == .authorized {
                 snapshot = try store?.load()
             }
             activity = try store?.activity() ?? []
         } catch { errorMessage = "Could not open local inventory: \(error.localizedDescription)" }
+        changeObserver = LibraryChangeObserver { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, !self.isDemo else { return }
+                self.cancel()
+                self.snapshot = nil
+                self.inventory = nil
+                self.errorMessage = "Your Photos library changed. Run a new scan to refresh the results."
+            }
+        }
     }
 
     func startDuplicateScan() {
@@ -60,6 +71,10 @@ final class DashboardModel: ObservableObject {
     func cancel() { scanTask?.cancel() }
 
     private func scanDuplicates() async {
+        guard store != nil else {
+            errorMessage = "Local inventory storage is unavailable. Restart the app to try opening it again."
+            return
+        }
         isScanning = true
         isDemo = false
         completed = 0
@@ -134,5 +149,16 @@ final class DashboardModel: ObservableObject {
             isDemo = false
         }
     }
+}
+
+private final class LibraryChangeObserver: NSObject, PHPhotoLibraryChangeObserver {
+    let changed: () -> Void
+    init(changed: @escaping () -> Void) {
+        self.changed = changed
+        super.init()
+        PHPhotoLibrary.shared().register(self)
+    }
+    deinit { PHPhotoLibrary.shared().unregisterChangeObserver(self) }
+    func photoLibraryDidChange(_ changeInstance: PHChange) { changed() }
 }
 

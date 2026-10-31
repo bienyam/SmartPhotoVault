@@ -105,6 +105,9 @@ struct DashboardView: View {
                 }
             }
             .navigationTitle("SmartPhotoVault")
+            .task {
+                if ProcessInfo.processInfo.arguments.contains("--demo") { model.showDemo() }
+            }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active { model.refreshAuthorization() }
             }

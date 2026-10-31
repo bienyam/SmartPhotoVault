@@ -22,7 +22,7 @@ Requires Xcode with iOS 17+ SDK and XcodeGen (`brew install xcodegen`). Run `xco
 
 ## Build from Windows using GitHub
 
-Push this project to GitHub and open the repository's Actions tab. The iOS build and tests workflow generates the project and runs simulator tests on a hosted Mac. A successful simulator build does not produce an app installable on a physical iPhone. Apple Developer enrollment, signing, and TestFlight distribution will be configured separately. No signing credentials are needed for this workflow. GitHub runner usage is subject to your plan and billing settings.
+Push this project to GitHub and open the repository's Actions tab. The iOS build and tests workflow generates the project and runs unit tests and a sample-data UI test on a hosted Mac. Download dashboard-preview for a screenshot of the app and simulator-test-results for the Xcode result bundle. A successful simulator build does not produce an app installable on a physical iPhone. Apple Developer enrollment, signing, and TestFlight distribution will be configured separately. No signing credentials are needed for this workflow. GitHub runner usage is subject to your plan and billing settings.
 
 ## Device installation later
 
