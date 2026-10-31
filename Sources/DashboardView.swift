@@ -43,6 +43,46 @@ struct DashboardView: View {
                     .disabled(model.isScanning)
                 }
 
+                Section("Exact duplicate scan") {
+                    Toggle("Allow iCloud resource downloads", isOn: $model.allowCloudDownloads)
+                        .disabled(model.isScanning)
+                    Text("Off by default. Cloud-only resources stay unverified. Enabling downloads can use mobile data and temporary device storage.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    if model.isScanning {
+                        ProgressView(value: Double(model.completed), total: Double(max(model.total, 1)))
+                        Text("Checked \(model.completed) of \(model.total) assets")
+                        Button("Cancel scan", role: .cancel) { model.cancel() }
+                        Text("Cancellation completes when the current resource finishes reading.").font(.footnote)
+                    } else {
+                        Button("Find exact duplicates") { model.startDuplicateScan() }
+                        Button("Explore sample results") { model.showDemo() }
+                    }
+                    if let error = model.errorMessage {
+                        Text(error).foregroundStyle(.red).accessibilityLabel("Error: \(error)")
+                    }
+                    if let snapshot = model.snapshot {
+                        if model.isDemo { Label("Sample data — not your photo library", systemImage: "testtube.2") }
+                        Text("Scanned \(snapshot.date.formatted())").font(.footnote)
+                        if snapshot.limitedAccess { Text("Only selected photos are included.").foregroundStyle(.orange) }
+                        LabeledContent("Assets inventoried", value: snapshot.assets.count.formatted())
+                        LabeledContent("Fully hashed at scan time", value: snapshot.verifiedCount.formatted())
+                        LabeledContent("Unverified or unreadable", value: (snapshot.assets.count - snapshot.verifiedCount).formatted())
+                        LabeledContent("Exact duplicate groups", value: snapshot.groups.count.formatted())
+                        LabeledContent("Extra duplicate resource bytes (estimate)", value: ByteCountFormatter.string(fromByteCount: snapshot.candidateBytes, countStyle: .file))
+                        Text("Estimated matching resource bytes, not guaranteed recoverable device space. No cleanup is available. Results describe the library at scan time; rescan after library changes.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                        NavigationLink("Review duplicate groups") { DuplicateResultsView(snapshot: snapshot) }
+                        NavigationLink("Review unverified assets") {
+                            List(snapshot.assets.filter { $0.fingerprint == nil }) { asset in
+                                VStack(alignment: .leading) {
+                                    Text(asset.filename)
+                                    Text(asset.issue ?? "No complete resource evidence").font(.footnote).foregroundStyle(.secondary)
+                                }
+                            }.navigationTitle("Unverified assets")
+                        }
+                    }
+                }
+
                 Section("Desired full-resolution copies") {
                     LabeledContent("iPhone originals", value: "Unverified")
                     LabeledContent("iCloud Photos", value: "Unverified")
@@ -51,10 +91,16 @@ struct DashboardView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
 
-                Section("Coming next") {
-                    LabeledContent("Exact duplicates", value: "Not scanned")
-                    LabeledContent("Recoverable storage", value: "Not calculated")
-                    Text("This first build counts metadata only. Duplicate hashing, local database storage, and Google Photos integration are not implemented yet.")
+                Section("Activity") {
+                    NavigationLink("View local activity log") {
+                        List(model.activity) { entry in
+                            VStack(alignment: .leading) {
+                                Text(entry.message)
+                                Text(entry.date.formatted()).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }.navigationTitle("Activity log")
+                    }
+                    Text("Google Photos integration and visually similar matching are planned for later releases.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }
@@ -63,6 +109,34 @@ struct DashboardView: View {
                 if phase == .active { model.refreshAuthorization() }
             }
         }
+    }
+}
+
+struct DuplicateResultsView: View {
+    let snapshot: ScanSnapshot
+    var body: some View {
+        List {
+            Section {
+                Text("All resource hashes and resource types must match. Favorites appear first for review. Keep all desired destination copies. No deletion actions are available.")
+                    .font(.footnote)
+            }
+            if snapshot.groups.isEmpty {
+                Text("No exact duplicates found among fully readable assets. Unverified assets were excluded.")
+            }
+            ForEach(Array(snapshot.groups.enumerated()), id: \.element.id) { index, group in
+                Section("Group \(index + 1) · \(group.assets.count) matching assets") {
+                    ForEach(group.assets) { asset in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Label(asset.filename, systemImage: asset.favorite ? "heart.fill" : "photo")
+                            if asset.favorite { Text("Favorite — preserve").font(.caption).foregroundStyle(.orange) }
+                            Text("\(asset.resources.count) resources · \(ByteCountFormatter.string(fromByteCount: asset.bytes, countStyle: .file))")
+                                .font(.caption).foregroundStyle(.secondary)
+                            if let date = asset.createdAt { Text(date.formatted()).font(.caption) }
+                        }
+                    }
+                }
+            }
+        }.navigationTitle("Exact duplicates")
     }
 }
 

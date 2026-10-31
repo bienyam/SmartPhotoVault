@@ -31,6 +31,84 @@ final class DashboardModel: ObservableObject {
     @Published var inventory: PhotoInventory?
     @Published var authorization = PHPhotoLibrary.authorizationStatus(for: .readWrite)
     @Published var isScanning = false
+    @Published var snapshot: ScanSnapshot?
+    @Published var activity: [ActivityEntry] = []
+    @Published var errorMessage: String?
+    @Published var completed = 0
+    @Published var total = 0
+    @Published var allowCloudDownloads = false
+    @Published var isDemo = false
+    private var store: InventoryStore?
+    private let scanner = DuplicateScanner()
+    private var scanTask: Task<Void, Never>?
+
+    init() {
+        do {
+            store = try InventoryStore.openDefault()
+            if authorization == .authorized || authorization == .limited {
+                snapshot = try store?.load()
+            }
+            activity = try store?.activity() ?? []
+        } catch { errorMessage = "Could not open local inventory: \(error.localizedDescription)" }
+    }
+
+    func startDuplicateScan() {
+        guard !isScanning else { return }
+        scanTask = Task { await scanDuplicates() }
+    }
+
+    func cancel() { scanTask?.cancel() }
+
+    private func scanDuplicates() async {
+        isScanning = true
+        isDemo = false
+        completed = 0
+        total = 0
+        errorMessage = nil
+        snapshot = nil
+        defer { isScanning = false; scanTask = nil }
+        do {
+            authorization = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+            if authorization == .notDetermined {
+                authorization = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
+            }
+            guard authorization == .authorized || authorization == .limited else {
+                try store?.log("Scan not started: photo access unavailable.")
+                activity = try store?.activity() ?? []
+                return
+            }
+            try Task.checkCancellation()
+            try store?.log("Duplicate scan started. Cloud downloads: \(allowCloudDownloads ? "enabled" : "disabled").")
+            let downloads = allowCloudDownloads
+            let records = try await scanner.scan(allowNetwork: downloads) { [weak self] done, count in
+                await self?.setProgress(done, count)
+            }
+            try Task.checkCancellation()
+            let current = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+            guard current == authorization else {
+                throw NSError(domain: "PhotoAccess", code: 1, userInfo: [NSLocalizedDescriptionKey: "Photo access changed during the scan. Please scan again."])
+            }
+            let result = ScanSnapshot(date: Date(), limitedAccess: authorization == .limited, includedCloudDownloads: downloads, assets: records)
+            snapshot = result
+            try store?.save(result)
+            activity = try store?.activity() ?? []
+        } catch is CancellationError {
+            try? store?.log("Scan cancelled; incomplete results were not saved.")
+            activity = (try? store?.activity()) ?? []
+        } catch {
+            errorMessage = error.localizedDescription
+            try? store?.log("Scan failed: \(error.localizedDescription)")
+            activity = (try? store?.activity()) ?? []
+        }
+    }
+
+    private func setProgress(_ done: Int, _ count: Int) { completed = done; total = count }
+
+    func showDemo() {
+        guard !isScanning else { return }
+        isDemo = true
+        snapshot = DemoLibrary.snapshot
+    }
 
     func scan() async {
         guard !isScanning else { return }
@@ -46,9 +124,15 @@ final class DashboardModel: ObservableObject {
     }
 
     func refreshAuthorization() {
+        let previous = authorization
         authorization = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         // A new scan is required after returning from Settings or changing selection.
         inventory = nil
+        if previous != authorization || (authorization == .limited && !isScanning) {
+            if previous != .notDetermined { cancel() }
+            snapshot = nil
+            isDemo = false
+        }
     }
 }
 
