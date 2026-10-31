@@ -3,12 +3,18 @@ import XCTest
 final class DashboardUITests: XCTestCase {
     func testSampleDuplicateReview() {
         let app = XCUIApplication()
-        app.launchArguments = ["--demo"]
         app.launch()
         XCTAssertTrue(app.navigationBars["SmartPhotoVault"].waitForExistence(timeout: 15))
+        let samples = app.buttons["Explore sample results"]
+        for _ in 0..<6 {
+            if samples.exists && samples.isHittable { break }
+            app.swipeUp()
+        }
+        XCTAssertTrue(samples.waitForExistence(timeout: 5))
+        samples.tap()
         let review = app.buttons["Review duplicate groups"]
         for _ in 0..<8 {
-            if review.isHittable { break }
+            if review.exists && review.isHittable { break }
             app.swipeUp()
         }
         XCTAssertTrue(review.waitForExistence(timeout: 5))

@@ -159,6 +159,7 @@ final class DashboardModel: ObservableObject {
     func refreshAuthorization() {
         let previous = authorization
         authorization = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        guard !isDemo else { return }
         // A new scan is required after returning from Settings or changing selection.
         inventory = nil
         if previous != authorization || (authorization == .limited && !isScanning) {
