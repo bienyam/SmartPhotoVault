@@ -33,6 +33,7 @@ jobs:
       - name: Capture dashboard preview
         if: success() || failure()
         run: |
+          xcrun simctl bootstatus "$DEVICE_ID" -b
           xcrun simctl install "$DEVICE_ID" build/DerivedData/Build/Products/Debug-iphonesimulator/SmartPhotoVault.app
           xcrun simctl launch "$DEVICE_ID" com.bienyam.SmartPhotoVault --demo
           sleep 3
