@@ -19,16 +19,21 @@ final class PhotosIntegrationTests: XCTestCase {
         let red = png(.red)
         let blue = png(.blue)
         let video = try await movie()
-        // PhotoKit video resources must be imported from a file URL, not the
-        // in-memory data overload used for still images. Keep the file through
-        // the asynchronous import and copy it for both fixture assets.
+        // Keep the video file through the asynchronous imports and copy it for
+        // both fixtures using PhotoKit's file-resource API.
         let videoURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mov")
         try video.write(to: videoURL, options: .atomic)
         defer { try? FileManager.default.removeItem(at: videoURL) }
+        let generatedMovie = AVURLAsset(url: videoURL)
+        let duration = try await generatedMovie.load(.duration)
+        let tracks = try await generatedMovie.loadTracks(withMediaType: .video)
+        XCTAssertGreaterThan(duration.seconds, 0)
+        XCTAssertEqual(tracks.count, 1)
         var identifiers: [String] = []
         let prefix = "SPV-test-\(UUID().uuidString)"
-        try await PHPhotoLibrary.shared().performChanges {
-            for (index, bytes) in [red, red, blue, video, video].enumerated() {
+        for (index, bytes) in [red, red, blue, video, video].enumerated() {
+            do {
+                try await PHPhotoLibrary.shared().performChanges {
                 let request = PHAssetCreationRequest.forAsset()
                 let options = PHAssetResourceCreationOptions()
                 options.originalFilename = "\(prefix)-\(index).\(index < 3 ? "png" : "mov")"
@@ -38,13 +43,22 @@ final class PhotosIntegrationTests: XCTestCase {
                 } else {
                     request.addResource(with: .video, fileURL: videoURL, options: options)
                 }
-                request.isFavorite = index == 0
                 if let identifier = request.placeholderForCreatedAsset?.localIdentifier {
                     identifiers.append(identifier)
                 }
+                }
+            } catch {
+                throw NSError(domain: "SimulatorFixture", code: index,
+                              userInfo: [NSLocalizedDescriptionKey: "Importing fixture \(index) (\(index < 3 ? "PNG" : "MOV")) failed: \(error.localizedDescription)",
+                                         NSUnderlyingErrorKey: error])
             }
         }
         XCTAssertEqual(identifiers.count, 5)
+        let favoriteID = try XCTUnwrap(identifiers.first)
+        let favorite = try XCTUnwrap(PHAsset.fetchAssets(withLocalIdentifiers: [favoriteID], options: nil).firstObject)
+        try await PHPhotoLibrary.shared().performChanges {
+            PHAssetChangeRequest(for: favorite).isFavorite = true
+        }
         let progress = ScanProgressRecorder()
         let records = try await DuplicateScanner().scan(allowNetwork: false) { done, total in
             await progress.record(done: done, total: total)
