@@ -2,6 +2,12 @@
 
 The GitHub simulator workflow validates the code on a cloud Mac. Its output is not an iPhone installation package. The planned device delivery path is TestFlight.
 
+## Keep testing before enrollment
+
+No paid Apple Developer membership is needed for our GitHub simulator builds, synthetic Photos-library integration tests, UI tests, or screenshots. Work can continue while enrollment is being established. Paid membership is needed for the planned TestFlight distribution path. With access to a Mac and Xcode, Apple also supports limited personal-device testing using a free Apple Account; that is a separate path from this Windows/GitHub setup.
+
+Apple account comparison: https://developer.apple.com/help/account/basics/about-your-developer-account/
+
 ## What you need to do
 
 1. Enroll in the Apple Developer Program using your own Apple Account: https://developer.apple.com/programs/enroll/ . Apple handles identity verification, agreements, and membership payment. Confirm the current terms and fee directly with Apple before enrolling.

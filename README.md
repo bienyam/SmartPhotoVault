@@ -20,6 +20,16 @@ Explore sample results without granting Photos access. Synthetic data stays in m
 
 Requires Xcode with iOS 17+ SDK and XcodeGen (`brew install xcodegen`). Run `xcodegen generate`, then open `SmartPhotoVault.xcodeproj`. Select the SmartPhotoVault scheme and an iPhone simulator, then Run or Test. The generated project is intentionally ignored by Git; project.yml is its source.
 
+## Testing without paid Apple enrollment
+
+Development and simulator testing continue without a paid Apple Developer membership. TestFlight is a later device-distribution step, not a prerequisite for these tests.
+
+The simulator integration tests create three synthetic PNG assets (an identical pair and a distinct image) and two identical short synthetic videos using PhotoKit. They run the production scanner, verify streamed hashes against the original resource bytes, check duplicate groups, favorites, progress, photo/video counts, cancellation, and round-trip the resulting inventory through SQLite. These fixture-creation APIs exist only in the test target behind `targetEnvironment(simulator)`; the shipping app stays read-only. Fixtures remain in the disposable simulator library; no photos are deleted. No test fixture is created on a physical iPhone.
+
+CI builds the app/tests first, boots the selected simulator, installs the app, grants test-only Photos access with `simctl privacy`, then runs tests without rebuilding. The UI suite exercises the seeded-library scan, resets photo authorization to test the real denial prompt, and checks sample-mode navigation. Download `test-screenshots` from Actions to review the actual-library and permission flows. Limited-access selection, iCloud-only originals, and real Live Photos still require additional testing, including on-device checks.
+
+For a local simulator integration run, grant the app full Photos access before starting the suite. You can use `xcrun simctl privacy booted grant photos com.bienyam.SmartPhotoVault` after installing the app. The full UI suite deliberately changes that simulator app's authorization state, so restore access before rerunning the integration suite.
+
 ## Build from Windows using GitHub
 
 Push this project to GitHub and open the repository's Actions tab. The iOS build and tests workflow generates the project and runs unit tests and a sample-data UI test on a hosted Mac. Download dashboard-preview for a screenshot of the app and simulator-test-results for the Xcode result bundle. A successful simulator build does not produce an app installable on a physical iPhone. Apple Developer enrollment, signing, and TestFlight distribution will be configured separately. No signing credentials are needed for this workflow. GitHub runner usage is subject to your plan and billing settings.

@@ -70,6 +70,11 @@ final class DashboardModel: ObservableObject {
 
     func startDuplicateScan() {
         guard !isScanning else { return }
+        guard store != nil else {
+            errorMessage = "Local inventory storage is unavailable. Restart the app to try opening it again."
+            return
+        }
+        isScanning = true
         scanTask = Task { await scanDuplicates() }
     }
 
@@ -77,14 +82,11 @@ final class DashboardModel: ObservableObject {
 
     func startMetadataScan() {
         guard !isScanning else { return }
+        isScanning = true
         scanTask = Task { await scan() }
     }
 
     private func scanDuplicates() async {
-        guard store != nil else {
-            errorMessage = "Local inventory storage is unavailable. Restart the app to try opening it again."
-            return
-        }
         isScanning = true
         isDemo = false
         inventory = nil
@@ -145,8 +147,7 @@ final class DashboardModel: ObservableObject {
                        favorites: records.filter(\.favorite).count)
     }
 
-    func scan() async {
-        guard !isScanning else { return }
+    private func scan() async {
         isDemo = false
         snapshot = nil
         isScanning = true
