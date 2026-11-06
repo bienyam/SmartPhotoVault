@@ -5,6 +5,7 @@ import Foundation
 /// Serial worker bounds resource use; Photos delivers streamed resource bytes.
 actor DuplicateScanner {
     func scan(allowNetwork: Bool, progress: @escaping @Sendable (Int, Int) async -> Void) async throws -> [AssetRecord] {
+        try Task.checkCancellation()
         let assets = PHAsset.fetchAssets(with: nil)
         var records: [AssetRecord] = []
         for index in 0..<assets.count {

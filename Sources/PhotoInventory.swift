@@ -96,6 +96,7 @@ final class DashboardModel: ObservableObject {
         snapshot = nil
         defer { isScanning = false; scanTask = nil }
         do {
+            try Task.checkCancellation()
             authorization = PHPhotoLibrary.authorizationStatus(for: .readWrite)
             if authorization == .notDetermined {
                 authorization = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
@@ -153,6 +154,7 @@ final class DashboardModel: ObservableObject {
         isScanning = true
         defer { isScanning = false; scanTask = nil }
         inventory = nil
+        guard !Task.isCancelled else { return }
         authorization = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         if authorization == .notDetermined {
             authorization = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
