@@ -7,6 +7,12 @@ on:
 permissions:
   contents: read
 jobs:
+  package-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check iPhone package validator
+        run: python3 -m unittest discover -s Scripts/tests -v
   simulator:
     runs-on: macos-15
     timeout-minutes: 25
@@ -63,6 +69,7 @@ jobs:
           name: dashboard-preview
           path: build/dashboard.png
           if-no-files-found: ignore
+
       - name: Save test results
         if: always()
         uses: actions/upload-artifact@v4
@@ -83,4 +90,44 @@ jobs:
           name: test-screenshots
           path: build/test-attachments
           if-no-files-found: ignore
+
+  iphone-package:
+    needs: [package-checks, simulator]
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+      - name: Build unsigned iPhone app
+        run: >-
+          xcodebuild build
+          -project SmartPhotoVault.xcodeproj
+          -scheme SmartPhotoVault
+          -configuration Release
+          -sdk iphoneos
+          -destination 'generic/platform=iOS'
+          -derivedDataPath build/Device
+          CODE_SIGNING_ALLOWED=NO
+          CODE_SIGNING_REQUIRED=NO
+      - name: Package and verify iPhone build
+        run: |
+          mkdir -p build/Package/Payload
+          ditto build/Device/Build/Products/Release-iphoneos/SmartPhotoVault.app build/Package/Payload/SmartPhotoVault.app
+          cd build/Package
+          zip -qry ../SmartPhotoVault-unsigned.ipa Payload
+          cd ../..
+          python3 Scripts/verify_device_ipa.py build/SmartPhotoVault-unsigned.ipa > build/iphone-package-info.json
+          cp WINDOWS_IPHONE_TESTING.md build/WINDOWS_IPHONE_TESTING.md
+          cat build/iphone-package-info.json
+      - name: Save unsigned iPhone package
+        uses: actions/upload-artifact@v4
+        with:
+          name: iphone-unsigned
+          path: |
+            build/SmartPhotoVault-unsigned.ipa
+            build/iphone-package-info.json
+            build/WINDOWS_IPHONE_TESTING.md
 
