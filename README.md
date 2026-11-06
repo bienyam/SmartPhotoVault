@@ -28,7 +28,7 @@ The simulator integration tests create three synthetic PNG assets (an identical 
 
 CI builds the app/tests first, boots the selected simulator, installs the app, and runs a dedicated UI test that grants Photos access through the real system consent dialog. It then runs the integration and remaining UI tests without rebuilding. The UI suite exercises the seeded-library scan, resets photo authorization to test the real denial prompt, and checks sample-mode navigation. Download `test-screenshots` from Actions to review the actual-library and permission flows. Limited-access selection, iCloud-only originals, and real Live Photos still require additional testing, including on-device checks.
 
-For a local simulator integration run, grant the app full Photos access before starting the suite. You can use `xcrun simctl privacy booted grant photos com.bienyam.SmartPhotoVault` after installing the app. The full UI suite deliberately changes that simulator app's authorization state, so restore access before rerunning the integration suite.
+For a local simulator integration run, open the app, tap Scan Apple Photos, and grant full Photos access before starting the suite. Alternatively, run the `testPrepareFullPhotoAccess` UI test first. Simulator TCC presets alone do not initialize PhotoKit's authorization reliably. The full UI suite deliberately changes that simulator app's authorization state, so restore access before rerunning the integration suite.
 
 ## Build from Windows using GitHub
 

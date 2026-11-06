@@ -170,9 +170,10 @@ final class DashboardModel: ObservableObject {
         let previous = authorization
         authorization = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         guard !isDemo else { return }
-        // A new scan is required after returning from Settings or changing selection.
-        inventory = nil
+        // Keep a completed inventory when access is unchanged. In particular,
+        // closing the initial permission dialog must not erase a just-finished scan.
         if previous != authorization || (authorization == .limited && !isScanning) {
+            inventory = nil
             if previous != .notDetermined { cancel() }
             snapshot = nil
             isDemo = false
