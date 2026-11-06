@@ -1,6 +1,36 @@
 import XCTest
 
 final class DashboardUITests: XCTestCase {
+    // CI runs this once before the unit/integration suite to initialize PhotoKit's
+    // authorization through the real consent UI, not only the simulator TCC preset.
+    func testPrepareFullPhotoAccess() {
+        let app = XCUIApplication()
+        app.resetAuthorizationStatus(for: .photos)
+        app.launch()
+        let scan = app.buttons["Scan Apple Photos"]
+        XCTAssertTrue(scan.waitForExistence(timeout: 15))
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        XCTAssertFalse(springboard.alerts.firstMatch.exists, "Opening the dashboard must not request Photos access.")
+        scan.tap()
+        let alert = springboard.alerts.firstMatch
+        guard alert.waitForExistence(timeout: 10) else {
+            XCTFail("Expected the Photos consent dialog after tapping Scan.")
+            return
+        }
+        let labels = ["Allow Full Access", "Allow Access to All Photos"]
+        guard let allow = labels.map({ alert.buttons[$0] }).first(where: { $0.exists }) else {
+            XCTFail("Full-access choice missing: \(alert.debugDescription)")
+            return
+        }
+        allow.tap()
+        XCTAssertTrue(app.buttons["Rescan Apple Photos"].waitForExistence(timeout: 15))
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "Authorized Photos inventory"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        app.terminate()
+    }
+
     func testAuthorizedLibraryScanReviewsRealResources() {
         let app = XCUIApplication()
         app.launch()

@@ -36,12 +36,24 @@ jobs:
           -destination "platform=iOS Simulator,id=$DEVICE_ID"
           CODE_SIGNING_ALLOWED=NO
       - name: Prepare simulator Photos integration tests
+        timeout-minutes: 6
         run: |
           xcrun simctl bootstatus "$DEVICE_ID" -b
           xcrun simctl install "$DEVICE_ID" build/DerivedData/Build/Products/Debug-iphonesimulator/SmartPhotoVault.app
-          xcrun simctl privacy "$DEVICE_ID" grant photos-add com.bienyam.SmartPhotoVault
-          xcrun simctl privacy "$DEVICE_ID" grant photos com.bienyam.SmartPhotoVault
+      - name: Authorize Photos through the real system dialog
+        timeout-minutes: 5
+        run: >-
+          xcodebuild test-without-building
+          -project SmartPhotoVault.xcodeproj
+          -scheme SmartPhotoVault
+          -derivedDataPath build/DerivedData
+          -parallel-testing-enabled NO
+          -only-testing:SmartPhotoVaultUITests/DashboardUITests/testPrepareFullPhotoAccess
+          -destination "platform=iOS Simulator,id=$DEVICE_ID"
+          -resultBundlePath build/AuthorizationResults.xcresult
+          CODE_SIGNING_ALLOWED=NO
       - name: Test real Photos resources and app flows
+        timeout-minutes: 8
         run: >-
           xcodebuild test-without-building
           -project SmartPhotoVault.xcodeproj
@@ -51,6 +63,7 @@ jobs:
           -test-timeouts-enabled YES
           -default-test-execution-time-allowance 90
           -maximum-test-execution-time-allowance 120
+          -skip-testing:SmartPhotoVaultUITests/DashboardUITests/testPrepareFullPhotoAccess
           -destination "platform=iOS Simulator,id=$DEVICE_ID"
           -resultBundlePath build/TestResults.xcresult
           CODE_SIGNING_ALLOWED=NO
@@ -75,14 +88,17 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: simulator-test-results
-          path: build/TestResults.xcresult
+          path: build/*Results.xcresult
           if-no-files-found: ignore
       - name: Export test screenshots
         if: always()
         run: |
-          if [ -d build/TestResults.xcresult ]; then
-            xcrun xcresulttool export attachments --path build/TestResults.xcresult --output-path build/test-attachments
-          fi
+          for result in build/*Results.xcresult; do
+            if [ -d "$result" ]; then
+              name=$(basename "$result" .xcresult)
+              xcrun xcresulttool export attachments --path "$result" --output-path "build/test-attachments/$name"
+            fi
+          done
       - name: Save test screenshots
         if: always()
         uses: actions/upload-artifact@v4
