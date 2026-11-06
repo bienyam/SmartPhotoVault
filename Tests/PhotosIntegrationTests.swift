@@ -11,9 +11,11 @@ import CryptoKit
 final class PhotosIntegrationTests: XCTestCase {
     @MainActor
     func testRealPhotosAndVideosAreHashedGroupedAndPersisted() async throws {
-        XCTAssertEqual(PHPhotoLibrary.authorizationStatus(for: .readWrite), .authorized,
+        print("Photos integration host: \(Bundle.main.bundleIdentifier ?? "unknown")")
+        let access = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
+        XCTAssertEqual(access, .authorized,
                        "Grant simulator Photos access before integration tests; see README.")
-        guard PHPhotoLibrary.authorizationStatus(for: .readWrite) == .authorized else { return }
+        guard access == .authorized else { return }
         let red = png(.red)
         let blue = png(.blue)
         let video = try await movie()

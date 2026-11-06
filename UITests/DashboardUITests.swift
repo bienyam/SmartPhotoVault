@@ -6,17 +6,11 @@ final class DashboardUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.navigationBars["SmartPhotoVault"].waitForExistence(timeout: 15))
         let scan = app.buttons["Find exact duplicates"]
-        for _ in 0..<8 {
-            if scan.exists && scan.isHittable { break }
-            app.swipeUp()
-        }
+        reveal(scan, in: app)
         XCTAssertTrue(scan.waitForExistence(timeout: 5))
         scan.tap()
         let review = app.buttons["Review duplicate groups"]
-        for _ in 0..<12 {
-            if review.exists && review.isHittable { break }
-            app.swipeUp()
-        }
+        reveal(review, in: app)
         guard review.waitForExistence(timeout: 15) else {
             XCTFail("Real Photos scan did not produce results: \(app.debugDescription)")
             return
@@ -59,18 +53,12 @@ final class DashboardUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.navigationBars["SmartPhotoVault"].waitForExistence(timeout: 15))
         let samples = app.buttons["Explore sample results"]
-        for _ in 0..<6 {
-            if samples.exists && samples.isHittable { break }
-            app.swipeUp()
-        }
+        reveal(samples, in: app)
         XCTAssertTrue(samples.waitForExistence(timeout: 5))
         samples.tap()
         XCTAssertTrue(app.staticTexts["Sample data — not your photo library"].firstMatch.waitForExistence(timeout: 5))
         let review = app.buttons["Review duplicate groups"]
-        for _ in 0..<8 {
-            if review.exists && review.isHittable { break }
-            app.swipeUp()
-        }
+        reveal(review, in: app)
         guard review.waitForExistence(timeout: 5) else {
             XCTFail("Duplicate review is missing. UI: \(app.debugDescription)")
             return
@@ -84,5 +72,20 @@ final class DashboardUITests: XCTestCase {
         attachment.name = "Sample duplicate review"
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    private func reveal(_ element: XCUIElement, in app: XCUIApplication) {
+        let list = app.collectionViews.firstMatch
+        for _ in 0..<16 {
+            if element.exists {
+                let frame = element.frame
+                if element.isHittable && frame.minY > 110 && frame.maxY < app.frame.maxY - 80 { return }
+                if frame.minY < 110 {
+                    list.swipeDown(velocity: .slow)
+                    continue
+                }
+            }
+            list.swipeUp(velocity: .slow)
+        }
     }
 }
