@@ -129,6 +129,8 @@ struct DuplicateResultsView: View {
             Section {
                 Text("All resource hashes and resource types must match. Favorites appear first for review. Keep all desired destination copies. No deletion actions are available.")
                     .font(.footnote)
+                Text("Scan from \(snapshot.date.formatted()). Rescan after changing your library.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             if snapshot.groups.isEmpty {
                 Text("No exact duplicates found among fully readable assets. Unverified assets were excluded.")
@@ -136,12 +138,15 @@ struct DuplicateResultsView: View {
             ForEach(Array(snapshot.groups.enumerated()), id: \.element.id) { index, group in
                 Section("Group \(index + 1) · \(group.assets.count) matching assets") {
                     ForEach(group.assets) { asset in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Label(asset.filename, systemImage: asset.favorite ? "heart.fill" : "photo")
-                            if asset.favorite { Text("Favorite — preserve").font(.caption).foregroundStyle(.orange) }
-                            Text("\(asset.resources.count) resources · \(ByteCountFormatter.string(fromByteCount: asset.bytes, countStyle: .file))")
-                                .font(.caption).foregroundStyle(.secondary)
-                            if let date = asset.createdAt { Text(date.formatted()).font(.caption) }
+                        HStack(alignment: .top, spacing: 12) {
+                            AssetThumbnail(assetID: asset.id)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Label(asset.filename, systemImage: asset.favorite ? "heart.fill" : "photo")
+                                if asset.favorite { Text("Favorite — preserve").font(.caption).foregroundStyle(.orange) }
+                                Text("\(asset.resources.count) resources · \(ByteCountFormatter.string(fromByteCount: asset.bytes, countStyle: .file))")
+                                    .font(.caption).foregroundStyle(.secondary)
+                                if let date = asset.createdAt { Text(date.formatted()).font(.caption) }
+                            }
                         }
                     }
                 }
