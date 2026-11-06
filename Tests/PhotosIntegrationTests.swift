@@ -19,6 +19,12 @@ final class PhotosIntegrationTests: XCTestCase {
         let red = png(.red)
         let blue = png(.blue)
         let video = try await movie()
+        // PhotoKit video resources must be imported from a file URL, not the
+        // in-memory data overload used for still images. Keep the file through
+        // the asynchronous import and copy it for both fixture assets.
+        let videoURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mov")
+        try video.write(to: videoURL, options: .atomic)
+        defer { try? FileManager.default.removeItem(at: videoURL) }
         var identifiers: [String] = []
         let prefix = "SPV-test-\(UUID().uuidString)"
         try await PHPhotoLibrary.shared().performChanges {
@@ -27,7 +33,11 @@ final class PhotosIntegrationTests: XCTestCase {
                 let options = PHAssetResourceCreationOptions()
                 options.originalFilename = "\(prefix)-\(index).\(index < 3 ? "png" : "mov")"
                 options.uniformTypeIdentifier = index < 3 ? "public.png" : "com.apple.quicktime-movie"
-                request.addResource(with: index < 3 ? .photo : .video, data: bytes, options: options)
+                if index < 3 {
+                    request.addResource(with: .photo, data: bytes, options: options)
+                } else {
+                    request.addResource(with: .video, fileURL: videoURL, options: options)
+                }
                 request.isFavorite = index == 0
                 if let identifier = request.placeholderForCreatedAsset?.localIdentifier {
                     identifiers.append(identifier)
