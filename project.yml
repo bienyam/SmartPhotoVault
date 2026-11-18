@@ -16,11 +16,16 @@ targets:
       path: build/Info.plist
       properties:
         CFBundleDisplayName: SmartPhotoVault
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
         NSPhotoLibraryUsageDescription: SmartPhotoVault reads your photo library to inventory photos and videos. This version never changes or deletes photos.
     settings:
       base:
         TARGETED_DEVICE_FAMILY: '1,2'
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        MARKETING_VERSION: '1.0'
+        CURRENT_PROJECT_VERSION: '1'
         GENERATE_INFOPLIST_FILE: NO
   SmartPhotoVaultTests:
     type: bundle.unit-test

@@ -18,7 +18,7 @@ struct DashboardView: View {
                 Section {
                     Label("Your memories, accounted for", systemImage: "photo.on.rectangle.angled")
                         .font(.title2.bold())
-                    Text("Keep full-resolution copies on your iPhone, in iCloud Photos, and in Google Photos.")
+                    Text("Inventory your Apple Photos library and review exact duplicates.")
                         .foregroundStyle(.secondary)
                     Label("Read-only · No photos are changed or deleted", systemImage: "lock.shield")
                         .font(.footnote)
@@ -108,6 +108,21 @@ struct DashboardView: View {
                     }
                     Text("Google Photos integration and visually similar matching are planned for later releases.")
                         .font(.footnote).foregroundStyle(.secondary)
+                }
+                Section("About") {
+                    NavigationLink("Privacy Policy") {
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 16) {
+                                Text("SmartPhotoVault reads the Apple Photos items you authorize. Scanning and exact duplicate matching run on your device.")
+                                Text("The app stores the latest completed inventory and its activity log locally. The inventory can include Photos identifiers, file names, dates, favorite status, resource sizes and hashes. The app does not transmit this information to the developer or include advertising or analytics.")
+                                Text("If you enable iCloud resource downloads, Apple Photos may retrieve originals from your iCloud library. SmartPhotoVault does not upload, edit or delete your photos.")
+                                Text("You can change Photos access in Settings. To remove the local inventory and activity log from this device, delete the app.")
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding()
+                        }
+                        .navigationTitle("Privacy Policy")
+                    }
                 }
             }
             .buttonStyle(.borderless)

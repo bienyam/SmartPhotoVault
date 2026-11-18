@@ -36,6 +36,8 @@ Push this project to GitHub and open the repository's Actions tab. The iOS build
 
 ## Device installation later
 
+For TestFlight and public App Store distribution, see [the App Store release guide](APP_STORE_RELEASE.md).
+
 The initial project disables signing for simulator builds. A later signed device workflow must override CODE_SIGNING_ALLOWED and configure your Apple team, certificates, and provisioning profile. Never commit signing credentials or personal photo datasets.
 
 For testing before paid enrollment, the `iphone-package` job builds an unsigned Release app for physical iOS after simulator tests pass. Its `iphone-unsigned` artifact contains an IPA that can be personally signed with AltServer on Windows. See WINDOWS_IPHONE_TESTING.md for the optional setup and seven-day refresh requirement. `Scripts/verify_device_ipa.py` checks the executable's Mach-O architecture and platform so an arm64 simulator build cannot be mistaken for a device build. Four packaging-validator tests also run on Linux CI and can run on Windows using `python -m unittest discover -s Scripts/tests -v`.
