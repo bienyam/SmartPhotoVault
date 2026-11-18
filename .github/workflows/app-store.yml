@@ -52,7 +52,7 @@ jobs:
           ' "$name_pattern" <<< "$devices")"
             xcrun simctl bootstatus "$device_id" -b
             xcrun simctl status_bar "$device_id" override --time '9:41' \
-              --dataNetwork wifi --wifiMode active --wifiBars 3 --batteryState unplugged --batteryLevel 100
+              --dataNetwork wifi --wifiMode active --wifiBars 3 --batteryState discharging --batteryLevel 100
             xcrun simctl install "$device_id" "$app"
             xcrun simctl launch "$device_id" com.bienyam.SmartPhotoVault --demo
             sleep 3
