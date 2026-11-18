@@ -17,6 +17,58 @@ permissions:
   contents: read
 
 jobs:
+  screenshots:
+    if: ${{ !inputs.upload }}
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build the simulator app
+        run: |
+          brew install xcodegen
+          xcodegen generate
+          xcodebuild build -project SmartPhotoVault.xcodeproj -scheme SmartPhotoVault \
+            -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/ScreenshotBuild CODE_SIGNING_ALLOWED=NO
+      - name: Capture sample results on iPhone and iPad
+        run: |
+          mkdir -p build/store-screenshots
+          app=build/ScreenshotBuild/Build/Products/Release-iphonesimulator/SmartPhotoVault.app
+          devices="$(xcrun simctl list devices available -j)"
+
+          capture() {
+            local name_pattern="$1" filename="$2" device_id
+            device_id="$(python3 -c '
+          import json, re, sys
+          devices = json.load(sys.stdin)["devices"]
+          for runtime in sorted(devices, reverse=True):
+              for device in devices[runtime]:
+                  if re.fullmatch(sys.argv[1], device["name"]):
+                      print(device["udid"])
+                      sys.exit()
+          sys.exit("No matching simulator: " + sys.argv[1])
+          ' "$name_pattern" <<< "$devices")"
+            xcrun simctl bootstatus "$device_id" -b
+            xcrun simctl status_bar "$device_id" override --time '9:41' \
+              --dataNetwork wifi --wifiMode active --wifiBars 3 --batteryState unplugged --batteryLevel 100
+            xcrun simctl install "$device_id" "$app"
+            xcrun simctl launch "$device_id" com.bienyam.SmartPhotoVault --demo
+            sleep 3
+            xcrun simctl io "$device_id" screenshot "build/store-screenshots/$filename"
+            xcrun simctl shutdown "$device_id"
+          }
+
+          capture 'iPhone (16|17|18) Pro' iPhone.png
+          capture 'iPad (Pro|Air) 13-inch.*' iPad.png
+          sips -g pixelWidth -g pixelHeight build/store-screenshots/*.png
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-store-screenshots
+          path: build/store-screenshots
+          if-no-files-found: error
+
   release:
     runs-on: macos-26
     timeout-minutes: 25
