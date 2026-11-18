@@ -19,6 +19,13 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        'UISupportedInterfaceOrientations~ipad':
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
         NSPhotoLibraryUsageDescription: SmartPhotoVault reads your photo library to inventory photos and videos. This version never changes or deletes photos.
     settings:
       base:
