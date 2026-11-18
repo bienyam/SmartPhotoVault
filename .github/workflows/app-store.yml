@@ -1,0 +1,128 @@
+name: App Store Connect upload
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/app-store.yml'
+      - 'project.yml'
+      - 'Sources/**'
+  workflow_dispatch:
+    inputs:
+      upload:
+        description: Sign and upload to App Store Connect
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  screenshots:
+    if: ${{ !inputs.upload }}
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build the simulator app
+        run: |
+          brew install xcodegen
+          xcodegen generate
+          xcodebuild build -project SmartPhotoVault.xcodeproj -scheme SmartPhotoVault \
+            -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/ScreenshotBuild CODE_SIGNING_ALLOWED=NO
+      - name: Capture sample results on iPhone and iPad
+        run: |
+          mkdir -p build/store-screenshots
+          app=build/ScreenshotBuild/Build/Products/Release-iphonesimulator/SmartPhotoVault.app
+          devices="$(xcrun simctl list devices available -j)"
+
+          capture() {
+            local name_pattern="$1" filename="$2" device_id
+            device_id="$(python3 -c '
+          import json, re, sys
+          devices = json.load(sys.stdin)["devices"]
+          for runtime in sorted(devices, reverse=True):
+              for device in devices[runtime]:
+                  if re.fullmatch(sys.argv[1], device["name"]):
+                      print(device["udid"])
+                      sys.exit()
+          sys.exit("No matching simulator: " + sys.argv[1])
+          ' "$name_pattern" <<< "$devices")"
+            xcrun simctl bootstatus "$device_id" -b
+            xcrun simctl status_bar "$device_id" override --time '9:41' \
+              --dataNetwork wifi --wifiMode active --wifiBars 3 --batteryState discharging --batteryLevel 100
+            xcrun simctl install "$device_id" "$app"
+            xcrun simctl launch "$device_id" com.bienyam.SmartPhotoVault --demo
+            sleep 3
+            xcrun simctl io "$device_id" screenshot "build/store-screenshots/$filename"
+            xcrun simctl shutdown "$device_id"
+          }
+
+          capture 'iPhone (16|17|18) Pro' iPhone.png
+          capture 'iPad (Pro|Air) 13-inch.*' iPad.png
+          sips -g pixelWidth -g pixelHeight build/store-screenshots/*.png
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-store-screenshots
+          path: build/store-screenshots
+          if-no-files-found: error
+
+  release:
+    runs-on: macos-26
+    timeout-minutes: 25
+    env:
+      BUILD_NUMBER: ${{ github.run_number }}.${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Generate project
+        run: |
+          xcodebuild -version
+          brew install xcodegen
+          xcodegen generate
+      - name: Validate unsigned release archive
+        if: ${{ !inputs.upload }}
+        run: |
+          xcodebuild archive -project SmartPhotoVault.xcodeproj -scheme SmartPhotoVault \
+            -configuration Release -destination 'generic/platform=iOS' \
+            -archivePath build/SmartPhotoVault.xcarchive \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" CODE_SIGNING_ALLOWED=NO
+      - name: Sign and upload release archive
+        if: ${{ inputs.upload && github.ref == 'refs/heads/main' }}
+        env:
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          ASC_ISSUER_ID: ${{ vars.ASC_ISSUER_ID }}
+          ASC_KEY_ID: ${{ vars.ASC_KEY_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+        run: |
+          : "${APPLE_TEAM_ID:?Set the APPLE_TEAM_ID repository variable}"
+          : "${ASC_ISSUER_ID:?Set the ASC_ISSUER_ID repository variable}"
+          : "${ASC_KEY_ID:?Set the ASC_KEY_ID repository variable}"
+          : "${ASC_PRIVATE_KEY:?Set the ASC_PRIVATE_KEY repository secret}"
+          umask 077
+          key_path="$(mktemp "$RUNNER_TEMP/asc-key.XXXXXX")"
+          trap 'rm -f "$key_path"' EXIT
+          printf '%s\n' "$ASC_PRIVATE_KEY" > "$key_path"
+          unset ASC_PRIVATE_KEY
+          auth=(-allowProvisioningUpdates -authenticationKeyPath "$key_path"
+                -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID")
+          xcodebuild archive -project SmartPhotoVault.xcodeproj -scheme SmartPhotoVault \
+            -configuration Release -destination 'generic/platform=iOS' \
+            -archivePath build/SmartPhotoVault.xcarchive \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" CODE_SIGNING_ALLOWED=YES \
+            CODE_SIGN_STYLE=Automatic DEVELOPMENT_TEAM="$APPLE_TEAM_ID" "${auth[@]}"
+          options=build/AppStoreExport.plist
+          plutil -create xml1 "$options"
+          plutil -insert method -string app-store-connect "$options"
+          plutil -insert destination -string upload "$options"
+          plutil -insert signingStyle -string automatic "$options"
+          plutil -insert teamID -string "$APPLE_TEAM_ID" "$options"
+          plutil -insert manageAppVersionAndBuildNumber -bool NO "$options"
+          xcodebuild -exportArchive -archivePath build/SmartPhotoVault.xcarchive \
+            -exportOptionsPlist "$options" -exportPath build/AppStoreExport "${auth[@]}"
+      - name: Reject upload requests outside main
+        if: ${{ inputs.upload && github.ref != 'refs/heads/main' }}
+        run: exit 1
