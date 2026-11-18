@@ -1,6 +1,11 @@
 name: App Store Connect upload
 
 on:
+  pull_request:
+    paths:
+      - '.github/workflows/app-store.yml'
+      - 'project.yml'
+      - 'Sources/**'
   workflow_dispatch:
     inputs:
       upload:
