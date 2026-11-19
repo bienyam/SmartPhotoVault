@@ -1,6 +1,6 @@
 import Foundation
 
-struct ResourceFingerprint: Codable, Hashable {
+struct ResourceFingerprint: Codable, Hashable, Sendable {
     let type: Int
     let digest: String
     let bytes: Int64
