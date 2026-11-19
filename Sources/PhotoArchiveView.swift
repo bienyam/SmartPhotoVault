@@ -9,6 +9,15 @@ struct PhotoArchiveView: View {
     private enum Filter: String, CaseIterable {
         case large = "Largest photos"
         case old = "Photos over two years old"
+        case screenshots = "Screenshots"
+
+        var icon: String {
+            switch self {
+            case .large: "arrow.down.to.line"
+            case .old: "calendar"
+            case .screenshots: "iphone"
+            }
+        }
     }
 
     private enum PickerPurpose {
@@ -16,6 +25,7 @@ struct PhotoArchiveView: View {
     }
 
     @State private var photoSelection: [PhotosPickerItem] = []
+    @State private var photoAccess = PHPhotoLibrary.authorizationStatus(for: .readWrite)
     @State private var items: [ArchiveItem] = []
     @State private var destination: URL?
     @State private var restoreFolder: URL?
@@ -73,8 +83,21 @@ struct PhotoArchiveView: View {
 
     private var selectionSection: some View {
         Section("Choose what to copy") {
-            PhotosPicker(selection: $photoSelection, maxSelectionCount: 25, matching: .images, photoLibrary: .shared()) {
-                Label("Pick photos myself", systemImage: "photo.on.rectangle")
+            switch photoAccess {
+            case .authorized, .limited:
+                PhotosPicker(selection: $photoSelection, maxSelectionCount: 25, matching: .images, photoLibrary: .shared()) {
+                    Label("Pick photos myself", systemImage: "photo.on.rectangle")
+                }
+            case .notDetermined:
+                Button {
+                    Task { photoAccess = await PHPhotoLibrary.requestAuthorization(for: .readWrite) }
+                } label: {
+                    Label("Allow Photos access to pick originals", systemImage: "photo.on.rectangle")
+                }
+            default:
+                Text("Allow Photos access in Settings to pick originals, or choose an item from Files.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
             Button { openPicker(.files) } label: {
                 Label("Pick files myself", systemImage: "folder")
@@ -82,14 +105,21 @@ struct PhotoArchiveView: View {
             if let snapshot, !snapshot.includedCloudDownloads {
                 ForEach(Filter.allCases, id: \.self) { option in
                     Button { showSuggestions(option, from: snapshot) } label: {
-                        Label(option.rawValue, systemImage: option == .large ? "arrow.down.to.line" : "calendar")
+                        Label(option.rawValue, systemImage: option.icon)
                     }
                 }
                 if let filter {
                     LabeledContent(filter.rawValue, value: suggested.count.formatted())
                     ForEach(suggested) { item in
                         Button { toggle(item) } label: {
-                            Label(item.name, systemImage: items.contains { $0.id == item.id } ? "checkmark.circle.fill" : "plus.circle")
+                            Label {
+                                VStack(alignment: .leading) {
+                                    Text(item.name)
+                                    Text(item.sourceLabel).font(.caption).foregroundStyle(.secondary)
+                                }
+                            } icon: {
+                                Image(systemName: items.contains { $0.id == item.id } ? "checkmark.circle.fill" : "plus.circle")
+                            }
                         }
                     }
                 }
@@ -105,7 +135,10 @@ struct PhotoArchiveView: View {
             ForEach(items) { item in
                 Button { toggle(item) } label: {
                     HStack {
-                        Text(item.name).foregroundStyle(.primary)
+                        VStack(alignment: .leading) {
+                            Text(item.name).foregroundStyle(.primary)
+                            Text(item.sourceLabel).font(.caption).foregroundStyle(.secondary)
+                        }
                         Spacer()
                         Image(systemName: "minus.circle").accessibilityHidden(true)
                     }
@@ -119,7 +152,7 @@ struct PhotoArchiveView: View {
                 Text(destination.path(percentEncoded: false))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-                Toggle("I authorize copying these items to this folder. The Files provider may sync them to its account. Source items stay where they are and this step frees no space.", isOn: $archiveConsent)
+                Toggle("I authorize copying these items to this folder. Files providers may download selected files and sync these copies. Source items stay where they are and this step frees no space.", isOn: $archiveConsent)
                 Button("Copy and verify", action: beginCopy)
                     .fontWeight(.semibold)
                     .disabled(!archiveConsent)
@@ -217,9 +250,13 @@ struct PhotoArchiveView: View {
     private func showSuggestions(_ option: Filter, from snapshot: ScanSnapshot) {
         let cutoff = Calendar.current.date(byAdding: .year, value: -2, to: .now) ?? .distantPast
         let records = snapshot.assets.filter { record in
-            record.issue == nil && !record.favorite && record.mediaType == PHAssetMediaType.image.rawValue &&
-                record.resources.count == 1 && record.resources.first?.type == PHAssetResourceType.photo.rawValue &&
-                (option == .large || (record.createdAt.map { $0 < cutoff } ?? false))
+            guard record.issue == nil, !record.favorite, record.mediaType == PHAssetMediaType.image.rawValue,
+                  record.resources.count == 1, record.resources.first?.type == PHAssetResourceType.photo.rawValue else { return false }
+            switch option {
+            case .large: return true
+            case .old: return record.createdAt.map { $0 < cutoff } ?? false
+            case .screenshots: return record.isScreenshot == true
+            }
         }.sorted { left, right in
             if option == .old { return (left.createdAt ?? .distantFuture) < (right.createdAt ?? .distantFuture) }
             return left.bytes > right.bytes
