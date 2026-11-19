@@ -15,6 +15,7 @@ struct AssetRecord: Codable, Identifiable {
     let createdAt: Date?
     let resources: [ResourceFingerprint]
     let issue: String?
+    var isScreenshot: Bool? = nil
 
     var fingerprint: String? {
         guard issue == nil, !resources.isEmpty else { return nil }

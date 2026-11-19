@@ -127,6 +127,9 @@ private struct PhotoDetailsView: View {
                         LabeledContent("Photos", value: inventory.photos.formatted())
                         LabeledContent("Videos", value: inventory.videos.formatted())
                         LabeledContent("Favorites", value: inventory.favorites.formatted())
+                        if let screenshots = inventory.screenshots {
+                            LabeledContent("Screenshots", value: screenshots.formatted())
+                        }
                     } else {
                         Text("Scan to count the photos and videos you allow this app to see.")
                     }
@@ -174,6 +177,7 @@ private struct PhotoDetailsView: View {
                         Text("Estimated matching resource bytes, not guaranteed recoverable device space. No cleanup is available. Results describe the library at scan time; rescan after library changes.")
                             .font(.footnote).foregroundStyle(.secondary)
                         NavigationLink("Review duplicate groups") { DuplicateResultsView(snapshot: snapshot) }
+                        NavigationLink("Review videos by size") { VideoSizesView(snapshot: snapshot) }
                         NavigationLink("Review unverified assets") {
                             List(snapshot.assets.filter { $0.fingerprint == nil }) { asset in
                                 VStack(alignment: .leading) {
@@ -203,6 +207,7 @@ private struct PhotoDetailsView: View {
                                 Text("The app stores the latest completed inventory and its activity log locally. The inventory can include Photos identifiers, file names, dates, favorite status, resource sizes and hashes. The app does not transmit this information to the developer or include advertising or analytics.")
                                 Text("If you authorize iCloud resource downloads for a scan, Apple Photos may retrieve originals from your iCloud library. Your authorization is recorded in the local activity log. SmartPhotoVault does not upload, edit or delete your photos.")
                                 Text("You can change Photos access in Settings. To remove the local inventory and activity log from this device, delete the app.")
+                                Text("Saved storage comparisons stay in the app’s local storage. You can remove them in the app or by deleting the app. If you share a comparison, you choose where the report goes. Apple handles in-app purchases.")
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding()
@@ -249,6 +254,28 @@ private struct PhotoDetailsView: View {
                 }
             }
         }
+    }
+}
+
+private struct VideoSizesView: View {
+    let snapshot: ScanSnapshot
+
+    var body: some View {
+        let videos = snapshot.assets.filter { $0.mediaType == PHAssetMediaType.video.rawValue }
+        let readable = videos.filter { $0.fingerprint != nil }.sorted {
+            $0.bytes == $1.bytes ? $0.id < $1.id : $0.bytes > $1.bytes
+        }
+        List {
+            Section {
+                if readable.isEmpty { Text("No fully readable videos in this scan.") }
+                ForEach(readable) { video in
+                    LabeledContent(video.filename, value: ByteCountFormatter.string(fromByteCount: video.bytes, countStyle: .file))
+                }
+            } footer: {
+                Text("\(videos.count - readable.count) unverified videos excluded. Sizes reflect resources read during the scan.")
+            }
+        }
+        .navigationTitle("Videos by size")
     }
 }
 

@@ -153,6 +153,11 @@ struct StorageGuideView: View {
                         .accessibilityIdentifier(plan.rawValue)
                     }
                 }
+                Section {
+                    NavigationLink("Save, compare & share with Pro") {
+                        StorageComparisonView(current: scenario)
+                    }
+                }
             }
             if step > 0 {
                 Button(step == 7 ? "Back to analysis" : step == 6 ? "Edit answers" : "Previous question") { step -= 1 }
@@ -172,6 +177,32 @@ struct StorageGuideView: View {
                 .navigationBarTitleDisplayMode(.inline)
             }
         }
+    }
+
+    private var scenario: StorageScenario {
+        let inputs: [(String, Decimal?)] = [
+            ("Current monthly cost", monthlyCost),
+            ("Storage used (GB)", amount(usedSpace)),
+            ("Smaller plan capacity (GB)", amount(smallerCapacity)),
+            ("Smaller plan monthly cost", smallerPlanCost),
+            ("Archive monthly cost", amount(archiveCost)),
+            ("Monthly cost of plans kept", amount(retainedCost)),
+            ("One-time migration cost", amount(migrationCost)),
+            ("Estimated yearly retrieval fees", amount(annualRetrievalCost))
+        ]
+        return StorageScenario(
+            goal: goal?.rawValue ?? "Unknown",
+            recommendation: recommendation.rawValue,
+            inputs: inputs.map { label, value in
+                StorageScenario.Entry(label: label, value: value?.formatted() ?? "Unknown")
+            } + [
+                StorageScenario.Entry(label: "Uses iCloud Photos", value: usesICloud.map { $0 ? "Yes" : "No" } ?? "Unknown"),
+                StorageScenario.Entry(label: "Needs immediate access", value: needsQuickAccess.map { $0 ? "Yes" : "No" } ?? "Unknown")
+            ],
+            alternatives: options.map {
+                StorageScenario.Entry(label: $0.rawValue, value: summary($0) + " " + nextStep($0))
+            }
+        )
     }
 
     private var findings: [String] {
