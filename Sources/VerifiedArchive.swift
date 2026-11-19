@@ -12,6 +12,15 @@ struct ArchiveItem: Identifiable, Sendable {
     let id: String
     let name: String
     let source: ArchiveSource
+
+    var sourceLabel: String {
+        switch source {
+        case .file: "Files"
+        case let .photo(_, expected):
+            if let expected { "Photos · \(ByteCountFormatter.string(fromByteCount: expected.bytes, countStyle: .file))" }
+            else { "Photos" }
+        }
+    }
 }
 
 struct ArchiveFingerprint: Equatable, Sendable {
