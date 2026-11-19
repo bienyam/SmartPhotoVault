@@ -8,4 +8,6 @@ Scans use photo and video resources already available on your iPhone. SmartPhoto
 
 Saved storage comparisons contain the costs, usage, and preferences you enter and are stored in the app’s local storage. You can remove saved comparisons in the app or by deleting the app. If you choose to share a report, the system share sheet lets you choose where it goes. Apple handles in-app purchase transactions.
 
+If you choose files for size analysis, the app reads the names and reported sizes of that selection. The analysis stays in memory while the screen is open. The app does not send the selection or read file contents.
+
 For privacy questions, use the [SmartPhotoVault support page](https://github.com/bienyam/SmartPhotoVault/issues). Issues are public, so leave out personal photos and library information.

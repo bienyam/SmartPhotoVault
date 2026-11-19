@@ -1,6 +1,12 @@
 import SwiftUI
 
 struct StorageGuideView: View {
+    private let snapshot: ScanSnapshot?
+
+    init(snapshot: ScanSnapshot? = nil) {
+        self.snapshot = snapshot
+    }
+
     private enum Goal: String, CaseIterable, Identifiable {
         case space = "Free up phone space"
         case savings = "Lower my storage bill"
@@ -17,6 +23,10 @@ struct StorageGuideView: View {
     }
 
     @Environment(\.locale) private var locale
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var showsAdvanced = false
+    @State private var showsQuickBill = false
+    @State private var lastQuestion = 0
     @State private var step = 0
     @State private var goal: Goal?
     @State private var usesICloud: Bool?
@@ -68,7 +78,211 @@ struct StorageGuideView: View {
     }
 
     var body: some View {
+        Group {
+            if showsAdvanced {
+                advancedAnalysis
+            } else {
+                quickWins
+            }
+        }
+        .navigationTitle(showsAdvanced ? analysisTitle : "Analyze storage & cost")
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $selectedPlan) { plan in
+            NavigationStack {
+                List {
+                    Text(summary(plan))
+                    Text(nextStep(plan))
+                    Button("Done") { selectedPlan = nil }
+                }
+                .navigationTitle(plan.rawValue)
+                .navigationBarTitleDisplayMode(.inline)
+            }
+        }
+        .sheet(isPresented: $showsQuickBill) { quickBill }
+    }
+
+    private var analysisTitle: String {
+        step < 6 ? "Advanced analysis" : step == 6 ? "Storage & cost analysis" : "Compare alternatives"
+    }
+
+    private var slate: Color { Color(red: 0.19, green: 0.32, blue: 0.44) }
+
+    private var powder: Color {
+        colorScheme == .dark
+            ? Color(red: 0.16, green: 0.23, blue: 0.31)
+            : Color(red: 0.88, green: 0.92, blue: 0.96)
+    }
+
+    private var quickWins: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Image(systemName: "chart.bar.xaxis")
+                        .font(.system(size: 34, weight: .medium))
+                        .accessibilityHidden(true)
+                    Text("Make room for more").font(.largeTitle.bold())
+                        .accessibilityAddTraits(.isHeader)
+                    Text("Get a quick win for your phone space or storage bill.")
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(20)
+                .background(powder.gradient, in: RoundedRectangle(cornerRadius: 24))
+
+                Button {
+                    selectedPlan = .optimize
+                } label: {
+                    quickCard(
+                        "Free up phone space",
+                        benefit: "See how iCloud Photos can keep smaller copies on this iPhone.",
+                        icon: "internaldrive",
+                        prominent: true
+                    )
+                }
+                .accessibilityIdentifier("Free up phone space")
+
+                if let snapshot {
+                    let groupCount = snapshot.groups.count
+                    if groupCount > 0 {
+                        NavigationLink {
+                            DuplicateResultsView(snapshot: snapshot)
+                        } label: {
+                            quickCard(
+                                "Review exact matches",
+                                benefit: groupCount == 1
+                                    ? "Your latest scan found one group of matching files."
+                                    : "Your latest scan found \(groupCount.formatted()) groups of matching files.",
+                                icon: "square.on.square"
+                            )
+                        }
+                    }
+                }
+
+                NavigationLink {
+                    PhotoCopyOptionsView()
+                } label: {
+                    quickCard(
+                        "Decide which copies to keep",
+                        benefit: "Choose how to use iCloud Photos, merge duplicates, or keep an independent original.",
+                        icon: "photo.on.rectangle"
+                    )
+                }
+                .accessibilityIdentifier("Decide which copies to keep")
+
+                Button {
+                    showsQuickBill = true
+                } label: {
+                    quickCard(
+                        "Check my storage bill",
+                        benefit: "Turn a monthly price into a yearly cost in one step.",
+                        icon: "creditcard"
+                    )
+                }
+                .accessibilityIdentifier("Check my storage bill")
+
+                NavigationLink {
+                    SelectedFilesAnalysisView()
+                } label: {
+                    quickCard(
+                        "Analyze selected files",
+                        benefit: "See which documents are largest across the locations you choose.",
+                        icon: "folder"
+                    )
+                }
+                .accessibilityIdentifier("Analyze selected files")
+
+                Button {
+                    showsAdvanced = true
+                } label: {
+                    quickCard(
+                        "Advanced analysis",
+                        benefit: "Compare your current setup, a smaller plan, or an archive.",
+                        icon: "slider.horizontal.3"
+                    )
+                }
+                .accessibilityIdentifier("Advanced analysis")
+
+                NavigationLink("Saved comparisons") { StorageComparisonView() }
+                    .padding(.vertical, 8)
+            }
+            .frame(maxWidth: 520)
+            .padding(20)
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.plain)
+        .background(colorScheme == .dark ? Color(uiColor: .systemBackground) : Color(red: 0.99, green: 0.98, blue: 0.96))
+    }
+
+    private func quickCard(_ title: String, benefit: String, icon: String, prominent: Bool = false) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: icon)
+                .font(.title2)
+                .frame(width: 32)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title).font(.headline)
+                Text(benefit).font(.subheadline)
+                    .foregroundStyle(prominent ? Color.white : Color.secondary)
+            }
+            Spacer(minLength: 4)
+            Image(systemName: "chevron.right").font(.footnote.bold()).accessibilityHidden(true)
+        }
+        .frame(minHeight: 44)
+        .padding(16)
+        .foregroundStyle(prominent ? Color.white : Color.primary)
+        .background(prominent ? slate : powder, in: RoundedRectangle(cornerRadius: 17))
+        .contentShape(RoundedRectangle(cornerRadius: 17))
+    }
+
+    private var quickBill: some View {
+        NavigationStack {
+            List {
+                Section("What do you pay per month?") {
+                    numberField("Monthly plan cost", value: $currentCost)
+                    TextField("Currency code", text: $currencyCode)
+                        .textInputAutocapitalization(.characters)
+                        .autocorrectionDisabled()
+                }
+                if let monthlyCost, validCurrency {
+                    Section("Estimated yearly cost") {
+                        Text("\((monthlyCost * 12).formatted()) \(enteredCurrency)")
+                            .font(.largeTitle.bold())
+                        Text("Based on the monthly amount you entered. Taxes, one-time fees and other plans may change the total.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        Button("Compare storage options") {
+                            goal = .savings
+                            step = 3
+                            showsAdvanced = true
+                            showsQuickBill = false
+                        }
+                    }
+                }
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .navigationTitle("Check my storage bill")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { showsQuickBill = false }
+                }
+            }
+        }
+    }
+
+    private var validCurrency: Bool {
+        enteredCurrency.range(of: "^[A-Z]{3}$", options: .regularExpression) != nil
+    }
+
+    private var advancedAnalysis: some View {
         List {
+            if step < 6 {
+                Section {
+                    ProgressView(value: Double(step + 1), total: 6) {
+                        Text("Question \(step + 1) of 6")
+                    }
+                }
+            }
             switch step {
             case 0:
                 Section("What matters most?") {
@@ -79,7 +293,6 @@ struct StorageGuideView: View {
                         }
                     }
                 }
-                NavigationLink("Saved comparisons") { StorageComparisonView() }
             case 1:
                 Section("Do you use iCloud Photos?") {
                     answer("Yes", value: true, field: $usesICloud)
@@ -103,7 +316,7 @@ struct StorageGuideView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Button("Continue") { step += 1 }
-                    .disabled(!valid(currentCost) || !valid(usedSpace) || enteredCurrency.range(of: "^[A-Z]{3}$", options: .regularExpression) == nil)
+                    .disabled(!valid(currentCost) || !valid(usedSpace) || !validCurrency)
             case 4:
                 Section("Do you have a smaller plan in mind?") {
                     numberField("Smaller plan capacity (GB)", value: $smallerCapacity)
@@ -122,8 +335,8 @@ struct StorageGuideView: View {
                     Text("Include any subscription overlap in migration cost. Enter 0 if a cost doesn’t apply, or skip this question if you don’t know.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
-                Button("See my analysis") { step += 1 }
-                    .disabled(!valid(archiveCost) || !valid(retainedCost) || !valid(migrationCost) || !valid(annualRetrievalCost))
+                Button("See my analysis") { showAnalysis() }
+                    .disabled(!validInputs)
             case 6:
                 Section("Your current setup") {
                     if let goal { LabeledContent("Your goal", value: goal.rawValue) }
@@ -164,24 +377,28 @@ struct StorageGuideView: View {
                     }
                 }
             }
-            if step > 0 {
-                Button(step == 7 ? "Back to analysis" : step == 6 ? "Edit answers" : "Previous question") { step -= 1 }
+            if (1...4).contains(step) {
+                Button("See my analysis now") { showAnalysis() }
+                    .disabled(!validInputs)
             }
+            if step > 0 {
+                Button(step == 7 ? "Back to analysis" : step == 6 ? "Edit answers" : "Previous question") {
+                    step = step == 6 ? lastQuestion : step - 1
+                }
+            }
+            Button("Back to quick wins") { showsAdvanced = false }
         }
         .scrollDismissesKeyboard(.interactively)
-        .navigationTitle(step < 6 ? "Analyze storage & cost" : step == 6 ? "Storage & cost analysis" : "Compare alternatives")
-        .navigationBarTitleDisplayMode(.inline)
-        .sheet(item: $selectedPlan) { plan in
-            NavigationStack {
-                List {
-                    Text(summary(plan))
-                    Text(nextStep(plan))
-                    Button("Done") { selectedPlan = nil }
-                }
-                .navigationTitle(plan.rawValue)
-                .navigationBarTitleDisplayMode(.inline)
-            }
-        }
+    }
+
+    private var validInputs: Bool {
+        validCurrency && [currentCost, usedSpace, smallerCapacity, smallerCost, archiveCost,
+                          retainedCost, migrationCost, annualRetrievalCost].allSatisfy(valid)
+    }
+
+    private func showAnalysis() {
+        lastQuestion = step
+        step = 6
     }
 
     private var scenario: StorageScenario {
@@ -290,7 +507,7 @@ struct StorageGuideView: View {
             if let monthlyCost { return "Current monthly cost: \(monthlyCost.formatted()). No migration costs." }
             return "Keep your current access and storage plan."
         case .optimize:
-            return "Can free space on this iPhone while keeping originals in iCloud. Your plan cost stays the same."
+            return "If you use iCloud Photos and have enough iCloud storage, optimizing may free space on this iPhone while keeping originals in iCloud."
         case .smaller:
             if canDownsize, let monthlyCost, let smallerPlanCost {
                 return "Estimated monthly savings: \((monthlyCost - smallerPlanCost).formatted()) in your currency, if you can switch plans."
@@ -314,7 +531,7 @@ struct StorageGuideView: View {
         case .current:
             "Check your provider’s storage settings when you want to review your usage again."
         case .optimize:
-            "On your iPhone, go to Settings → your name → iCloud → Photos → Optimize iPhone Storage. Apple manages which files stay on the phone. Deletions in Apple Photos also sync to iCloud Photos."
+            "On your iPhone, go to Settings → your name → iCloud → Photos. Look for Optimize Storage, sometimes under iPhone Storage. Apple manages which files stay on your phone. Deletions in Apple Photos also sync to iCloud Photos."
         case .smaller:
             "Check the provider’s quoted price, shared usage and headroom for new photos. Make any plan change directly with your provider."
         case .archive:

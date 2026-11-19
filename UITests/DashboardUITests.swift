@@ -124,11 +124,16 @@ final class DashboardUITests: XCTestCase {
         app.launch()
         app.buttons["Analyze storage & cost"].tap()
         app.buttons["Free up phone space"].tap()
+        XCTAssertTrue(app.navigationBars["Optimize iPhone Storage"].waitForExistence(timeout: 5))
+        app.buttons["Done"].tap()
+
+        let advanced = app.buttons["Advanced analysis"]
+        if !advanced.isHittable { app.swipeUp() }
+        advanced.tap()
+        XCTAssertTrue(app.navigationBars["Advanced analysis"].waitForExistence(timeout: 5))
+        app.buttons["Free up phone space"].tap()
         app.buttons["Yes"].tap()
-        app.buttons["I want to open them anytime"].tap()
-        app.buttons["Continue"].tap()
-        app.buttons["Continue"].tap()
-        app.buttons["See my analysis"].tap()
+        app.buttons["See my analysis now"].tap()
         XCTAssertTrue(app.navigationBars["Storage & cost analysis"].waitForExistence(timeout: 5))
         app.buttons["Compare alternatives"].tap()
 
@@ -138,6 +143,17 @@ final class DashboardUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Optimize iPhone Storage"].waitForExistence(timeout: 5))
         app.buttons["Done"].tap()
         XCTAssertTrue(app.navigationBars["Compare alternatives"].waitForExistence(timeout: 5))
+    }
+
+    func testFilesAnalysisCanStartWithoutAnsweringStorageQuestions() {
+        let app = XCUIApplication()
+        app.launch()
+        app.buttons["Analyze storage & cost"].tap()
+        let files = app.buttons["Analyze selected files"]
+        if !files.isHittable { app.swipeUp() }
+        files.tap()
+        XCTAssertTrue(app.navigationBars["Analyze selected files"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Choose files to analyze"].exists)
     }
 
     private func reveal(_ element: XCUIElement, in app: XCUIApplication) {
