@@ -20,6 +20,14 @@ Choose a visual direction for the next TestFlight build. The three directions ar
 
 ## Build sequence
 
+### Storage savings questionnaire
+
+Ask users what they pay today, how much storage they use, how quickly they need originals back, and whether they want to keep browsing in Apple Photos. Make unknown inputs skippable and show which estimates depend on assumptions.
+
+Compare keeping the current setup, downgrading a plan, and moving suitable originals to an archive. Show estimated monthly cost and savings alongside one-time migration charges, retrieval cost and time, and the conditions for actually lowering the current bill. Include any overlap while both subscriptions are active.
+
+Users compare the options and choose whether to proceed. A questionnaire answer or recommendation does not authorize a transfer, deletion, or billing change. Any chosen action goes through its own review and confirmation.
+
 1. **Redesign the existing TestFlight experience.** Build the chosen SwiftUI theme, icon, action-centered home, and duplicate review around the current read-only scan. Add progress, clear limited-access states, and expandable help. Verify Dynamic Type, VoiceOver, contrast, and touch targets of at least 44 points.
 2. **Prove independent storage with one connector.** Start with Backblaze B2 as a prototype, with S3-compatible object storage behind a provider interface. Use only selected test assets first. Store resource-level hashes, byte counts, destination IDs and verification state. Resume interrupted uploads without creating extra copies. Test downloadable originals, videos, paired Live Photo resources, edited versions and metadata. Verify the selected restore path on a real iPhone.
 3. **Add decisions backed by evidence.** Show where each original was verified, where only a preview exists, and when verification is incomplete. Present a simple before-and-after plan per provider. Failure, offline access, a revoked account, or a missing resource should stop the affected action. Keep the first archive beta copy-and-restore only. Revisit removal after verified restores, sync effects, favorites and album preservation are tested.
