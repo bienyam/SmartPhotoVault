@@ -70,12 +70,38 @@ final class DashboardUITests: XCTestCase {
         if curlyApostrophe.exists { curlyApostrophe.tap() }
         else if straightApostrophe.exists { straightApostrophe.tap() }
         else { XCTFail("Expected a deny-access button: \(alert.debugDescription)"); return }
-        XCTAssertTrue(app.buttons["Open Settings"].waitForExistence(timeout: 10))
+        let settings = app.buttons["Open Settings"]
+        reveal(settings, in: app)
+        XCTAssertTrue(settings.waitForExistence(timeout: 10))
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "Denied photo permission"
         attachment.lifetime = .keepAlways
         add(attachment)
         app.terminate()
+    }
+
+    func testCloudDownloadScanRequiresExplicitAuthorization() {
+        let app = XCUIApplication()
+        app.launch()
+        let downloads = app.buttons["Scan with iCloud downloads"]
+        reveal(downloads, in: app)
+        XCTAssertTrue(downloads.waitForExistence(timeout: 5))
+        downloads.tap()
+
+        let authorize = app.buttons["Authorize and start scan"]
+        XCTAssertTrue(authorize.waitForExistence(timeout: 5))
+        XCTAssertFalse(authorize.isEnabled)
+        let acknowledgement = app.switches["I understand and authorize downloads for this scan"]
+        XCTAssertTrue(acknowledgement.exists)
+        acknowledgement.tap()
+        XCTAssertTrue(authorize.isEnabled)
+        app.buttons["Cancel"].tap()
+
+        reveal(downloads, in: app)
+        downloads.tap()
+        XCTAssertTrue(authorize.waitForExistence(timeout: 5))
+        XCTAssertFalse(authorize.isEnabled)
+        app.buttons["Cancel"].tap()
     }
 
     func testSampleDuplicateReview() {

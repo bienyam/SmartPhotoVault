@@ -4,6 +4,6 @@ SmartPhotoVault reads the photos and videos you authorize through Apple Photos. 
 
 The latest completed inventory and a scan activity log are stored in the app’s local storage. The inventory can include Apple Photos identifiers, file names, dates, favorite status, resource sizes, and hashes. The app does not store a separate copy of your photos or videos.
 
-If you enable iCloud resource downloads, Apple Photos may retrieve originals from your iCloud library. SmartPhotoVault does not upload, edit, or delete your photos. You can change Photos access in Settings. Delete the app to remove the local inventory and activity log from your device.
+If you authorize iCloud resource downloads for a scan, Apple Photos may retrieve originals from your iCloud library. The app records your authorization and its time in the local activity log. SmartPhotoVault does not upload, edit, or delete your photos. You can change Photos access in Settings. Delete the app to remove the local inventory and activity log from your device.
 
 For privacy questions, use the [SmartPhotoVault support page](https://github.com/bienyam/SmartPhotoVault/issues). Issues are public, so leave out personal photos and library information.

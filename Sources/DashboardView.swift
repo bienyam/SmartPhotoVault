@@ -5,6 +5,19 @@ struct DashboardView: View {
     @StateObject private var model = DashboardModel()
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openURL
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var showsDownloadConsent = false
+    @State private var acknowledgesDownloads = false
+
+    private var porcelain: Color {
+        colorScheme == .dark ? Color(red: 0.08, green: 0.13, blue: 0.19) : Color(red: 0.99, green: 0.98, blue: 0.96)
+    }
+
+    private var powder: Color {
+        colorScheme == .dark ? Color(red: 0.16, green: 0.23, blue: 0.31) : Color(red: 0.88, green: 0.92, blue: 0.96)
+    }
+
+    private var slate: Color { Color(red: 0.19, green: 0.32, blue: 0.44) }
 
     var body: some View {
         NavigationStack {
@@ -16,13 +29,51 @@ struct DashboardView: View {
                     }
                 }
                 Section {
-                    Label("Your memories, accounted for", systemImage: "photo.on.rectangle.angled")
-                        .font(.title2.bold())
-                    Text("Inventory your Apple Photos library and review exact duplicates.")
-                        .foregroundStyle(.secondary)
-                    Label("Read-only · No photos are changed or deleted", systemImage: "lock.shield")
-                        .font(.footnote)
+                    VStack(alignment: .leading, spacing: 12) {
+                        Image(systemName: "photo.on.rectangle.angled")
+                            .font(.system(size: 32, weight: .medium))
+                            .accessibilityHidden(true)
+                        Text("Photos & storage").font(.largeTitle.bold())
+                        Text("Check your library and find matching copies.").foregroundStyle(.secondary)
+                        Label("Read-only scan", systemImage: "lock.shield").font(.footnote)
+                    }
+                    .padding(.vertical, 14)
+                    Button {
+                        model.startMetadataScan()
+                    } label: {
+                        Label(model.inventory == nil ? "Check my photos" : "Check my photos again", systemImage: "photo")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                            .padding(.horizontal, 14)
+                            .foregroundStyle(.white)
+                            .background(slate, in: RoundedRectangle(cornerRadius: 14))
+                    }
+                    .accessibilityIdentifier(model.inventory == nil ? "Scan Apple Photos" : "Rescan Apple Photos")
+                    .disabled(model.isScanning)
+                    Button { model.startDuplicateScan() } label: {
+                        Label("Find exact duplicates", systemImage: "square.on.square")
+                            .frame(minHeight: 44)
+                    }
+                    .disabled(model.isScanning)
+                    NavigationLink {
+                        List {
+                            Section("Optimize iPhone Storage") {
+                                Text("If you use iCloud Photos, open Settings, tap your name, then iCloud → Photos → Optimize iPhone Storage. Apple keeps full-resolution originals in iCloud and manages smaller copies on your iPhone.")
+                                Label("Deleting in Apple Photos also removes items from iCloud Photos and synced devices.", systemImage: "exclamationmark.circle")
+                            }
+                        }
+                        .navigationTitle("Free up space")
+                    } label: {
+                        Label("Free up space", systemImage: "internaldrive")
+                            .frame(minHeight: 44)
+                    }
+                    Button { model.showDemo() } label: {
+                        Label("Explore sample results", systemImage: "rectangle.stack")
+                            .frame(minHeight: 44)
+                    }
+                    .disabled(model.isScanning)
                 }
+                .listRowBackground(powder)
 
                 Section("Apple Photos inventory") {
                     if model.isScanning {
@@ -43,25 +94,19 @@ struct DashboardView: View {
                             if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
                         }
                     }
-                    Button(model.inventory == nil ? "Scan Apple Photos" : "Rescan Apple Photos") {
-                        model.startMetadataScan()
-                    }
-                    .disabled(model.isScanning)
                 }
 
                 Section("Exact duplicate scan") {
-                    Toggle("Allow iCloud resource downloads", isOn: $model.allowCloudDownloads)
-                        .disabled(model.isScanning)
-                    Text("Off by default. Cloud-only resources stay unverified. Enabling downloads can use mobile data and temporary device storage.")
-                        .font(.footnote).foregroundStyle(.secondary)
                     if model.isScanning {
                         ProgressView(value: Double(model.completed), total: Double(max(model.total, 1)))
                         Text("Checked \(model.completed) of \(model.total) assets")
                         Button("Cancel scan", role: .cancel) { model.cancel() }
                         Text("Cancellation completes when the current resource finishes reading.").font(.footnote)
                     } else {
-                        Button("Find exact duplicates") { model.startDuplicateScan() }
-                        Button("Explore sample results") { model.showDemo() }
+                        Button("Scan with iCloud downloads") {
+                            acknowledgesDownloads = false
+                            showsDownloadConsent = true
+                        }
                     }
                     if let error = model.errorMessage {
                         Text(error).foregroundStyle(.red).accessibilityLabel("Error: \(error)")
@@ -115,7 +160,7 @@ struct DashboardView: View {
                             VStack(alignment: .leading, spacing: 16) {
                                 Text("SmartPhotoVault reads the Apple Photos items you authorize. Scanning and exact duplicate matching run on your device.")
                                 Text("The app stores the latest completed inventory and its activity log locally. The inventory can include Photos identifiers, file names, dates, favorite status, resource sizes and hashes. The app does not transmit this information to the developer or include advertising or analytics.")
-                                Text("If you enable iCloud resource downloads, Apple Photos may retrieve originals from your iCloud library. SmartPhotoVault does not upload, edit or delete your photos.")
+                                Text("If you authorize iCloud resource downloads for a scan, Apple Photos may retrieve originals from your iCloud library. Your authorization is recorded in the local activity log. SmartPhotoVault does not upload, edit or delete your photos.")
                                 Text("You can change Photos access in Settings. To remove the local inventory and activity log from this device, delete the app.")
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -126,7 +171,30 @@ struct DashboardView: View {
                 }
             }
             .buttonStyle(.borderless)
+            .scrollContentBackground(.hidden)
+            .background(porcelain)
+            .tint(colorScheme == .dark ? Color(red: 0.69, green: 0.82, blue: 0.95) : slate)
             .navigationTitle("SmartPhotoVault")
+            .sheet(isPresented: $showsDownloadConsent) {
+                NavigationStack {
+                    List {
+                        Text("Apple Photos may download full-resolution originals from iCloud for this scan. This can use mobile data and temporary storage on your iPhone.")
+                        Toggle("I understand and authorize downloads for this scan", isOn: $acknowledgesDownloads)
+                        Button("Authorize and start scan") {
+                            showsDownloadConsent = false
+                            model.startDuplicateScan(allowCloudDownloads: true)
+                        }
+                        .disabled(!acknowledgesDownloads)
+                    }
+                    .navigationTitle("Scan with iCloud downloads")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Cancel") { showsDownloadConsent = false }
+                        }
+                    }
+                }
+            }
             .task {
                 if ProcessInfo.processInfo.arguments.contains("--demo") { model.showDemo() }
             }

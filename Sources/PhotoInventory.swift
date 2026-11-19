@@ -37,7 +37,6 @@ final class DashboardModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var completed = 0
     @Published var total = 0
-    @Published var allowCloudDownloads = false
     @Published var isDemo = false
     private var store: InventoryStore?
     private let scanner = DuplicateScanner()
@@ -68,14 +67,23 @@ final class DashboardModel: ObservableObject {
         }
     }
 
-    func startDuplicateScan() {
+    func startDuplicateScan(allowCloudDownloads: Bool = false) {
         guard !isScanning else { return }
-        guard store != nil else {
+        guard let store else {
             errorMessage = "Local inventory storage is unavailable. Restart the app to try opening it again."
             return
         }
+        if allowCloudDownloads {
+            do {
+                try store.log("Authorized iCloud original downloads for this duplicate scan. Disclosure v1: mobile data and temporary device storage.")
+                activity = try store.activity()
+            } catch {
+                errorMessage = "Could not record download authorization. Scan was not started."
+                return
+            }
+        }
         isScanning = true
-        scanTask = Task { await scanDuplicates() }
+        scanTask = Task { await scanDuplicates(allowCloudDownloads: allowCloudDownloads) }
     }
 
     func cancel() { scanTask?.cancel() }
@@ -86,7 +94,7 @@ final class DashboardModel: ObservableObject {
         scanTask = Task { await scan() }
     }
 
-    private func scanDuplicates() async {
+    private func scanDuplicates(allowCloudDownloads: Bool) async {
         isScanning = true
         isDemo = false
         inventory = nil
