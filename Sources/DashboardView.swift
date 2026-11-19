@@ -53,7 +53,7 @@ struct DashboardView: View {
                     NavigationLink {
                         StorageGuideView()
                     } label: {
-                        action("Find a storage plan", icon: "internaldrive")
+                        action("Analyze storage & cost", icon: "internaldrive")
                     }
                 }
                 .frame(maxWidth: 520)

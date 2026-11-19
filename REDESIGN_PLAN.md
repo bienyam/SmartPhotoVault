@@ -20,13 +20,21 @@ Choose a visual direction for the next TestFlight build. The three directions ar
 
 ## Build sequence
 
-### Storage savings questionnaire
+### Storage efficiency and cost analysis
 
 Ask users what they pay today, how much storage they use, how quickly they need originals back, and whether they want to keep browsing in Apple Photos. Make unknown inputs skippable and show which estimates depend on assumptions.
 
-Compare keeping the current setup, downgrading a plan, and moving suitable originals to an archive. Show estimated monthly cost and savings alongside one-time migration charges, retrieval cost and time, and the conditions for actually lowering the current bill. Include any overlap while both subscriptions are active.
+Show the current setup and what stands out before opening the alternatives. Explain what the answers establish, what remains unknown, and which issues are only possible. Then compare keeping the current setup, downgrading, and archiving suitable originals. Show monthly costs, first-year effects, and assumptions about migration, retrieval, and subscriptions that the user would keep.
 
 Users compare the options and choose whether to proceed. A questionnaire answer or recommendation does not authorize a transfer, deletion, or billing change. Any chosen action goes through its own review and confirmation.
+
+### Revenue without selling storage
+
+- **Free core** — Keep local inventory, basic duplicate review, and the initial storage and cost diagnosis available. Free photo cleanup tools already exist, so the paid feature needs to solve a different problem.
+- **One-time Pro unlock** — Test US $4.99 and $7.99 as hypotheses for saved comparisons, side-by-side scenarios, and an exportable savings and migration report. Users bring their own storage and pay providers directly. Introduce a purchase prompt only when a user chooses a paid capability.
+- **Recurring option later** — Consider recurring billing only if users want ongoing usage tracking, repeat savings checks, or restore verification and those features can reliably be delivered. Avoid provider commissions at launch so the analysis has no incentive to steer users to a particular provider.
+
+Start by testing whether people can explain a finding and would pay to save, revisit, or share a detailed comparison. Test value and price separately. Use Apple in-app purchase for the proposed digital unlock and account for Apple’s commission when modeling revenue. [App Store Review Guidelines](https://developer.apple.com/app-store/review/guidelines/#payments) · [Small Business Program](https://developer.apple.com/app-store/small-business-program/) · [Free cleanup example](https://apps.apple.com/us/app/clever-cleaner-ai-cleanup-app/id1666645584) · [One-time purchase example](https://apps.apple.com/us/app/hashphotos/id685784609?platform=iphone&see-all=reviews)
 
 1. **Redesign the existing TestFlight experience.** Build the chosen SwiftUI theme, icon, action-centered home, and duplicate review around the current read-only scan. Add progress, clear limited-access states, and expandable help. Verify Dynamic Type, VoiceOver, contrast, and touch targets of at least 44 points.
 2. **Prove independent storage with one connector.** Start with Backblaze B2 as a prototype, with S3-compatible object storage behind a provider interface. Use only selected test assets first. Store resource-level hashes, byte counts, destination IDs and verification state. Resume interrupted uploads without creating extra copies. Test downloadable originals, videos, paired Live Photo resources, edited versions and metadata. Verify the selected restore path on a real iPhone.

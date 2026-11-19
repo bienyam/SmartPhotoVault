@@ -28,6 +28,7 @@ struct StorageGuideView: View {
     @State private var archiveCost = ""
     @State private var retainedCost = ""
     @State private var migrationCost = ""
+    @State private var annualRetrievalCost = ""
     @State private var selectedPlan: Plan?
 
     private var monthlyCost: Decimal? { amount(currentCost) }
@@ -47,8 +48,8 @@ struct StorageGuideView: View {
         case .space: return usesICloud == true ? .optimize : .current
         case .savings:
             if needsQuickAccess == false, let current = monthlyCost, let archive = archiveMonthlyTotal,
-               archive < current, let migration = amount(migrationCost) {
-                let archiveYear = archive * 12 + migration
+               archive < current, let migration = amount(migrationCost), let retrieval = amount(annualRetrievalCost) {
+                let archiveYear = archive * 12 + migration + retrieval
                 let alternativeYear = (canDownsize ? (smallerPlanCost ?? current) : current) * 12
                 if archiveYear < alternativeYear { return .archive }
             }
@@ -112,20 +113,37 @@ struct StorageGuideView: View {
                     numberField("Archive monthly cost", value: $archiveCost)
                     numberField("Monthly cost of plans you’ll keep", value: $retainedCost)
                     numberField("One-time migration cost", value: $migrationCost)
+                    numberField("Estimated yearly retrieval fees", value: $annualRetrievalCost)
                     Text("Include any subscription overlap in migration cost. Enter 0 if a cost doesn’t apply, or skip this question if you don’t know.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
-                Button("Compare my options") { step += 1 }
-                    .disabled(!valid(archiveCost) || !valid(retainedCost) || !valid(migrationCost))
+                Button("See my analysis") { step += 1 }
+                    .disabled(!valid(archiveCost) || !valid(retainedCost) || !valid(migrationCost) || !valid(annualRetrievalCost))
+            case 6:
+                Section("Your current setup") {
+                    if let goal { LabeledContent("Your goal", value: goal.rawValue) }
+                    LabeledContent("Monthly cost", value: monthlyCost?.formatted() ?? "Unknown")
+                    LabeledContent("Storage used", value: amount(usedSpace).map { "\($0.formatted()) GB" } ?? "Unknown")
+                }
+                Section("What stands out") {
+                    ForEach(findings, id: \.self) { finding in
+                        Text(finding)
+                    }
+                }
+                Section {
+                    Button("Compare alternatives") { step += 1 }
+                } footer: {
+                    Text("This analysis uses your answers. It has no access to provider bills or device storage settings.")
+                }
             default:
-                Section("Your options") {
+                Section("Alternatives") {
                     ForEach(options) { plan in
                         Button {
                             selectedPlan = plan
                         } label: {
                             VStack(alignment: .leading, spacing: 5) {
                                 if plan == recommendation {
-                                    Text("Suggested starting point").font(.caption).foregroundStyle(.secondary)
+                                    Text("Suggested for your goal").font(.caption).foregroundStyle(.secondary)
                                 }
                                 Text(plan.rawValue).font(.headline)
                                 Text(summary(plan)).font(.subheadline).foregroundStyle(.secondary)
@@ -137,11 +155,11 @@ struct StorageGuideView: View {
                 }
             }
             if step > 0 {
-                Button(step == 6 ? "Edit answers" : "Previous question") { step -= 1 }
+                Button(step == 7 ? "Back to analysis" : step == 6 ? "Edit answers" : "Previous question") { step -= 1 }
             }
         }
         .scrollDismissesKeyboard(.interactively)
-        .navigationTitle(step < 6 ? "Find a storage plan" : "Compare your options")
+        .navigationTitle(step < 6 ? "Analyze storage & cost" : step == 6 ? "Storage & cost analysis" : "Compare alternatives")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $selectedPlan) { plan in
             NavigationStack {
@@ -154,6 +172,39 @@ struct StorageGuideView: View {
                 .navigationBarTitleDisplayMode(.inline)
             }
         }
+    }
+
+    private var findings: [String] {
+        var results: [String] = []
+        if goal == .space, usesICloud == true {
+            results.append("Check whether Optimize iPhone Storage is on. If full-size originals are staying on the phone, this setting may reduce local usage without a plan change.")
+        }
+        if let used = amount(usedSpace), let capacity = amount(smallerCapacity), used >= capacity {
+            results.append("Your current usage leaves no room on the smaller plan. Switching at this usage would leave no headroom.")
+        } else if canDownsize, let current = monthlyCost, let smaller = smallerPlanCost {
+            results.append("Based on your quote, the smaller plan fits your reported usage and could save \((current - smaller).formatted()) per month in your currency. Check how much room you need for growth.")
+        }
+        if let total = archiveMonthlyTotal, let current = monthlyCost, let migration = amount(migrationCost) {
+            if total >= current {
+                results.append("The archive plus the plans you’d keep would cost at least as much each month as your current setup.")
+            } else if (current - total) * 12 <= migration + (amount(annualRetrievalCost) ?? 0) {
+                results.append("The archive has a lower monthly cost, but the costs you entered would absorb the first year’s savings.")
+            } else if amount(annualRetrievalCost) == nil {
+                results.append("The archive could cost less, but there’s no retrieval estimate yet. Check the cost and wait time for getting originals back.")
+            } else {
+                results.append("The archive quote shows potential first-year savings after the migration and retrieval costs you entered. Check how long it takes to get originals back.")
+            }
+        }
+        if needsQuickAccess == true {
+            results.append("You want to open originals anytime. A slow-restore archive may be a poor fit for photos you use often.")
+        }
+        if goal == .savings && (monthlyCost == nil || amount(usedSpace) == nil) {
+            results.append("Add your current monthly bill and total storage used to assess whether you’re paying for more space than you need.")
+        }
+        if results.isEmpty {
+            results.append("Your answers do not identify a clear inefficiency. Compare the alternatives or add a provider quote to check for savings.")
+        }
+        return results
     }
 
     private func answer(_ title: String, value: Bool?, field: Binding<Bool?>) -> some View {
@@ -195,10 +246,12 @@ struct StorageGuideView: View {
             return "Compare a smaller plan with your total usage and current bill before switching."
         case .archive:
             if let total = archiveMonthlyTotal, let current = monthlyCost, let migration = amount(migrationCost) {
-                let difference = (current - total) * 12 - migration
+                let retrieval = amount(annualRetrievalCost)
+                let difference = (current - total) * 12 - migration - (retrieval ?? 0)
                 let result = difference >= 0 ? "estimated first-year savings" : "estimated first-year extra cost"
                 let magnitude = difference >= 0 ? difference : -difference
-                return "\(total.formatted()) per month · \(magnitude.formatted()) \(result), before retrieval fees. Amounts use your entered currency."
+                let qualification = retrieval == nil ? "before retrieval fees" : "including your retrieval estimate"
+                return "\(total.formatted()) per month · \(magnitude.formatted()) \(result), \(qualification)."
             }
             return "Compare storage, migration and restore fees. Confirm how long originals take to retrieve."
         }

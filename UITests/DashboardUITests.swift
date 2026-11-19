@@ -138,20 +138,22 @@ final class DashboardUITests: XCTestCase {
     func testStorageQuestionnaireRecommendsAnOptionUsersCanReview() {
         let app = XCUIApplication()
         app.launch()
-        app.buttons["Find a storage plan"].tap()
+        app.buttons["Analyze storage & cost"].tap()
         app.buttons["Free up phone space"].tap()
         app.buttons["Yes"].tap()
         app.buttons["I want to open them anytime"].tap()
         app.buttons["Continue"].tap()
         app.buttons["Continue"].tap()
-        app.buttons["Compare my options"].tap()
+        app.buttons["See my analysis"].tap()
+        XCTAssertTrue(app.navigationBars["Storage & cost analysis"].waitForExistence(timeout: 5))
+        app.buttons["Compare alternatives"].tap()
 
-        XCTAssertTrue(app.navigationBars["Compare your options"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Suggested starting point"].exists)
+        XCTAssertTrue(app.navigationBars["Compare alternatives"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Suggested for your goal"].exists)
         app.buttons["Optimize iPhone Storage"].tap()
         XCTAssertTrue(app.navigationBars["Optimize iPhone Storage"].waitForExistence(timeout: 5))
         app.buttons["Done"].tap()
-        XCTAssertTrue(app.navigationBars["Compare your options"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars["Compare alternatives"].waitForExistence(timeout: 5))
     }
 
     private func reveal(_ element: XCUIElement, in app: XCUIApplication) {
