@@ -179,8 +179,19 @@ struct DashboardView: View {
                 NavigationStack {
                     List {
                         Text("Apple Photos may download full-resolution originals from iCloud for this scan. This can use mobile data and temporary storage on your iPhone.")
-                        Toggle("I understand and authorize downloads for this scan", isOn: $acknowledgesDownloads)
+                        Button {
+                            acknowledgesDownloads.toggle()
+                        } label: {
+                            Label(
+                                "I understand and authorize downloads for this scan",
+                                systemImage: acknowledgesDownloads ? "checkmark.square.fill" : "square"
+                            )
+                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                            .contentShape(Rectangle())
+                        }
+                        .accessibilityAddTraits(acknowledgesDownloads ? .isSelected : [])
                         Button("Authorize and start scan") {
+                            guard acknowledgesDownloads else { return }
                             showsDownloadConsent = false
                             model.startDuplicateScan(allowCloudDownloads: true)
                         }

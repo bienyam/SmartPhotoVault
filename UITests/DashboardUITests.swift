@@ -91,7 +91,7 @@ final class DashboardUITests: XCTestCase {
         let authorize = app.buttons["Authorize and start scan"]
         XCTAssertTrue(authorize.waitForExistence(timeout: 5))
         XCTAssertFalse(authorize.isEnabled)
-        let acknowledgement = app.switches["I understand and authorize downloads for this scan"]
+        let acknowledgement = app.buttons["I understand and authorize downloads for this scan"]
         XCTAssertTrue(acknowledgement.exists)
         acknowledgement.tap()
         XCTAssertTrue(authorize.isEnabled)
