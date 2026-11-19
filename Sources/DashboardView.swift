@@ -51,7 +51,7 @@ struct DashboardView: View {
                         action("Find duplicates", icon: "square.on.square")
                     }
                     NavigationLink {
-                        StorageGuideView()
+                        StorageGuideView(snapshot: model.isDemo ? nil : model.snapshot)
                     } label: {
                         action("Analyze storage & cost", icon: "internaldrive")
                     }
@@ -155,6 +155,9 @@ private struct PhotoDetailsView: View {
                     }
                 }
             case .duplicates:
+                Section {
+                    NavigationLink("Decide which copies to keep") { PhotoCopyOptionsView() }
+                }
                 Section("Exact duplicate scan") {
                     if model.isScanning {
                         if model.total > 0 {
@@ -223,6 +226,7 @@ private struct PhotoDetailsView: View {
                                 Text("Scans read files already available on your iPhone. SmartPhotoVault does not request iCloud originals or upload, edit, or delete your photos.")
                                 Text("You can change Photos access in Settings. To remove the local inventory and activity log from this device, delete the app.")
                                 Text("Saved storage comparisons stay in the app’s local storage. You can remove them in the app or by deleting the app. If you share a comparison, you choose where the report goes. Apple handles in-app purchases.")
+                                Text("When you select files for size analysis, the app reads their names and reported sizes for that session.")
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding()
