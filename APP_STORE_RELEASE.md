@@ -12,6 +12,8 @@ Apple documents the [app record](https://developer.apple.com/help/app-store-conn
 
 ## Upload and verify
 
+The App Store archive job uses Xcode 27.0 on GitHub’s `xcode-27` runner and checks the SDK and minimum OS directly in the archive. The deployment target remains iOS 17.0.
+
 Run **App Store Connect upload** from GitHub Actions on `main` and enable **Sign and upload to App Store Connect**. The workflow archives with automatic signing and uploads to Apple. Verify that the build processes successfully in **Apps → SmartPhotoVault → TestFlight**. Use internal TestFlight for the first iPhone check.
 
 On the iPhone, check full, selected, and denied Photos access, counts and favorites, exact duplicates, Live Photos, cloud-only assets, and VoiceOver and larger text sizes. Check that sample data opens without Photos access and that the in-app Privacy Policy is accessible.
