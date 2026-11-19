@@ -103,7 +103,7 @@ struct StorageGuideView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Button("Continue") { step += 1 }
-                    .disabled(!valid(currentCost) || !valid(usedSpace) || !Locale.commonISOCurrencies.contains(enteredCurrency))
+                    .disabled(!valid(currentCost) || !valid(usedSpace) || enteredCurrency.range(of: "^[A-Z]{3}$", options: .regularExpression) == nil)
             case 4:
                 Section("Do you have a smaller plan in mind?") {
                     numberField("Smaller plan capacity (GB)", value: $smallerCapacity)
