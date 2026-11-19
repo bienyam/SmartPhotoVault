@@ -37,6 +37,7 @@ final class DashboardModel: ObservableObject {
     @Published var snapshot: ScanSnapshot?
     @Published var activity: [ActivityEntry] = []
     @Published var errorMessage: String?
+    @Published private(set) var duplicateScanStatus: String?
     @Published var completed = 0
     @Published var total = 0
     @Published var isDemo = false
@@ -64,28 +65,17 @@ final class DashboardModel: ObservableObject {
                 self.cancel()
                 self.snapshot = nil
                 self.inventory = nil
+                self.duplicateScanStatus = nil
                 self.errorMessage = "Your Photos library changed. Run a new scan to refresh the results."
             }
         }
     }
 
-    func startDuplicateScan(allowCloudDownloads: Bool = false) {
+    func startDuplicateScan() {
         guard !isScanning else { return }
-        guard let store else {
-            errorMessage = "Local inventory storage is unavailable. Restart the app to try opening it again."
-            return
-        }
-        if allowCloudDownloads {
-            do {
-                try store.log("Authorized iCloud original downloads for this duplicate scan. Disclosure v1: mobile data and temporary device storage.")
-                activity = try store.activity()
-            } catch {
-                errorMessage = "Could not record download authorization. Scan was not started."
-                return
-            }
-        }
         isScanning = true
-        scanTask = Task { await scanDuplicates(allowCloudDownloads: allowCloudDownloads) }
+        duplicateScanStatus = nil
+        scanTask = Task { await scanDuplicates() }
     }
 
     func cancel() { scanTask?.cancel() }
@@ -96,7 +86,7 @@ final class DashboardModel: ObservableObject {
         scanTask = Task { await scan() }
     }
 
-    private func scanDuplicates(allowCloudDownloads: Bool) async {
+    private func scanDuplicates() async {
         isScanning = true
         isDemo = false
         inventory = nil
@@ -112,15 +102,15 @@ final class DashboardModel: ObservableObject {
                 authorization = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
             }
             guard authorization == .authorized || authorization == .limited else {
-                try store?.log("Scan not started: photo access unavailable.")
-                activity = try store?.activity() ?? []
+                errorMessage = "Scan couldn’t start because Photos access is unavailable."
+                try? store?.log("Scan not started: photo access unavailable.")
+                activity = (try? store?.activity()) ?? []
                 return
             }
             startObserving()
             try Task.checkCancellation()
-            try store?.log("Duplicate scan started. Cloud downloads: \(allowCloudDownloads ? "enabled" : "disabled").")
-            let downloads = allowCloudDownloads
-            let records = try await scanner.scan(allowNetwork: downloads) { [weak self] done, count in
+            try? store?.log("Local duplicate scan started.")
+            let records = try await scanner.scan { [weak self] done, count in
                 await self?.setProgress(done, count)
             }
             try Task.checkCancellation()
@@ -128,12 +118,22 @@ final class DashboardModel: ObservableObject {
             guard current == authorization else {
                 throw NSError(domain: "PhotoAccess", code: 1, userInfo: [NSLocalizedDescriptionKey: "Photo access changed during the scan. Please scan again."])
             }
-            let result = ScanSnapshot(date: Date(), limitedAccess: authorization == .limited, includedCloudDownloads: downloads, assets: records)
+            let result = ScanSnapshot(date: Date(), limitedAccess: authorization == .limited, includedCloudDownloads: false, assets: records)
             snapshot = result
             inventory = counts(for: records)
-            try store?.save(result)
-            activity = try store?.activity() ?? []
+            duplicateScanStatus = "Scan complete."
+            do {
+                if let store {
+                    try store.save(result)
+                } else {
+                    duplicateScanStatus = "Scan complete. Results are available for this session only."
+                }
+            } catch {
+                duplicateScanStatus = "Scan complete. Results couldn’t be saved and are available for this session only."
+            }
+            activity = (try? store?.activity()) ?? []
         } catch is CancellationError {
+            if errorMessage == nil { duplicateScanStatus = "Scan stopped. No new results were saved." }
             try? store?.log("Scan cancelled; incomplete results were not saved.")
             activity = (try? store?.activity()) ?? []
         } catch {
@@ -148,6 +148,8 @@ final class DashboardModel: ObservableObject {
     func showDemo() {
         guard !isScanning else { return }
         isDemo = true
+        duplicateScanStatus = nil
+        errorMessage = nil
         snapshot = DemoLibrary.snapshot
         inventory = counts(for: DemoLibrary.snapshot.assets)
     }
@@ -162,6 +164,7 @@ final class DashboardModel: ObservableObject {
 
     private func scan() async {
         isDemo = false
+        duplicateScanStatus = nil
         snapshot = nil
         isScanning = true
         defer { isScanning = false; scanTask = nil }
@@ -186,7 +189,11 @@ final class DashboardModel: ObservableObject {
         // closing the initial permission dialog must not erase a just-finished scan.
         if previous != authorization || (authorization == .limited && !isScanning) {
             inventory = nil
-            if previous != .notDetermined { cancel() }
+            if previous != .notDetermined && isScanning {
+                errorMessage = "Photos access changed. Run a new scan with your current access."
+                cancel()
+            }
+            duplicateScanStatus = nil
             snapshot = nil
             isDemo = false
         }

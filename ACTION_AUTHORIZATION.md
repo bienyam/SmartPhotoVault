@@ -30,7 +30,7 @@ Button **Copy [count] items to [provider]**. Ask separately before removing any 
 - Block removal when a destination cannot be verified or restored, when permissions change, or when the effects on shared items, edits, albums, or favorites are uncertain. No permanent purge in the initial release.
 - Obtain legal review of the wording, receipt and retention design, jurisdiction-specific requirements, billing disclosures, and whether a formal electronic signature is needed. Update the privacy policy and App Store disclosures as storage and data handling change.
 
-The present app asks permission for iCloud downloads for each requested duplicate scan and records authorization locally. Photo deletion and provider uploads are future work.
+The present app scans resources already available on the iPhone. Any future retrieval of a cloud original, photo deletion, or provider upload requires its own review and authorization.
 
 ## References
 
