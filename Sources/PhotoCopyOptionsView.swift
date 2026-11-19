@@ -1,10 +1,11 @@
 import SwiftUI
 
 struct PhotoCopyOptionsView: View {
+    var snapshot: ScanSnapshot? = nil
     private enum Option: String, CaseIterable, Identifiable {
         case optimize = "Keep smaller copies on my iPhone"
         case merge = "Merge duplicates in Apple Photos"
-        case archive = "Keep one original in another location"
+        case archive = "Archive a copy in another location"
         case documents = "Free space used by documents"
 
         var id: Self { self }
@@ -22,7 +23,7 @@ struct PhotoCopyOptionsView: View {
             switch self {
             case .optimize: "Free phone space while browsing in Apple Photos."
             case .merge: "Combine duplicates within your Apple Photos library."
-            case .archive: "Work out which full-resolution copy to retain."
+            case .archive: "Copy full-resolution originals and test a restore."
             case .documents: "Remove offline downloads while keeping cloud files."
             }
         }
@@ -39,7 +40,7 @@ struct PhotoCopyOptionsView: View {
                     .accessibilityAddTraits(.isHeader)
                 ForEach(Option.allCases) { option in
                     NavigationLink {
-                        details(option)
+                        if option == .archive { PhotoArchiveView(snapshot: snapshot) } else { details(option) }
                     } label: {
                         HStack(spacing: 14) {
                             Image(systemName: option.icon)
@@ -87,17 +88,7 @@ struct PhotoCopyOptionsView: View {
                     Text("The action affects your Apple Photos library and its synced copies. It does not merge copies in a separate cloud account.")
                 }
                 Link("See Apple’s merge instructions", destination: URL(string: "https://support.apple.com/guide/iphone/iph1978d9c23/ios")!)
-            case .archive:
-                Section("Before removing any copy") {
-                    Label("Choose the account or drive that will hold the original.", systemImage: "1.circle")
-                    Label("Verify the full-resolution file and required parts, such as the video in a Live Photo.", systemImage: "2.circle")
-                    Label("Restore and open an original from that location.", systemImage: "3.circle")
-                    Label("Review exactly what would be removed and where.", systemImage: "4.circle")
-                }
-                Section("What this app supports today") {
-                    Text("The app can compare storage costs and review readable local copies. Copying to an independent archive, verifying remote originals, and removing copies are planned.")
-                    Text("A single retained original has no independent backup. A future archive preview would appear inside this app.")
-                }
+            case .archive: EmptyView()
             case .documents:
                 Section("iCloud Drive in Files") {
                     Text("In Files → Browse → iCloud Drive, touch and hold a downloaded file and choose Remove Download if it appears. This removes the iPhone download while keeping the iCloud file. Confirm the file is synced first.")

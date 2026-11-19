@@ -156,7 +156,9 @@ private struct PhotoDetailsView: View {
                 }
             case .duplicates:
                 Section {
-                    NavigationLink("Decide which copies to keep") { PhotoCopyOptionsView() }
+                    NavigationLink("Decide which copies to keep") {
+                        PhotoCopyOptionsView(snapshot: model.isDemo ? nil : model.snapshot)
+                    }
                 }
                 Section("Exact duplicate scan") {
                     if model.isScanning {
@@ -223,7 +225,7 @@ private struct PhotoDetailsView: View {
                             VStack(alignment: .leading, spacing: 16) {
                                 Text("SmartPhotoVault reads the Apple Photos items you authorize. Scanning and exact duplicate matching run on your device.")
                                 Text("The app stores the latest completed inventory and its activity log locally. The inventory can include Photos identifiers, file names, dates, favorite status, resource sizes and hashes. The app does not transmit this information to the developer or include advertising or analytics.")
-                                Text("Scans read files already available on your iPhone. SmartPhotoVault does not request iCloud originals or upload, edit, or delete your photos.")
+                                Text("Scans read originals already available on your iPhone. If you approve an archive or restore, the app writes a copy to your chosen Files folder. The source stays in place and the Files provider may sync the copy.")
                                 Text("You can change Photos access in Settings. To remove the local inventory and activity log from this device, delete the app.")
                                 Text("Saved storage comparisons stay in the app’s local storage. You can remove them in the app or by deleting the app. If you share a comparison, you choose where the report goes. Apple handles in-app purchases.")
                                 Text("When you select files for size analysis, the app reads their names and reported sizes for that session.")
