@@ -137,6 +137,15 @@ private struct PhotoDetailsView: View {
                         model.startMetadataScan()
                     }
                     .disabled(model.isScanning)
+                    if let snapshot = model.snapshot {
+                        NavigationLink("Review videos by size") { VideoSizesView(snapshot: snapshot) }
+                    } else {
+                        NavigationLink("Find large videos") {
+                            PhotoDetailsView(model: model, destination: .duplicates)
+                        }
+                        Text("Video sizes are measured during the full resource scan.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
                     if model.authorization == .limited {
                         Text("Limited access: counts cover only your selected items.").foregroundStyle(.orange)
                     }

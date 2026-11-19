@@ -34,7 +34,7 @@ struct StorageScenario: Codable, Identifiable {
 }
 
 struct StorageComparisonView: View {
-    let current: StorageScenario
+    var current: StorageScenario? = nil
     @Environment(\.dynamicTypeSize) private var typeSize
 
     @State private var saved: [StorageScenario] = []
@@ -55,19 +55,21 @@ struct StorageComparisonView: View {
         List {
             if loading {
                 ProgressView("Checking Pro access…")
-            } else if unlocked {
-                comparisons
+            } else if let current {
+                if unlocked { comparisons(current) }
+                else { purchaseOptions }
             } else {
-                purchaseOptions
+                savedLibrary
             }
             if let notice { Text(notice).foregroundStyle(.secondary) }
         }
-        .navigationTitle("Storage Comparison Pro")
+        .navigationTitle(current == nil ? "Saved comparisons" : "Storage Comparison Pro")
         .navigationBarTitleDisplayMode(.inline)
         .task {
+            defer { loading = false }
+            load()
             await refreshEntitlement()
-            loading = false
-            if !unlocked {
+            if !unlocked, current != nil {
                 do {
                     product = try await Product.products(for: [Self.productID]).first { $0.type == .nonConsumable }
                 } catch {
@@ -102,7 +104,36 @@ struct StorageComparisonView: View {
         .disabled(busy)
     }
 
-    private var comparisons: some View {
+    private var savedLibrary: some View {
+        Section {
+            if saved.isEmpty {
+                Text("No saved comparisons yet.")
+            }
+            ForEach(saved) { scenario in
+                NavigationLink {
+                    List {
+                        Text(scenario.report)
+                        if unlocked {
+                            ShareLink(item: scenario.report) { Label("Share report", systemImage: "square.and.arrow.up") }
+                        }
+                    }
+                    .navigationTitle("Saved scenario")
+                } label: {
+                    VStack(alignment: .leading) {
+                        Text(scenario.goal)
+                        Text(scenario.date.formatted()).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .onDelete { offsets in
+                var remaining = saved
+                remaining.remove(atOffsets: offsets)
+                _ = persist(remaining)
+            }
+        }
+    }
+
+    private func comparisons(_ current: StorageScenario) -> some View {
         Group {
             Section {
                 Button(savedCurrent ? "Current scenario saved" : "Save current scenario") {
@@ -117,7 +148,7 @@ struct StorageComparisonView: View {
                         }
                     }
                 }
-                ShareLink(item: report) {
+                ShareLink(item: report(current)) {
                     Label("Share comparison report", systemImage: "square.and.arrow.up")
                 }
             }
@@ -181,7 +212,7 @@ struct StorageComparisonView: View {
         .accessibilityElement(children: .combine)
     }
 
-    private var report: String {
+    private func report(_ current: StorageScenario) -> String {
         var content = "SmartPhotoVault storage comparison\n\nCurrent scenario\n\(current.report)"
         if let selected { content += "\n\nSaved scenario\n\(selected.report)" }
         return content + "\n\nEstimates use the values and currency entered for each scenario. Verify provider costs and restore terms before making changes."
@@ -191,7 +222,6 @@ struct StorageComparisonView: View {
         for await result in StoreKit.Transaction.currentEntitlements {
             if case .verified(let transaction) = result, transaction.productID == Self.productID,
                transaction.productType == .nonConsumable {
-                if !unlocked { load() }
                 unlocked = true
                 return
             }

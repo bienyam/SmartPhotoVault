@@ -22,6 +22,7 @@ struct StorageGuideView: View {
     @State private var usesICloud: Bool?
     @State private var needsQuickAccess: Bool?
     @State private var currentCost = ""
+    @State private var currencyCode = Locale.current.currency?.identifier ?? "USD"
     @State private var usedSpace = ""
     @State private var smallerCapacity = ""
     @State private var smallerCost = ""
@@ -78,6 +79,7 @@ struct StorageGuideView: View {
                         }
                     }
                 }
+                NavigationLink("Saved comparisons") { StorageComparisonView() }
             case 1:
                 Section("Do you use iCloud Photos?") {
                     answer("Yes", value: true, field: $usesICloud)
@@ -94,11 +96,14 @@ struct StorageGuideView: View {
                 Section("What do you pay today?") {
                     numberField("Monthly plan cost", value: $currentCost)
                     numberField("Total storage used (GB)", value: $usedSpace)
+                    TextField("Currency code (for example, USD)", text: $currencyCode)
+                        .textInputAutocapitalization(.characters)
+                        .autocorrectionDisabled()
                     Text("Include the whole plan’s usage, including shared storage and files other than photos. You can leave unknown answers blank.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Button("Continue") { step += 1 }
-                    .disabled(!valid(currentCost) || !valid(usedSpace))
+                    .disabled(!valid(currentCost) || !valid(usedSpace) || !Locale.commonISOCurrencies.contains(enteredCurrency))
             case 4:
                 Section("Do you have a smaller plan in mind?") {
                     numberField("Smaller plan capacity (GB)", value: $smallerCapacity)
@@ -193,16 +198,32 @@ struct StorageGuideView: View {
         return StorageScenario(
             goal: goal?.rawValue ?? "Unknown",
             recommendation: recommendation.rawValue,
-            inputs: inputs.map { label, value in
+            inputs: [StorageScenario.Entry(label: "Currency", value: enteredCurrency)] + inputs.map { label, value in
                 StorageScenario.Entry(label: label, value: value?.formatted() ?? "Unknown")
             } + [
                 StorageScenario.Entry(label: "Uses iCloud Photos", value: usesICloud.map { $0 ? "Yes" : "No" } ?? "Unknown"),
                 StorageScenario.Entry(label: "Needs immediate access", value: needsQuickAccess.map { $0 ? "Yes" : "No" } ?? "Unknown")
             ],
             alternatives: options.map {
-                StorageScenario.Entry(label: $0.rawValue, value: summary($0) + " " + nextStep($0))
+                let total = firstYearCost($0).map { "First-year cost: \($0.formatted()) \(enteredCurrency)." } ?? "First-year total unknown."
+                return StorageScenario.Entry(label: $0.rawValue, value: "\(total) \(summary($0)) \(nextStep($0))")
             }
         )
+    }
+
+    private var enteredCurrency: String {
+        currencyCode.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+    }
+
+    private func firstYearCost(_ plan: Plan) -> Decimal? {
+        switch plan {
+        case .current, .optimize: return monthlyCost.map { $0 * 12 }
+        case .smaller: return smallerPlanCost.map { $0 * 12 }
+        case .archive:
+            guard let monthly = archiveMonthlyTotal, let migration = amount(migrationCost),
+                  let retrieval = amount(annualRetrievalCost) else { return nil }
+            return monthly * 12 + migration + retrieval
+        }
     }
 
     private var findings: [String] {
