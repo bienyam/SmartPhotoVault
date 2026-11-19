@@ -91,7 +91,13 @@ struct StorageGuideView: View {
             NavigationStack {
                 List {
                     Text(summary(plan))
-                    Text(nextStep(plan))
+                    if plan == .archive {
+                        NavigationLink("Choose archive storage") { PhotoArchiveView(snapshot: snapshot) }
+                    } else if plan == .optimize {
+                        NavigationLink("Review actions for this iPhone") { PhotoCopyOptionsView(snapshot: snapshot) }
+                    } else {
+                        Text(nextStep(plan))
+                    }
                     Button("Done") { selectedPlan = nil }
                 }
                 .navigationTitle(plan.rawValue)
@@ -535,7 +541,7 @@ struct StorageGuideView: View {
         case .smaller:
             "Check the provider’s quoted price, shared usage and headroom for new photos. Make any plan change directly with your provider."
         case .archive:
-            "Ask the provider for storage, transfer and retrieval costs. Test restoring an original before considering any removal. Archiving through this app is planned."
+            "Choose an archive folder in the app, compare space, and test a restore before considering any removal. Include your provider’s transfer and retrieval costs when comparing."
         }
     }
 }

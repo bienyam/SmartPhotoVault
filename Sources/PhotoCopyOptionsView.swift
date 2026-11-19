@@ -4,7 +4,7 @@ struct PhotoCopyOptionsView: View {
     var snapshot: ScanSnapshot? = nil
     private enum Option: String, CaseIterable, Identifiable {
         case optimize = "Keep smaller copies on my iPhone"
-        case merge = "Merge duplicates in Apple Photos"
+        case merge = "Review exact photo duplicates"
         case archive = "Archive a copy in another location"
         case documents = "Free space used by documents"
 
@@ -22,7 +22,7 @@ struct PhotoCopyOptionsView: View {
         var benefit: String {
             switch self {
             case .optimize: "Free phone space while browsing in Apple Photos."
-            case .merge: "Combine duplicates within your Apple Photos library."
+            case .merge: "Find and compare exact matches in your Apple Photos library."
             case .archive: "Copy full-resolution originals and test a restore."
             case .documents: "Remove offline downloads while keeping cloud files."
             }
@@ -81,27 +81,59 @@ struct PhotoCopyOptionsView: View {
                     LabeledContent("Smaller copies", value: "Managed by Apple on this iPhone")
                     Text("iPhone and iCloud Photos are one synced library. Deleting an item in Photos also removes it from synced devices. Storage savings depend on what Apple keeps locally.")
                 }
-                Link("See Apple’s Optimize Storage steps", destination: URL(string: "https://support.apple.com/en-us/105061")!)
-            case .merge:
-                Section("How to merge") {
-                    Text("Open Apple Photos → Collections → Utilities → Duplicates. Review the items, then tap Merge for the group you choose.")
-                    Text("The action affects your Apple Photos library and its synced copies. It does not merge copies in a separate cloud account.")
+                Section("Actions available here") {
+                    NavigationLink("Archive selected originals") { PhotoArchiveView(snapshot: snapshot) }
+                    NavigationLink("Remove a synced document download") { CloudDownloadRemovalView() }
+                    Link("Apple Photos storage settings help", destination: URL(string: "https://support.apple.com/en-us/105061")!)
                 }
-                Link("See Apple’s merge instructions", destination: URL(string: "https://support.apple.com/guide/iphone/iph1978d9c23/ios")!)
+            case .merge:
+                Section {
+                    if let snapshot {
+                        NavigationLink("Review exact matches") { DuplicateResultsView(snapshot: snapshot) }
+                    } else {
+                        NavigationLink("Scan for exact duplicates") { ArchiveDuplicateReview() }
+                    }
+                    Text("Merging in Apple Photos is managed by Apple and can affect the synced library.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
             case .archive: EmptyView()
             case .documents:
-                Section("iCloud Drive in Files") {
-                    Text("In Files → Browse → iCloud Drive, touch and hold a downloaded file and choose Remove Download if it appears. This removes the iPhone download while keeping the iCloud file. Confirm the file is synced first.")
-                    Text("Delete removes the iCloud Drive file across devices. Files under On My iPhone may have no other copy.")
+                Section("What would you like to do?") {
+                    NavigationLink("Remove a synced iCloud Drive download") { CloudDownloadRemovalView() }
+                    NavigationLink("Find large files") { SelectedFilesAnalysisView() }
+                    NavigationLink("Archive files to another folder") { PhotoArchiveView(snapshot: snapshot) }
+                    Text("Offline copies from other providers are managed by those providers. You can analyze or archive their available files here.")
+                        .font(.footnote).foregroundStyle(.secondary)
                 }
-                Section("OneDrive") {
-                    Text("In the OneDrive app, choose Remove from Offline for a file you no longer need offline. The online file stays in OneDrive.")
-                }
-                Link("See Apple’s Files instructions", destination: URL(string: "https://support.apple.com/en-ie/104953")!)
             }
         }
         .tint(slate)
         .navigationTitle(option.rawValue)
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private struct ArchiveDuplicateReview: View {
+    @StateObject private var model = DashboardModel()
+
+    var body: some View {
+        Group {
+            if let snapshot = model.snapshot {
+                DuplicateResultsView(snapshot: snapshot)
+            } else {
+                List {
+                    if model.isScanning {
+                        ProgressView("Checking locally available originals…")
+                        Button("Cancel scan") { model.cancel() }
+                    } else {
+                        Button("Scan local photos", action: model.startDuplicateScan)
+                    }
+                    if let status = model.duplicateScanStatus { Text(status) }
+                    if let error = model.errorMessage { Text(error) }
+                }
+                .navigationTitle("Review exact duplicates")
+            }
+        }
+        .onDisappear { model.cancel() }
     }
 }
