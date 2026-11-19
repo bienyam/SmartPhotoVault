@@ -7,6 +7,7 @@ final class DashboardUITests: XCTestCase {
         let app = XCUIApplication()
         app.resetAuthorizationStatus(for: .photos)
         app.launch()
+        app.buttons["Check my photos"].tap()
         let scan = app.buttons["Scan Apple Photos"]
         XCTAssertTrue(scan.waitForExistence(timeout: 15))
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
@@ -35,6 +36,7 @@ final class DashboardUITests: XCTestCase {
         let app = XCUIApplication()
         app.launch()
         XCTAssertTrue(app.navigationBars["SmartPhotoVault"].waitForExistence(timeout: 15))
+        app.buttons["Find duplicates"].tap()
         let scan = app.buttons["Find exact duplicates"]
         reveal(scan, in: app)
         XCTAssertTrue(scan.waitForExistence(timeout: 5))
@@ -60,6 +62,7 @@ final class DashboardUITests: XCTestCase {
         let app = XCUIApplication()
         app.resetAuthorizationStatus(for: .photos)
         app.launch()
+        app.buttons["Check my photos"].tap()
         let scan = app.buttons["Scan Apple Photos"]
         XCTAssertTrue(scan.waitForExistence(timeout: 15))
         scan.tap()
@@ -83,6 +86,7 @@ final class DashboardUITests: XCTestCase {
     func testCloudDownloadScanRequiresExplicitAuthorization() {
         let app = XCUIApplication()
         app.launch()
+        app.buttons["Find duplicates"].tap()
         let downloads = app.buttons["Scan with iCloud downloads"]
         reveal(downloads, in: app)
         XCTAssertTrue(downloads.waitForExistence(timeout: 5))
@@ -108,6 +112,7 @@ final class DashboardUITests: XCTestCase {
         let app = XCUIApplication()
         app.launch()
         XCTAssertTrue(app.navigationBars["SmartPhotoVault"].waitForExistence(timeout: 15))
+        app.buttons["Find duplicates"].tap()
         let samples = app.buttons["Explore sample results"]
         reveal(samples, in: app)
         XCTAssertTrue(samples.waitForExistence(timeout: 5))
@@ -128,6 +133,27 @@ final class DashboardUITests: XCTestCase {
         attachment.name = "Sample duplicate review"
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    func testStorageQuestionnaireRecommendsAnOptionUsersCanReview() {
+        let app = XCUIApplication()
+        app.launch()
+        app.buttons["Analyze storage & cost"].tap()
+        app.buttons["Free up phone space"].tap()
+        app.buttons["Yes"].tap()
+        app.buttons["I want to open them anytime"].tap()
+        app.buttons["Continue"].tap()
+        app.buttons["Continue"].tap()
+        app.buttons["See my analysis"].tap()
+        XCTAssertTrue(app.navigationBars["Storage & cost analysis"].waitForExistence(timeout: 5))
+        app.buttons["Compare alternatives"].tap()
+
+        XCTAssertTrue(app.navigationBars["Compare alternatives"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Suggested for your goal"].exists)
+        app.buttons["Optimize iPhone Storage"].tap()
+        XCTAssertTrue(app.navigationBars["Optimize iPhone Storage"].waitForExistence(timeout: 5))
+        app.buttons["Done"].tap()
+        XCTAssertTrue(app.navigationBars["Compare alternatives"].waitForExistence(timeout: 5))
     }
 
     private func reveal(_ element: XCUIElement, in app: XCUIApplication) {

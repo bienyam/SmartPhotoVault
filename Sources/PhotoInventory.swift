@@ -6,6 +6,7 @@ struct PhotoInventory: Equatable {
     var photos = 0
     var videos = 0
     var favorites = 0
+    var screenshots: Int?
     var total: Int { photos + videos }
 }
 
@@ -13,7 +14,7 @@ enum PhotoLibraryService {
     static func inventory() async -> PhotoInventory {
         await Task.detached(priority: .userInitiated) {
             let assets = PHAsset.fetchAssets(with: nil)
-            var result = PhotoInventory()
+            var result = PhotoInventory(screenshots: 0)
             assets.enumerateObjects { asset, _, _ in
                 switch asset.mediaType {
                 case .image: result.photos += 1
@@ -21,6 +22,7 @@ enum PhotoLibraryService {
                 default: break
                 }
                 if asset.isFavorite { result.favorites += 1 }
+                if asset.mediaSubtypes.contains(.photoScreenshot) { result.screenshots? += 1 }
             }
             return result
         }.value
@@ -151,9 +153,11 @@ final class DashboardModel: ObservableObject {
     }
 
     private func counts(for records: [AssetRecord]) -> PhotoInventory {
-        PhotoInventory(photos: records.filter { $0.mediaType == PHAssetMediaType.image.rawValue }.count,
+        let photos = records.filter { $0.mediaType == PHAssetMediaType.image.rawValue }
+        return PhotoInventory(photos: photos.count,
                        videos: records.filter { $0.mediaType == PHAssetMediaType.video.rawValue }.count,
-                       favorites: records.filter(\.favorite).count)
+                       favorites: records.filter(\.favorite).count,
+                       screenshots: photos.allSatisfy { $0.isScreenshot != nil } ? photos.filter { $0.isScreenshot == true }.count : nil)
     }
 
     private func scan() async {

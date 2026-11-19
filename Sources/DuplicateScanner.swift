@@ -28,7 +28,8 @@ actor DuplicateScanner {
                                        favorite: asset.isFavorite,
                                        createdAt: asset.creationDate,
                                        resources: fingerprints,
-                                       issue: issue))
+                                       issue: issue,
+                                       isScreenshot: asset.mediaSubtypes.contains(.photoScreenshot)))
             await progress(index + 1, assets.count)
         }
         try Task.checkCancellation()
