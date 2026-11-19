@@ -156,7 +156,9 @@ private struct PhotoDetailsView: View {
                 }
             case .duplicates:
                 Section {
-                    NavigationLink("Decide which copies to keep") { PhotoCopyOptionsView() }
+                    NavigationLink("Decide which copies to keep") {
+                        PhotoCopyOptionsView(snapshot: model.isDemo ? nil : model.snapshot)
+                    }
                 }
                 Section("Exact duplicate scan") {
                     if model.isScanning {
@@ -214,7 +216,9 @@ private struct PhotoDetailsView: View {
                                 Text(entry.message)
                                 Text(entry.date.formatted()).font(.caption).foregroundStyle(.secondary)
                             }
-                        }.navigationTitle("Activity log")
+                        }
+                        .navigationTitle("Activity log")
+                        .task { model.reloadActivity() }
                     }
                 }
                 Section("About") {

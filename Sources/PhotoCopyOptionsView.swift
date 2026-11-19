@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct PhotoCopyOptionsView: View {
+    var snapshot: ScanSnapshot? = nil
     private enum Option: String, CaseIterable, Identifiable {
         case optimize = "Keep smaller copies on my iPhone"
         case merge = "Merge duplicates in Apple Photos"
@@ -75,6 +76,13 @@ struct PhotoCopyOptionsView: View {
         List {
             switch option {
             case .optimize:
+                if let snapshot {
+                    Section("What we found on this iPhone") {
+                        LabeledContent("Items with all resources readable", value: snapshot.verifiedCount.formatted())
+                        LabeledContent("Items left unverified", value: (snapshot.assets.count - snapshot.verifiedCount).formatted())
+                        Text("These scan results can help you review local files. Apple does not report a verified cloud original or space recoverable by Optimize Storage to this app.")
+                    }
+                }
                 Section("What stays where") {
                     LabeledContent("Full-resolution originals", value: "iCloud Photos")
                     LabeledContent("Smaller copies", value: "Managed by Apple on this iPhone")
@@ -82,6 +90,13 @@ struct PhotoCopyOptionsView: View {
                 }
                 Link("See Apple’s Optimize Storage steps", destination: URL(string: "https://support.apple.com/en-us/105061")!)
             case .merge:
+                if let snapshot {
+                    Section {
+                        NavigationLink("Review exact matches from this scan") {
+                            DuplicateResultsView(snapshot: snapshot)
+                        }
+                    }
+                }
                 Section("How to merge") {
                     Text("Open Apple Photos → Collections → Utilities → Duplicates. Review the items, then tap Merge for the group you choose.")
                     Text("The action affects your Apple Photos library and its synced copies. It does not merge copies in a separate cloud account.")
@@ -99,6 +114,9 @@ struct PhotoCopyOptionsView: View {
                     Text("A single retained original has no independent backup. A future archive preview would appear inside this app.")
                 }
             case .documents:
+                Section {
+                    NavigationLink("Choose a download to remove") { CloudDownloadRemovalView() }
+                }
                 Section("iCloud Drive in Files") {
                     Text("In Files → Browse → iCloud Drive, touch and hold a downloaded file and choose Remove Download if it appears. This removes the iPhone download while keeping the iCloud file. Confirm the file is synced first.")
                     Text("Delete removes the iCloud Drive file across devices. Files under On My iPhone may have no other copy.")

@@ -10,4 +10,6 @@ Saved storage comparisons contain the costs, usage, and preferences you enter an
 
 If you choose files for size analysis, the app reads the names and reported sizes of that selection. The analysis stays in memory while the screen is open. The app does not send the selection or read file contents.
 
+If you authorize removal of a downloaded iCloud Drive file, the app records the time, action, disclosure version, selected size, and outcome in the local activity log. It asks iCloud Drive to remove only the on-device download.
+
 For privacy questions, use the [SmartPhotoVault support page](https://github.com/bienyam/SmartPhotoVault/issues). Issues are public, so leave out personal photos and library information.

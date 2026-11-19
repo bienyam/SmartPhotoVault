@@ -30,7 +30,7 @@ Button **Copy [count] items to [provider]**. Ask separately before removing any 
 - Block removal when a destination cannot be verified or restored, when permissions change, or when the effects on shared items, edits, albums, or favorites are uncertain. No permanent purge in the initial release.
 - Obtain legal review of the wording, receipt and retention design, jurisdiction-specific requirements, billing disclosures, and whether a formal electronic signature is needed. Update the privacy policy and App Store disclosures as storage and data handling change.
 
-The present app scans resources already available on the iPhone. Any future retrieval of a cloud original, photo deletion, or provider upload requires its own review and authorization.
+The present app scans resources already available on the iPhone. For selected iCloud Drive files, it can request removal of a local download after explicit approval. It checks that iCloud reports the current version uploaded and free of conflicts and rechecks the reviewed file before requesting removal. The receipt records authorization and the result separately. Any future retrieval of a cloud original, photo deletion, or provider upload requires its own review and authorization.
 
 ## References
 
