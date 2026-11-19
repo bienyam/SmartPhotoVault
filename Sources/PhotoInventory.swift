@@ -80,6 +80,10 @@ final class DashboardModel: ObservableObject {
 
     func cancel() { scanTask?.cancel() }
 
+    func reloadActivity() {
+        if let entries = try? store?.activity() { activity = entries }
+    }
+
     func startMetadataScan() {
         guard !isScanning else { return }
         isScanning = true

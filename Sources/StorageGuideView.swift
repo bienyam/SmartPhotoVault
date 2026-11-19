@@ -159,7 +159,7 @@ struct StorageGuideView: View {
                 }
 
                 NavigationLink {
-                    PhotoCopyOptionsView()
+                    PhotoCopyOptionsView(snapshot: snapshot)
                 } label: {
                     quickCard(
                         "Decide which copies to keep",
