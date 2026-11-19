@@ -107,8 +107,6 @@ private struct PhotoDetailsView: View {
     let destination: DashboardDestination
     @Environment(\.openURL) private var openURL
     @Environment(\.colorScheme) private var colorScheme
-    @State private var showsDownloadConsent = false
-    @State private var acknowledgesDownloads = false
 
     private var porcelain: Color {
         colorScheme == .dark ? Color(red: 0.08, green: 0.13, blue: 0.19) : Color(red: 0.99, green: 0.98, blue: 0.96)
@@ -159,20 +157,28 @@ private struct PhotoDetailsView: View {
             case .duplicates:
                 Section("Exact duplicate scan") {
                     if model.isScanning {
-                        ProgressView(value: Double(model.completed), total: Double(max(model.total, 1)))
-                        Text("Checked \(model.completed) of \(model.total) assets")
+                        if model.total > 0 {
+                            ProgressView(value: Double(model.completed), total: Double(model.total)) {
+                                Text("Checked \(model.completed) of \(model.total) items")
+                            }
+                        } else {
+                            ProgressView("Checking photos available on this iPhone…")
+                        }
                         Button("Cancel scan", role: .cancel) { model.cancel() }
-                        Text("Cancellation completes when the current resource finishes reading.").font(.footnote)
                     } else {
                         Button("Find exact duplicates") { model.startDuplicateScan() }
+                        Text("Scans files already available on this iPhone. Originals that require an iCloud download are left unverified.")
+                            .font(.footnote).foregroundStyle(.secondary)
                         Button("Explore sample results") { model.showDemo() }
-                        Button("Scan with iCloud downloads") {
-                            acknowledgesDownloads = false
-                            showsDownloadConsent = true
-                        }
                     }
+                    if let status = model.duplicateScanStatus { Text(status) }
                     if let error = model.errorMessage {
                         Text(error).foregroundStyle(.red).accessibilityLabel("Error: \(error)")
+                    }
+                    if model.authorization == .denied || model.authorization == .restricted {
+                        Button("Open Settings") {
+                            if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                        }
                     }
                     if let snapshot = model.snapshot {
                         if model.isDemo { Label("Sample data — not your photo library", systemImage: "testtube.2") }
@@ -214,7 +220,7 @@ private struct PhotoDetailsView: View {
                             VStack(alignment: .leading, spacing: 16) {
                                 Text("SmartPhotoVault reads the Apple Photos items you authorize. Scanning and exact duplicate matching run on your device.")
                                 Text("The app stores the latest completed inventory and its activity log locally. The inventory can include Photos identifiers, file names, dates, favorite status, resource sizes and hashes. The app does not transmit this information to the developer or include advertising or analytics.")
-                                Text("If you authorize iCloud resource downloads for a scan, Apple Photos may retrieve originals from your iCloud library. Your authorization is recorded in the local activity log. SmartPhotoVault does not upload, edit or delete your photos.")
+                                Text("Scans read files already available on your iPhone. SmartPhotoVault does not request iCloud originals or upload, edit, or delete your photos.")
                                 Text("You can change Photos access in Settings. To remove the local inventory and activity log from this device, delete the app.")
                                 Text("Saved storage comparisons stay in the app’s local storage. You can remove them in the app or by deleting the app. If you share a comparison, you choose where the report goes. Apple handles in-app purchases.")
                             }
@@ -232,37 +238,6 @@ private struct PhotoDetailsView: View {
         .tint(colorScheme == .dark ? Color(red: 0.69, green: 0.82, blue: 0.95) : slate)
         .navigationTitle(destination.title)
         .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $showsDownloadConsent) {
-            NavigationStack {
-                List {
-                    Text("Apple Photos may download full-resolution originals from iCloud for this scan. This can use mobile data and temporary storage on your iPhone.")
-                    Button {
-                        acknowledgesDownloads.toggle()
-                    } label: {
-                        Label(
-                            "I understand and authorize downloads for this scan",
-                            systemImage: acknowledgesDownloads ? "checkmark.square.fill" : "square"
-                        )
-                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                        .contentShape(Rectangle())
-                    }
-                    .accessibilityAddTraits(acknowledgesDownloads ? .isSelected : [])
-                    Button("Authorize and start scan") {
-                        guard acknowledgesDownloads else { return }
-                        showsDownloadConsent = false
-                        model.startDuplicateScan(allowCloudDownloads: true)
-                    }
-                    .disabled(!acknowledgesDownloads)
-                }
-                .navigationTitle("Scan with iCloud downloads")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel") { showsDownloadConsent = false }
-                    }
-                }
-            }
-        }
     }
 }
 

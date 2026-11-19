@@ -83,29 +83,13 @@ final class DashboardUITests: XCTestCase {
         app.terminate()
     }
 
-    func testCloudDownloadScanRequiresExplicitAuthorization() {
+    func testDuplicateScanExplainsLocalOnlyScope() {
         let app = XCUIApplication()
         app.launch()
         app.buttons["Find duplicates"].tap()
-        let downloads = app.buttons["Scan with iCloud downloads"]
-        reveal(downloads, in: app)
-        XCTAssertTrue(downloads.waitForExistence(timeout: 5))
-        downloads.tap()
-
-        let authorize = app.buttons["Authorize and start scan"]
-        XCTAssertTrue(authorize.waitForExistence(timeout: 5))
-        XCTAssertFalse(authorize.isEnabled)
-        let acknowledgement = app.buttons["I understand and authorize downloads for this scan"]
-        XCTAssertTrue(acknowledgement.exists)
-        acknowledgement.tap()
-        XCTAssertTrue(authorize.isEnabled)
-        app.buttons["Cancel"].tap()
-
-        reveal(downloads, in: app)
-        downloads.tap()
-        XCTAssertTrue(authorize.waitForExistence(timeout: 5))
-        XCTAssertFalse(authorize.isEnabled)
-        app.buttons["Cancel"].tap()
+        XCTAssertTrue(app.buttons["Find exact duplicates"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Scans files already available on this iPhone. Originals that require an iCloud download are left unverified."].exists)
+        XCTAssertFalse(app.buttons["Scan with iCloud downloads"].exists)
     }
 
     func testSampleDuplicateReview() {

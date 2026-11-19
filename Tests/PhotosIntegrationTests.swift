@@ -60,7 +60,7 @@ final class PhotosIntegrationTests: XCTestCase {
             PHAssetChangeRequest(for: favorite).isFavorite = true
         }
         let progress = ScanProgressRecorder()
-        let records = try await DuplicateScanner().scan(allowNetwork: false) { done, total in
+        let records = try await DuplicateScanner().scan { done, total in
             await progress.record(done: done, total: total)
         }
         let fixtures = records.filter { identifiers.contains($0.id) }
@@ -108,7 +108,7 @@ final class PhotosIntegrationTests: XCTestCase {
         let gate = ScanStartGate()
         let task = Task {
             await gate.wait()
-            return try await scanner.scan(allowNetwork: false) { _, _ in }
+            return try await scanner.scan { _, _ in }
         }
         task.cancel()
         await gate.release()

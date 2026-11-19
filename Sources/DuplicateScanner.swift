@@ -4,7 +4,7 @@ import Foundation
 
 /// Serial worker bounds resource use; Photos delivers streamed resource bytes.
 actor DuplicateScanner {
-    func scan(allowNetwork: Bool, progress: @escaping @Sendable (Int, Int) async -> Void) async throws -> [AssetRecord] {
+    func scan(progress: @escaping @Sendable (Int, Int) async -> Void) async throws -> [AssetRecord] {
         try Task.checkCancellation()
         let assets = PHAsset.fetchAssets(with: nil)
         var records: [AssetRecord] = []
@@ -17,7 +17,7 @@ actor DuplicateScanner {
             do {
                 for resource in resources {
                     try Task.checkCancellation()
-                    fingerprints.append(try await hash(resource, allowNetwork: allowNetwork))
+                    fingerprints.append(try await hash(resource))
                 }
                 if resources.isEmpty { issue = "No accessible resources." }
             } catch is CancellationError { throw CancellationError() }
@@ -36,12 +36,12 @@ actor DuplicateScanner {
         return records
     }
 
-    private func hash(_ resource: PHAssetResource, allowNetwork: Bool) async throws -> ResourceFingerprint {
+    private func hash(_ resource: PHAssetResource) async throws -> ResourceFingerprint {
         let state = ResourceHashState()
         let manager = PHAssetResourceManager.default()
         return try await withCheckedThrowingContinuation { continuation in
             let options = PHAssetResourceRequestOptions()
-            options.isNetworkAccessAllowed = allowNetwork
+            options.isNetworkAccessAllowed = false
             manager.requestData(for: resource, options: options) { data in
                 state.append(data)
             } completionHandler: { error in
