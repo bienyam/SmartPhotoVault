@@ -16,7 +16,7 @@ enum CleanCategory: String, CaseIterable, Identifiable {
         case .sloMo: "Slo-mo videos"
         case .timeLapse: "Time-lapse videos"
         case .panoramas: "Panoramas"
-        case .savedImages: "Maybe saved from chats"
+        case .savedImages: "Maybe saved from chats or the web"
         }
     }
 
@@ -50,7 +50,7 @@ enum CleanCategory: String, CaseIterable, Identifiable {
         case .panoramas:
             "Panoramas are very wide, high-resolution photos, often several times the size of a normal photo."
         case .savedImages:
-            "Photos doesn't record which app an image came from, so this is a guess. TidyAway looks for chat-app file names, and for smaller images with no location, which is typical of pictures saved from chats and the web. Some of your own photos may appear here, so look carefully."
+            "Photos doesn't record which app an image came from, so this is a guess. TidyAway looks for chat-app file names, and for smaller images with no location, which is typical of pictures saved from chats and the web. Some of your own photos may appear here too, such as cropped photos or ones from older phones, so look carefully."
         }
     }
 
@@ -88,7 +88,8 @@ enum SavedImageHeuristic {
         return max(width, height) <= maxChatSide
     }
 
-    /// WhatsApp ("IMG-20240512-WA0007.jpg") and Telegram ("photo_2024-05-12_10-20-30.jpg") naming.
+    /// Android WhatsApp ("IMG-20240512-WA0007.jpg") and Telegram ("photo_2024-05-12_10-20-30.jpg") naming.
+    /// Mostly seen in libraries moved over from Android; on iPhone, the size and location test does most of the work.
     static func hasChatFilename(_ name: String) -> Bool {
         let patterns = [#"-WA\d+\."#, #"^photo_\d{4}-\d{2}-\d{2}"#]
         return patterns.contains { name.range(of: $0, options: [.regularExpression, .caseInsensitive]) != nil }

@@ -75,6 +75,8 @@ struct MessagesAttachmentsGuide: View {
             Section("Keep less in future") {
                 step(1, "Open Settings, then Apps, then Messages. On older iOS versions, Messages is listed directly in Settings.")
                 step(2, "Tap Keep Messages and choose 1 Year or 30 Days.")
+                Text("This deletes whole older messages, including the text, not just the attachments. Leave it on Forever if you want to keep your message history.")
+                    .font(.footnote).foregroundStyle(.orange)
             }
             Section {
                 Text("If Messages in iCloud is on, deleting an attachment removes it from your other Apple devices too. Save anything you want to keep to Photos first: open the conversation, touch and hold the photo, and tap Save.")
