@@ -6,19 +6,45 @@ import UniformTypeIdentifiers
 struct PhotoArchiveView: View {
     let snapshot: ScanSnapshot?
 
-    private enum Filter: String, CaseIterable {
-        case large = "Largest photos"
-        case old = "Photos over two years old"
-        case screenshots = "Screenshots"
+    private enum Age: String, CaseIterable {
+        case any = "Any time"
+        case one = "Over 1 year old"
+        case two = "Over 2 years old"
+        case five = "Over 5 years old"
 
-        var icon: String {
+        var years: Int? {
             switch self {
-            case .large: "arrow.down.to.line"
-            case .old: "calendar"
-            case .screenshots: "iphone"
+            case .any: nil
+            case .one: 1
+            case .two: 2
+            case .five: 5
             }
         }
     }
+
+    private enum SizeFloor: String, CaseIterable {
+        case any = "Any size"
+        case five = "Over 5 MB"
+        case ten = "Over 10 MB"
+        case twentyFive = "Over 25 MB"
+
+        var bytes: Int64 {
+            switch self {
+            case .any: 0
+            case .five: 5_000_000
+            case .ten: 10_000_000
+            case .twentyFive: 25_000_000
+            }
+        }
+    }
+
+    private enum Kind: String, CaseIterable {
+        case photos = "All photos"
+        case screenshots = "Screenshots only"
+        case notScreenshots = "No screenshots"
+    }
+
+    private static let suggestionLimit = 200
 
     private enum PickerPurpose {
         case files, archive, restore
@@ -64,7 +90,10 @@ struct PhotoArchiveView: View {
     @State private var restoreFolder: URL?
     @State private var picker: PickerPurpose = .files
     @State private var showFiles = false
-    @State private var filter: Filter?
+    @State private var age: Age = .two
+    @State private var sizeFloor: SizeFloor = .any
+    @State private var kind: Kind = .photos
+    @State private var showSuggested = false
     @State private var suggested: [ArchiveItem] = []
     @State private var archiveConsent = false
     @State private var restoreConsent = false
@@ -176,13 +205,33 @@ struct PhotoArchiveView: View {
                 Label("Pick files myself", systemImage: "folder")
             }
             if let snapshot, !snapshot.includedCloudDownloads {
-                ForEach(Filter.allCases, id: \.self) { option in
-                    Button { showSuggestions(option, from: snapshot) } label: {
-                        Label(option.rawValue, systemImage: option.icon)
-                    }
+                Picker("Taken", selection: $age) {
+                    ForEach(Age.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                 }
-                if let filter {
-                    LabeledContent(filter.rawValue, value: suggested.count.formatted())
+                Picker("Size", selection: $sizeFloor) {
+                    ForEach(SizeFloor.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                }
+                Picker("Kind", selection: $kind) {
+                    ForEach(Kind.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                }
+                Button { showSuggestions(from: snapshot) } label: {
+                    Label("Show matching photos", systemImage: "line.3.horizontal.decrease.circle")
+                }
+                if showSuggested {
+                    let matchingBytes = suggested.compactMap { bytes(for: $0) }.reduce(Int64(0), +)
+                    LabeledContent("Matching photos", value: "\(suggested.count.formatted()) · \(formattedBytes(matchingBytes))")
+                    if suggested.isEmpty {
+                        Text("No photos from your last scan match. Try a wider choice.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    } else {
+                        Button("Add all \(suggested.count.formatted()) to the selection") {
+                            for item in suggested { add(item) }
+                        }
+                        if suggested.count == Self.suggestionLimit {
+                            Text("Showing the \(Self.suggestionLimit) largest matches. Archive these, then choose again for more.")
+                                .font(.footnote).foregroundStyle(.secondary)
+                        }
+                    }
                     ForEach(suggested) { item in
                         Button { toggle(item) } label: {
                             Label {
@@ -208,6 +257,9 @@ struct PhotoArchiveView: View {
             ForEach(items) { item in
                 Button { toggle(item) } label: {
                     HStack {
+                        if case .photo(let id, _) = item.source {
+                            AssetThumbnail(assetID: id)
+                        }
                         VStack(alignment: .leading) {
                             Text(item.name).foregroundStyle(.primary)
                             Text(item.sourceLabel).font(.caption).foregroundStyle(.secondary)
@@ -395,30 +447,33 @@ struct PhotoArchiveView: View {
         photoSelection = []
     }
 
-    private func showSuggestions(_ option: Filter, from snapshot: ScanSnapshot) {
-        let cutoff = Calendar.current.date(byAdding: .year, value: -2, to: .now) ?? .distantPast
+    private func showSuggestions(from snapshot: ScanSnapshot) {
+        let cutoff = age.years.flatMap { Calendar.current.date(byAdding: .year, value: -$0, to: .now) }
+        let minimum = sizeFloor.bytes
+        let wanted = kind
         let records = snapshot.assets.filter { record in
             guard record.issue == nil, !record.favorite, record.mediaType == PHAssetMediaType.image.rawValue,
-                  record.resources.count == 1, record.resources.first?.type == PHAssetResourceType.photo.rawValue else { return false }
-            switch option {
-            case .large: return true
-            case .old: return record.createdAt.map { $0 < cutoff } ?? false
+                  record.resources.count == 1, record.resources.first?.type == PHAssetResourceType.photo.rawValue,
+                  record.bytes >= minimum else { return false }
+            if let cutoff, !(record.createdAt.map { $0 < cutoff } ?? false) { return false }
+            switch wanted {
+            case .photos: return true
             case .screenshots: return record.isScreenshot == true
+            case .notScreenshots: return record.isScreenshot != true
             }
         }.sorted { left, right in
-            if option == .old { return (left.createdAt ?? .distantFuture) < (right.createdAt ?? .distantFuture) }
-            return left.bytes > right.bytes
-        }
+            left.bytes == right.bytes ? left.id < right.id : left.bytes > right.bytes
+        }.prefix(Self.suggestionLimit)
         let assets = PHAsset.fetchAssets(withLocalIdentifiers: records.map(\.id), options: nil)
         var names: [String: String] = [:]
         assets.enumerateObjects { asset, _, _ in
             names[asset.localIdentifier] = VerifiedArchive.original(for: asset)?.originalFilename
         }
-        suggested = records.lazy.compactMap { record -> ArchiveItem? in
+        suggested = records.compactMap { record -> ArchiveItem? in
             guard let name = names[record.id] else { return nil }
             return ArchiveItem(id: record.id, name: name, source: .photo(record.id, expected: record.resources.first))
-        }.prefix(20).map { $0 }
-        filter = option
+        }
+        showSuggested = true
     }
 
     private func add(_ item: ArchiveItem) {

@@ -190,6 +190,18 @@ final class DashboardUITests: XCTestCase {
         XCTAssertFalse(delete.isEnabled, "Each removal needs a fresh sign-off.")
     }
 
+    func testArchiveTabOpensTheArchiveWorkflow() {
+        let app = XCUIApplication()
+        app.launchArguments += ["--skip-welcome"]
+        app.launch()
+        app.tabBars.buttons["Archive"].tap()
+        XCTAssertTrue(app.navigationBars["Archive originals"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Make an archive copy"].exists)
+        let files = app.buttons["Pick files myself"]
+        reveal(files, in: app)
+        XCTAssertTrue(files.waitForExistence(timeout: 5))
+    }
+
     func testFirstLaunchWelcomeLeadsToHome() {
         let app = XCUIApplication()
         app.launchArguments += ["--reset-welcome"]
