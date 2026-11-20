@@ -48,7 +48,11 @@ struct RootView: View {
             }
             .tabItem { Label("Archive", systemImage: "archivebox") }
             NavigationStack {
-                PhotoDetailsView(model: model, destination: .help)
+                ArchivedView()
+            }
+            .tabItem { Label("Archived", systemImage: "square.grid.2x2") }
+            NavigationStack {
+                LedgerView(model: model)
             }
             .tabItem { Label("Ledger", systemImage: "checkmark.shield") }
         }

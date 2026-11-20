@@ -12,6 +12,8 @@ If you choose files for size analysis, the app reads the names and reported size
 
 If you approve an archive or test restore, the app reads the items you selected and writes verified copies to the folder you chose in Files. Its provider may download source files or sync copies to your account. The app keeps per-file verification results in memory while the archive screen is open and records authorization, item counts, and an outcome in the local activity log.
 
+After a verified archive copy, the app keeps a local list of the file name, folder name, size, checksum, and date, with a saved reference to the folder you chose. The Archived tab uses this list to show what you archived and to restore a copy when you ask. The list stays on your iPhone and is removed when you delete the app.
+
 If you approve removing a synced iCloud Drive download, the app asks iCloud Drive to remove the downloaded copy from your iPhone. The authorization, selected size, and outcome are recorded in the local activity log.
 
 If you authorize removing exact duplicates, the app re-reads the copy to keep and the copies to remove, then asks Apple Photos to delete the items you approved. Apple shows its own confirmation and normally keeps deleted items in Recently Deleted for up to 30 days. If iCloud Photos is on, the deletion also applies to iCloud Photos and your synced devices. The authorization, item count, and outcome are recorded in the local activity log.

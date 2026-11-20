@@ -86,6 +86,11 @@ final class DashboardModel: ObservableObject {
 
     func cancel() { scanTask?.cancel() }
 
+    /// Other screens write to the activity log directly, so the Ledger reloads it when shown.
+    func reloadActivity() {
+        if let latest = try? store?.activity() { activity = latest }
+    }
+
     /// Removes the extra copies in one exact-duplicate group after the user has signed off.
     /// Every item is re-read and compared with the scan first. Apple Photos then shows its own
     /// confirmation, and deleted items go to Recently Deleted.
