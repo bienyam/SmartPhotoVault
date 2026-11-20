@@ -34,15 +34,14 @@ Porcelain Blue: ivory `#FCFAF5`, slate `#305270`, powder card `#E0EBF5`. Green o
 - Work in small PRs, squash-merge when CI is green.
 
 ## Status
-Merged: rename and icon, welcome screen and tabs, duplicate removal with sign-off, Archive tab filters and review.
-Open: #16 encryption declaration (`ITSAppUsesNonExemptEncryption: false`), #18 Archived tab with restore plus Ledger tab. #9 and #10 are older PRs from a previous agent that overlap main; close only if confirmed superseded.
+Merged: rename and icon, welcome screen and tabs, duplicate removal with sign-off, Archive tab filters and review, encryption declaration (#16, `ITSAppUsesNonExemptEncryption: false`), Archived tab with restore plus Ledger tab (#18).
+Open: #9 and #10 are older PRs from a previous agent that overlap main; close only if confirmed superseded.
 
 ## Next
-1. Merge #16 and #18 when green.
-2. Clean tab: more categories (screenshots, GIFs, bursts, Live Photos, slo-mo/time-lapse, panoramas, chat/meme heuristic as review-only, a guide for Messages attachments).
-3. Archive: album and place filters (the scan does not record these yet), video suggestions.
-4. Pro upgrade placement.
-5. App Store Connect: turn on automatic distribution for the internal TestFlight group (create a new internal group if the existing one cannot be edited).
-6. Nothing has been tested on a physical iPhone yet: test deletion with throwaway duplicates, and archive copy and restore.
+1. Clean tab: more categories (screenshots, GIFs, bursts, Live Photos, slo-mo/time-lapse, panoramas, chat/meme heuristic as review-only, a guide for Messages attachments).
+2. Archive: album and place filters (the scan does not record these yet), video suggestions.
+3. Pro upgrade placement.
+4. App Store Connect: turn on automatic distribution for the internal TestFlight group (create a new internal group if the existing one cannot be edited).
+5. Nothing has been tested on a physical iPhone yet: test deletion with throwaway duplicates, and archive copy and restore.
 
 Owner to-dos: trademark clearance for the name, consider making the repo private, pick the Pro price.
