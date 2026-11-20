@@ -15,6 +15,7 @@ final class InventoryStore {
         }
         try execute("CREATE TABLE IF NOT EXISTS snapshot (id INTEGER PRIMARY KEY CHECK(id=1), payload TEXT NOT NULL)")
         try execute("CREATE TABLE IF NOT EXISTS activity (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp REAL NOT NULL, message TEXT NOT NULL)")
+        try execute("CREATE TABLE IF NOT EXISTS archived (id TEXT PRIMARY KEY, timestamp REAL NOT NULL, payload TEXT NOT NULL)")
     }
 
     deinit { sqlite3_close(database) }
@@ -57,6 +58,34 @@ final class InventoryStore {
         sqlite3_bind_double(statement, 1, Date().timeIntervalSince1970)
         sqlite3_bind_text(statement, 2, message, -1, transient)
         guard sqlite3_step(statement) == SQLITE_DONE else { throw error() }
+    }
+
+    func saveArchived(_ records: [ArchivedRecord]) throws {
+        let encoder = JSONEncoder()
+        for record in records {
+            let json = String(decoding: try encoder.encode(record), as: UTF8.self)
+            let statement = try prepare("INSERT OR REPLACE INTO archived(id,timestamp,payload) VALUES(?,?,?)")
+            defer { sqlite3_finalize(statement) }
+            sqlite3_bind_text(statement, 1, record.id, -1, transient)
+            sqlite3_bind_double(statement, 2, record.date.timeIntervalSince1970)
+            sqlite3_bind_text(statement, 3, json, -1, transient)
+            guard sqlite3_step(statement) == SQLITE_DONE else { throw error() }
+        }
+    }
+
+    func archived() throws -> [ArchivedRecord] {
+        let statement = try prepare("SELECT payload FROM archived ORDER BY timestamp DESC, id LIMIT 2000")
+        defer { sqlite3_finalize(statement) }
+        let decoder = JSONDecoder()
+        var records: [ArchivedRecord] = []
+        while true {
+            let status = sqlite3_step(statement)
+            if status == SQLITE_DONE { return records }
+            guard status == SQLITE_ROW, let value = sqlite3_column_text(statement, 0) else { throw error() }
+            if let record = try? decoder.decode(ArchivedRecord.self, from: Data(String(cString: value).utf8)) {
+                records.append(record)
+            }
+        }
     }
 
     func activity() throws -> [ActivityEntry] {

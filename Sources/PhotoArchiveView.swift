@@ -526,6 +526,14 @@ struct PhotoArchiveView: View {
             let copied = Set(result.0.map(\.id))
             receipts.removeAll { copied.contains($0.id) }
             receipts.append(contentsOf: result.0)
+            let bookmark = Self.bookmark(for: destination)
+            let archivedAt = Date()
+            try? InventoryStore.openDefault().saveArchived(result.0.map { receipt in
+                ArchivedRecord(id: UUID().uuidString, name: receipt.url.lastPathComponent,
+                               folderName: destination.lastPathComponent, bytes: receipt.fingerprint.bytes,
+                               digest: receipt.fingerprint.digest, date: archivedAt,
+                               viaHomeServer: home, folderBookmark: bookmark)
+            })
             homeReceipts.subtract(copied)
             if home { homeReceipts.formUnion(copied) }
             restored.subtract(copied)
@@ -565,6 +573,13 @@ struct PhotoArchiveView: View {
             }
             busy = false
         }
+    }
+
+    /// Lets the Archived tab reopen the folder later without asking the user to pick it again.
+    private static func bookmark(for folder: URL) -> Data? {
+        let active = folder.startAccessingSecurityScopedResource()
+        defer { if active { folder.stopAccessingSecurityScopedResource() } }
+        return try? folder.bookmarkData()
     }
 
     private func authorize(_ action: String, count: Int) -> UUID? {

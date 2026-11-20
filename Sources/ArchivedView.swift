@@ -1,0 +1,151 @@
+import SwiftUI
+import UniformTypeIdentifiers
+
+/// One verified archive copy, kept so the user can find it and restore it later.
+struct ArchivedRecord: Codable, Identifiable, Equatable {
+    let id: String
+    let name: String
+    let folderName: String
+    let bytes: Int64
+    let digest: String
+    let date: Date
+    let viaHomeServer: Bool
+    let folderBookmark: Data?
+}
+
+/// Lists verified archive copies and restores one after sign-off.
+struct ArchivedView: View {
+    @State private var records: [ArchivedRecord] = []
+    @State private var selected: ArchivedRecord?
+    @State private var restoreFolder: URL?
+    @State private var restoreConsent = false
+    @State private var showFolders = false
+    @State private var busy = false
+    @State private var message: String?
+    @State private var wifi = ArchiveWiFi()
+
+    private let blue = Color(red: 0.22, green: 0.40, blue: 0.59)
+
+    var body: some View {
+        List {
+            if records.isEmpty {
+                Section {
+                    Text("Nothing archived yet.")
+                        .font(.headline)
+                    Text("Copies you make in the Archive tab appear here, so you can find them and restore one when you need it.")
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                Section {
+                    Text("These copies were verified when they were made. Choose one to restore a copy of it.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                Section("Archived items") {
+                    ForEach(records) { record in
+                        Button { select(record) } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(record.name).foregroundStyle(.primary)
+                                    Text("\(record.folderName) · \(ByteCountFormatter.string(fromByteCount: record.bytes, countStyle: .file)) · \(record.date.formatted(date: .abbreviated, time: .omitted))")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: selected?.id == record.id ? "checkmark.circle.fill" : "arrow.uturn.backward.circle")
+                                    .accessibilityHidden(true)
+                            }
+                        }
+                    }
+                }
+                .disabled(busy)
+            }
+            if let selected {
+                restoreSection(selected)
+            }
+            if busy {
+                Section { ProgressView("Restoring and verifying…") }
+            }
+            if let message {
+                Section { Text(message).accessibilityAddTraits(.updatesFrequently) }
+            }
+        }
+        .tint(blue)
+        .navigationTitle("Archived")
+        .navigationBarTitleDisplayMode(.inline)
+        .fileImporter(isPresented: $showFolders, allowedContentTypes: [.folder]) { result in
+            switch result {
+            case .success(let url):
+                restoreFolder = url
+                restoreConsent = false
+            case .failure(let error):
+                message = "Could not open the folder. \(error.localizedDescription)"
+            }
+        }
+        .onAppear(perform: reload)
+    }
+
+    private func restoreSection(_ record: ArchivedRecord) -> some View {
+        Section("Restore a copy") {
+            Text(record.name)
+            Button { showFolders = true } label: {
+                Label(restoreFolder.map { "Change folder (\($0.lastPathComponent))" } ?? "Choose where to restore it", systemImage: "folder")
+            }
+            if restoreFolder != nil {
+                Toggle("I authorize creating a copy here. It uses storage and the folder’s provider may sync it. The archive copy stays in place.", isOn: $restoreConsent)
+                Button("Restore and verify") { beginRestore(record) }
+                    .fontWeight(.semibold)
+                    .disabled(!restoreConsent)
+            }
+        }
+        .disabled(busy)
+    }
+
+    private func reload() {
+        records = (try? InventoryStore.openDefault().archived()) ?? []
+    }
+
+    private func select(_ record: ArchivedRecord) {
+        selected = record
+        restoreFolder = nil
+        restoreConsent = false
+        message = nil
+    }
+
+    private func beginRestore(_ record: ArchivedRecord) {
+        guard !busy, restoreConsent, let restoreFolder else { return }
+        restoreConsent = false
+        var stale = false
+        guard let bookmark = record.folderBookmark,
+              let folder = try? URL(resolvingBookmarkData: bookmark, bookmarkDataIsStale: &stale) else {
+            message = "TidyAway can no longer open that archive folder. Your copy is still in \(record.folderName): open it in Files to find \(record.name)."
+            return
+        }
+        let receipt = ArchiveReceipt(id: record.id, url: folder.appendingPathComponent(record.name), folder: folder,
+                                     fingerprint: ArchiveFingerprint(bytes: record.bytes, digest: record.digest))
+        let wifiCheck: ArchiveWiFi? = record.viaHomeServer ? wifi : nil
+        let operation = UUID()
+        do {
+            try InventoryStore.openDefault().log("Authorized archive restore (\(operation)), disclosure v1, 1 items.")
+        } catch {
+            message = "The app could not save your authorization. Try again."
+            return
+        }
+        busy = true
+        message = nil
+        Task {
+            let result = await Task.detached(priority: .userInitiated) {
+                Result { try VerifiedArchive.restore(receipt, to: restoreFolder, wifi: wifiCheck) }
+            }.value
+            switch result {
+            case .success(let url):
+                message = "Restored and verified \(url.lastPathComponent) in \(restoreFolder.lastPathComponent)."
+                try? InventoryStore.openDefault().log("Archive restore \(operation) verified.")
+            case .failure(let error):
+                message = "Restore failed. \(error.localizedDescription)"
+                try? InventoryStore.openDefault().log("Archive restore \(operation) failed.")
+            }
+            busy = false
+        }
+    }
+}

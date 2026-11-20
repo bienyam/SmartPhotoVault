@@ -202,6 +202,17 @@ final class DashboardUITests: XCTestCase {
         XCTAssertTrue(files.waitForExistence(timeout: 5))
     }
 
+    func testArchivedAndLedgerTabsOpen() {
+        let app = XCUIApplication()
+        app.launchArguments += ["--skip-welcome"]
+        app.launch()
+        app.tabBars.buttons["Archived"].tap()
+        XCTAssertTrue(app.navigationBars["Archived"].waitForExistence(timeout: 10))
+        app.tabBars.buttons["Ledger"].tap()
+        XCTAssertTrue(app.navigationBars["Ledger"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["Storage and cost analysis"].waitForExistence(timeout: 5))
+    }
+
     func testFirstLaunchWelcomeLeadsToHome() {
         let app = XCUIApplication()
         app.launchArguments += ["--reset-welcome"]
