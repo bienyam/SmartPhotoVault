@@ -36,6 +36,18 @@ actor DuplicateScanner {
         return records
     }
 
+    /// Re-reads every resource of one asset so a removal can be checked against the scan.
+    /// Returns nil when the asset is gone or has no readable resources.
+    func fingerprint(for id: String) async throws -> String? {
+        guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject else { return nil }
+        let resources = PHAssetResource.assetResources(for: asset)
+        guard !resources.isEmpty else { return nil }
+        var fingerprints: [ResourceFingerprint] = []
+        for resource in resources { fingerprints.append(try await hash(resource)) }
+        return AssetRecord(id: id, filename: "", mediaType: asset.mediaType.rawValue, favorite: asset.isFavorite,
+                           createdAt: nil, resources: fingerprints, issue: nil).fingerprint
+    }
+
     func archiveFingerprint(for id: String) async throws -> ResourceFingerprint {
         guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject,
               let resource = VerifiedArchive.original(for: asset) else { throw ArchiveError.unsupportedPhoto }

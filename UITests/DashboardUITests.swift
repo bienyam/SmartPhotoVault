@@ -163,6 +163,33 @@ final class DashboardUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Choose files to analyze"].exists)
     }
 
+    func testDuplicateRemovalNeedsSignOffAndSampleDataRemovesNothing() {
+        let app = XCUIApplication()
+        app.launchArguments += ["--skip-welcome"]
+        app.launch()
+        app.buttons["Find duplicates"].tap()
+        let samples = app.buttons["Explore sample results"]
+        reveal(samples, in: app)
+        XCTAssertTrue(samples.waitForExistence(timeout: 5))
+        samples.tap()
+        let review = app.buttons["Review duplicate groups"]
+        reveal(review, in: app)
+        XCTAssertTrue(review.waitForExistence(timeout: 5))
+        review.tap()
+        XCTAssertTrue(app.navigationBars["Exact duplicates"].waitForExistence(timeout: 5))
+        let delete = app.buttons["Delete 1 item from Apple Photos"]
+        reveal(delete, in: app)
+        XCTAssertTrue(delete.waitForExistence(timeout: 5))
+        XCTAssertFalse(delete.isEnabled, "Removal must stay off until the user signs off.")
+        let signOff = app.buttons["I understand and authorize these changes"]
+        reveal(signOff, in: app)
+        signOff.tap()
+        XCTAssertTrue(delete.isEnabled)
+        delete.tap()
+        XCTAssertTrue(app.staticTexts["Sample data. Nothing was removed."].waitForExistence(timeout: 5))
+        XCTAssertFalse(delete.isEnabled, "Each removal needs a fresh sign-off.")
+    }
+
     func testFirstLaunchWelcomeLeadsToHome() {
         let app = XCUIApplication()
         app.launchArguments += ["--reset-welcome"]

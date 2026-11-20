@@ -45,6 +45,7 @@ final class DashboardModel: ObservableObject {
     private let scanner = DuplicateScanner()
     private var scanTask: Task<Void, Never>?
     private var changeObserver: LibraryChangeObserver?
+    private var ownChangePending = false
 
     init() {
         do {
@@ -65,6 +66,11 @@ final class DashboardModel: ObservableObject {
                 self.cancel()
                 self.snapshot = nil
                 self.inventory = nil
+                if self.ownChangePending {
+                    self.ownChangePending = false
+                    self.duplicateScanStatus = "Duplicates removed. Scan again to refresh the results."
+                    return
+                }
                 self.duplicateScanStatus = nil
                 self.errorMessage = "Your Photos library changed. Run a new scan to refresh the results."
             }
@@ -79,6 +85,52 @@ final class DashboardModel: ObservableObject {
     }
 
     func cancel() { scanTask?.cancel() }
+
+    /// Removes the extra copies in one exact-duplicate group after the user has signed off.
+    /// Every item is re-read and compared with the scan first. Apple Photos then shows its own
+    /// confirmation, and deleted items go to Recently Deleted.
+    func removeDuplicates(_ plan: DuplicateRemovalPlan) async -> DuplicateRemovalOutcome {
+        if isDemo { return .sample }
+        guard !isScanning else { return .blocked("Wait for the scan to finish, then try again.") }
+        let operation = String(UUID().uuidString.prefix(8))
+        let count = plan.removeIDs.count
+        try? store?.log("Authorized deleting \(count) exact duplicate item(s) from Apple Photos. Operation \(operation).")
+        defer { activity = (try? store?.activity()) ?? [] }
+        func blocked(_ reason: String) -> DuplicateRemovalOutcome {
+            try? store?.log("Operation \(operation) blocked. Nothing was removed.")
+            return .blocked(reason)
+        }
+        do {
+            guard try await scanner.fingerprint(for: plan.keepID) == plan.fingerprint else {
+                return blocked("The copy to keep could not be verified, so nothing was removed. Scan again.")
+            }
+            for id in plan.removeIDs {
+                guard try await scanner.fingerprint(for: id) == plan.fingerprint else {
+                    return blocked("An item changed since the scan, so nothing was removed. Scan again.")
+                }
+            }
+            let targets = PHAsset.fetchAssets(withLocalIdentifiers: plan.removeIDs, options: nil)
+            var includesFavorite = false
+            targets.enumerateObjects { asset, _, _ in if asset.isFavorite { includesFavorite = true } }
+            guard targets.count == count, !includesFavorite else {
+                return blocked("An item changed since the scan, so nothing was removed. Scan again.")
+            }
+            ownChangePending = true
+            try await PHPhotoLibrary.shared().performChanges {
+                PHAssetChangeRequest.deleteAssets(targets)
+            }
+            try? store?.log("Operation \(operation) finished: \(count) item(s) moved to Recently Deleted.")
+            return .removed(count: count, bytes: plan.removeBytes)
+        } catch {
+            ownChangePending = false
+            if (error as NSError).code == 3072 {
+                try? store?.log("Operation \(operation) cancelled at Apple's confirmation. Nothing was removed.")
+                return .cancelled
+            }
+            try? store?.log("Operation \(operation) failed. Nothing was removed.")
+            return .blocked("Apple Photos did not remove the items: \(error.localizedDescription)")
+        }
+    }
 
     func startMetadataScan() {
         guard !isScanning else { return }
