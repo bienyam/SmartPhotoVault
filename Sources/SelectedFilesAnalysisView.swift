@@ -56,7 +56,8 @@ struct SelectedFilesAnalysisView: View {
                     }
                 }
                 Section {
-                    NavigationLink("See ways to free up document space") { PhotoCopyOptionsView() }
+                    NavigationLink("Remove a synced iCloud Drive download") { CloudDownloadRemovalView() }
+                    NavigationLink("Archive selected files") { PhotoArchiveView(snapshot: nil, selectedFiles: entries.map(\.id)) }
                 } footer: {
                     Text("A listed size doesn’t confirm how much space a file uses on this iPhone or whether a second copy exists.")
                 }

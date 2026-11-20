@@ -24,10 +24,43 @@ struct PhotoArchiveView: View {
         case files, archive, restore
     }
 
+    private enum Destination: String, CaseIterable {
+        case iCloud = "iCloud Drive"
+        case shared = "Another Apple Account"
+        case google = "Google Drive"
+        case home = "Home file server"
+        case other = "Other Files location"
+
+        var detail: String {
+            switch self {
+            case .iCloud: "Choose a folder from iCloud Drive in Files."
+            case .shared: "Choose a folder the other Apple Account has shared with you with permission to make changes."
+            case .google: "Choose Google Drive under Locations in Files. Install and sign in to Google Drive if it’s missing."
+            case .home: "In Files, connect to your server from Browse → More → Connect to Server, then choose its shared folder. Stay on the same Wi-Fi as your server for copying, verification and restore. This workflow has no background sync."
+            case .other: "Choose a folder from another provider in Files, an attached drive, or On My iPhone."
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .iCloud, .shared: "icloud"
+            case .google: "externaldrive"
+            case .home: "server.rack"
+            case .other: "folder"
+            }
+        }
+    }
+
+    @Environment(\.locale) private var locale
     @State private var photoSelection: [PhotosPickerItem] = []
     @State private var photoAccess = PHPhotoLibrary.authorizationStatus(for: .readWrite)
     @State private var items: [ArchiveItem] = []
     @State private var destination: URL?
+    @State private var destinationKind: Destination?
+    @State private var availableGB = ""
+    @State private var measuredBytes: [String: Int64] = [:]
+    @State private var checkedPhotos: [String: ResourceFingerprint] = [:]
+    @State private var wifi = ArchiveWiFi()
     @State private var restoreFolder: URL?
     @State private var picker: PickerPurpose = .files
     @State private var showFiles = false
@@ -36,13 +69,22 @@ struct PhotoArchiveView: View {
     @State private var archiveConsent = false
     @State private var restoreConsent = false
     @State private var busy = false
+    @State private var checkingSizes = false
     @State private var message: String?
     @State private var receipts: [ArchiveReceipt] = []
     @State private var restoreTarget: ArchiveReceipt?
     @State private var restored: Set<String> = []
+    @State private var homeReceipts: Set<String> = []
     @State private var failures: [String] = []
 
     private let blue = Color(red: 0.22, green: 0.40, blue: 0.59)
+
+    init(snapshot: ScanSnapshot?, selectedFiles: [URL] = []) {
+        self.snapshot = snapshot
+        _items = State(initialValue: selectedFiles.map {
+            ArchiveItem(id: $0.absoluteString, name: $0.lastPathComponent, source: .file($0))
+        })
+    }
 
     var body: some View {
         List {
@@ -57,9 +99,10 @@ struct PhotoArchiveView: View {
                 .padding(.vertical, 8)
             }
             if busy {
-                Section { ProgressView("Copying and verifying…") }
+                Section { ProgressView(checkingSizes ? "Checking selected sizes…" : "Copying and verifying…") }
             }
             Group {
+                destinationSection
                 selectionSection
                 if !items.isEmpty { reviewSection }
                 if !receipts.isEmpty || !failures.isEmpty { resultsSection }
@@ -81,8 +124,38 @@ struct PhotoArchiveView: View {
         .onChange(of: photoSelection) { _, selection in addPhotos(selection) }
     }
 
+    private var destinationSection: some View {
+        Section("1. Connect an archive folder") {
+            Picker("Storage location", selection: $destinationKind) {
+                Text("Choose a destination").tag(nil as Destination?)
+                ForEach(Destination.allCases, id: \.self) { kind in
+                    Label(kind.rawValue, systemImage: kind.icon).tag(Optional(kind))
+                }
+            }
+            .onChange(of: destinationKind) {
+                destination = nil
+                availableGB = ""
+                archiveConsent = false
+            }
+            if let destinationKind {
+                Text(destinationKind.detail).font(.footnote).foregroundStyle(.secondary)
+                Button { openPicker(.archive) } label: {
+                    Label(destination.map { "Change folder (\($0.lastPathComponent))" } ?? "Choose archive folder in Files",
+                          systemImage: "folder.badge.plus")
+                }
+                if destination != nil {
+                    TextField("Available space shown by provider (GB, optional)", text: $availableGB)
+                        .keyboardType(.decimalPad)
+                        .onChange(of: availableGB) { archiveConsent = false }
+                    Text("Files doesn’t supply a verified account quota. Use the available space shown by your provider for an estimate.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
     private var selectionSection: some View {
-        Section("Choose what to copy") {
+        Section("2. Choose what to copy") {
             switch photoAccess {
             case .authorized, .limited:
                 PhotosPicker(selection: $photoSelection, maxSelectionCount: 25, matching: .images, photoLibrary: .shared()) {
@@ -131,7 +204,7 @@ struct PhotoArchiveView: View {
     }
 
     private var reviewSection: some View {
-        Section("Review your copy") {
+        Section("3. Review space and approve") {
             ForEach(items) { item in
                 Button { toggle(item) } label: {
                     HStack {
@@ -145,18 +218,92 @@ struct PhotoArchiveView: View {
                 }
                 .accessibilityLabel("Remove \(item.name) from selection")
             }
-            Button { openPicker(.archive) } label: {
-                Label(destination.map { "Change folder (\($0.lastPathComponent))" } ?? "Choose archive folder", systemImage: "folder.badge.plus")
+            let unmeasured = items.filter { bytes(for: $0) == nil }.count
+            let selectedBytes = items.compactMap { bytes(for: $0) }.reduce(Int64(0), +)
+            let comparison = ArchiveCapacity(selected: selectedBytes, available: availableBytes)
+            LabeledContent(unmeasured == 0 ? "Selected size" : "Known selected size", value: formattedBytes(selectedBytes))
+            if unmeasured > 0 {
+                Button("Check sizes of \(unmeasured) items", action: measureSelection)
+            }
+            if let available = comparison.available {
+                LabeledContent("Available space you entered", value: formattedBytes(available))
+            }
+            if comparison.fits == false {
+                Label("This selection exceeds the space entered. Remove items or choose a different folder.", systemImage: "exclamationmark.triangle")
+            } else if unmeasured == 0, comparison.fits == true {
+                Text("The selection fits the space entered. Your provider makes the final capacity check.")
+            } else if destination != nil {
+                Text(unmeasured > 0 && comparison.available != nil
+                     ? "Check the remaining item sizes for a complete comparison, or try a small batch."
+                     : "Capacity is unconfirmed. You can enter the available space shown by your provider or try a small batch.")
+            }
+            if !availableGB.isEmpty && availableBytes == nil {
+                Text("Enter available space as a number in GB.").foregroundStyle(.secondary)
             }
             if let destination {
-                Text(destination.path(percentEncoded: false))
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                LabeledContent("Archive folder", value: destination.lastPathComponent)
                 Toggle("I authorize copying these items to this folder. Files providers may download selected files and sync these copies. Source items stay where they are and this step frees no space.", isOn: $archiveConsent)
                 Button("Copy and verify", action: beginCopy)
                     .fontWeight(.semibold)
-                    .disabled(!archiveConsent)
+                    .disabled(!archiveConsent || comparison.fits == false || (!availableGB.isEmpty && availableBytes == nil))
+            } else {
+                Text("Choose an archive folder above to continue.")
             }
+        }
+    }
+
+    private var availableBytes: Int64? {
+        let formatter = NumberFormatter()
+        formatter.locale = locale
+        formatter.numberStyle = .decimal
+        guard let gb = formatter.number(from: availableGB)?.doubleValue, gb >= 0, gb < 9_000_000_000 else { return nil }
+        return Int64(gb * 1_000_000_000)
+    }
+
+    private func bytes(for item: ArchiveItem) -> Int64? {
+        if case .photo(_, let expected?) = item.source { return expected.bytes }
+        return measuredBytes[item.id]
+    }
+
+    private func formattedBytes(_ bytes: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
+
+    private func measureSelection() {
+        let selection = items.filter { bytes(for: $0) == nil }
+        busy = true
+        checkingSizes = true
+        archiveConsent = false
+        message = nil
+        Task {
+            let result = await Task.detached(priority: .userInitiated) {
+                var sizes: [String: Int64] = [:]
+                var photos: [String: ResourceFingerprint] = [:]
+                let scanner = DuplicateScanner()
+                for item in selection {
+                    switch item.source {
+                    case .photo(let id, _):
+                        if let fingerprint = try? await scanner.archiveFingerprint(for: id) {
+                            sizes[item.id] = fingerprint.bytes
+                            photos[item.id] = fingerprint
+                        }
+                    case .file(let url):
+                        let scoped = url.startAccessingSecurityScopedResource()
+                        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                        if let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize {
+                            sizes[item.id] = Int64(size)
+                        }
+                    }
+                }
+                return (sizes, photos)
+            }.value
+            measuredBytes.merge(result.0) { _, new in new }
+            checkedPhotos.merge(result.1) { _, new in new }
+            if result.0.count < selection.count {
+                message = "Some sizes couldn’t be read. Photos are checked without downloading iCloud originals."
+            }
+            checkingSizes = false
+            busy = false
         }
     }
 
@@ -221,6 +368,7 @@ struct PhotoArchiveView: View {
                 }
             case .archive:
                 destination = urls.first
+                availableGB = ""
                 archiveConsent = false
             case .restore:
                 restoreFolder = urls.first
@@ -282,6 +430,8 @@ struct PhotoArchiveView: View {
     private func toggle(_ item: ArchiveItem) {
         if let index = items.firstIndex(where: { $0.id == item.id }) {
             items.remove(at: index)
+            measuredBytes[item.id] = nil
+            checkedPhotos[item.id] = nil
             archiveConsent = false
         } else {
             add(item)
@@ -289,8 +439,18 @@ struct PhotoArchiveView: View {
     }
 
     private func beginCopy() {
-        guard !busy, archiveConsent, let destination else { return }
-        let selection = items
+        guard !busy, archiveConsent, let destination, !items.isEmpty,
+              availableGB.isEmpty || availableBytes != nil else { return }
+        let selectedBytes = items.compactMap { bytes(for: $0) }.reduce(Int64(0), +)
+        guard ArchiveCapacity(selected: selectedBytes, available: availableBytes).fits != false else { return }
+        let home = destinationKind == .home
+        let wifiCheck = wifi
+        let selection = items.map { item in
+            if case let .photo(id, nil) = item.source, let measured = checkedPhotos[item.id] {
+                return ArchiveItem(id: item.id, name: item.name, source: .photo(id, expected: measured))
+            }
+            return item
+        }
         archiveConsent = false
         guard let operation = authorize("archive copy", count: selection.count) else { return }
         busy = true
@@ -301,7 +461,9 @@ struct PhotoArchiveView: View {
                 var successes: [ArchiveReceipt] = []
                 var failures: [String] = []
                 for item in selection {
-                    do { successes.append(try VerifiedArchive.copy(item, to: destination)) }
+                    do {
+                        successes.append(try VerifiedArchive.copy(item, to: destination, wifi: home ? wifiCheck : nil))
+                    }
                     catch { failures.append("\(item.name) — \(error.localizedDescription)") }
                 }
                 return (successes, failures)
@@ -309,9 +471,15 @@ struct PhotoArchiveView: View {
             let copied = Set(result.0.map(\.id))
             receipts.removeAll { copied.contains($0.id) }
             receipts.append(contentsOf: result.0)
+            homeReceipts.subtract(copied)
+            if home { homeReceipts.formUnion(copied) }
             restored.subtract(copied)
             failures = result.1
             items.removeAll { copied.contains($0.id) }
+            for id in copied {
+                measuredBytes[id] = nil
+                checkedPhotos[id] = nil
+            }
             recordOutcome("Archive copy \(operation) completed. Verified \(copied.count) of \(selection.count) items.")
             busy = false
         }
@@ -319,13 +487,17 @@ struct PhotoArchiveView: View {
 
     private func beginRestore() {
         guard !busy, restoreConsent, let restoreTarget, let restoreFolder else { return }
+        let home = homeReceipts.contains(restoreTarget.id)
+        let wifiCheck = wifi
         restoreConsent = false
         guard let operation = authorize("archive test restore", count: 1) else { return }
         busy = true
         message = nil
         Task {
             let result = await Task.detached(priority: .userInitiated) {
-                Result { try VerifiedArchive.restore(restoreTarget, to: restoreFolder) }
+                Result {
+                    try VerifiedArchive.restore(restoreTarget, to: restoreFolder, wifi: home ? wifiCheck : nil)
+                }
             }.value
             switch result {
             case .success(let url):

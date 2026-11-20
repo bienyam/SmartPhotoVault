@@ -36,7 +36,7 @@ struct ArchiveReceipt: Identifiable, Sendable {
 }
 
 enum ArchiveError: LocalizedError {
-    case unsupportedPhoto, missingFile, conflict, verification, sameFolder, unavailable
+    case unsupportedPhoto, missingFile, conflict, verification, sameFolder, unavailable, wifi
 
     var errorDescription: String? {
         switch self {
@@ -46,13 +46,15 @@ enum ArchiveError: LocalizedError {
         case .verification: "The copied bytes did not match the original."
         case .sameFolder: "Choose a different folder to test restoring a copy."
         case .unavailable: "The selected location could not be opened."
+        case .wifi: "Join the same Wi-Fi network as your home server and try again."
         }
     }
 }
 
 enum VerifiedArchive {
-    static func copy(_ item: ArchiveItem, to folder: URL) throws -> ArchiveReceipt {
-        try scoped(folder) {
+    static func copy(_ item: ArchiveItem, to folder: URL, wifi: ArchiveWiFi? = nil) throws -> ArchiveReceipt {
+        try wifi?.requireConnection()
+        return try scoped(folder) {
             guard !item.name.isEmpty, item.name != ".", item.name != "..",
                   !item.name.contains("/") else { throw ArchiveError.missingFile }
             let destination = folder.appendingPathComponent(item.name)
@@ -61,13 +63,13 @@ enum VerifiedArchive {
             case let .file(source):
                 fingerprint = try scoped(source) {
                     try coordinateCopy(from: source, to: destination) { input, output in
-                        try writeVerified(to: output) { try copyFile(input, to: $0) }
+                        try writeVerified(to: output, wifi: wifi) { try copyFile(input, to: $0, wifi: wifi) }
                     }
                 }
             case let .photo(id, expected):
                 fingerprint = try coordinateWrite(to: destination) { output in
-                    try writeVerified(to: output) { temporary in
-                        let result = try copyPhoto(id, to: temporary)
+                    try writeVerified(to: output, wifi: wifi) { temporary in
+                        let result = try copyPhoto(id, to: temporary, wifi: wifi)
                         if let expected, result != ArchiveFingerprint(bytes: expected.bytes, digest: expected.digest) {
                             throw ArchiveError.verification
                         }
@@ -79,14 +81,15 @@ enum VerifiedArchive {
         }
     }
 
-    static func restore(_ receipt: ArchiveReceipt, to folder: URL) throws -> URL {
+    static func restore(_ receipt: ArchiveReceipt, to folder: URL, wifi: ArchiveWiFi? = nil) throws -> URL {
+        try wifi?.requireConnection()
         guard receipt.folder.standardizedFileURL != folder.standardizedFileURL else { throw ArchiveError.sameFolder }
         return try scoped(receipt.folder) {
             try scoped(folder) {
                 let destination = folder.appendingPathComponent(receipt.url.lastPathComponent)
                 return try coordinateCopy(from: receipt.url, to: destination) { input, output in
-                    _ = try writeVerified(to: output) { temporary in
-                        let result = try copyFile(input, to: temporary)
+                    _ = try writeVerified(to: output, wifi: wifi) { temporary in
+                        let result = try copyFile(input, to: temporary, wifi: wifi)
                         guard result == receipt.fingerprint else { throw ArchiveError.verification }
                         return result
                     }
@@ -105,11 +108,11 @@ enum VerifiedArchive {
         return resource
     }
 
-    private static func copyPhoto(_ id: String, to temporary: URL) throws -> ArchiveFingerprint {
+    private static func copyPhoto(_ id: String, to temporary: URL, wifi: ArchiveWiFi?) throws -> ArchiveFingerprint {
         guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject,
               let resource = original(for: asset) else { throw ArchiveError.unsupportedPhoto }
 
-        let writer = try ArchiveWriter(url: temporary)
+        let writer = try ArchiveWriter(url: temporary, wifi: wifi)
         let options = PHAssetResourceRequestOptions()
         options.isNetworkAccessAllowed = false
         let completion = DispatchSemaphore(value: 0)
@@ -127,12 +130,12 @@ enum VerifiedArchive {
         return try writer.result()
     }
 
-    private static func copyFile(_ source: URL, to temporary: URL) throws -> ArchiveFingerprint {
+    private static func copyFile(_ source: URL, to temporary: URL, wifi: ArchiveWiFi?) throws -> ArchiveFingerprint {
         let attributes = try source.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
         guard attributes.isRegularFile == true, attributes.isSymbolicLink != true else { throw ArchiveError.missingFile }
-        let writer = try ArchiveWriter(url: temporary)
+        let writer = try ArchiveWriter(url: temporary, wifi: wifi)
         do {
-            let original = try read(source) { writer.append($0) }
+            let original = try read(source, wifi: wifi) { writer.append($0) }
             writer.finish(nil)
             guard try writer.result() == original else { throw ArchiveError.verification }
             return original
@@ -142,23 +145,28 @@ enum VerifiedArchive {
         }
     }
 
-    private static func writeVerified(to destination: URL, copy: (URL) throws -> ArchiveFingerprint) throws -> ArchiveFingerprint {
+    private static func writeVerified(to destination: URL, wifi: ArchiveWiFi?, copy: (URL) throws -> ArchiveFingerprint) throws -> ArchiveFingerprint {
+        try wifi?.requireConnection()
         let files = FileManager.default
         guard !files.fileExists(atPath: destination.path) else { throw ArchiveError.conflict }
         let temporary = destination.deletingLastPathComponent().appendingPathComponent(".\(UUID().uuidString).partial")
         defer { try? files.removeItem(at: temporary) }
         let source = try copy(temporary)
-        guard try read(temporary) == source else { throw ArchiveError.verification }
+        guard try read(temporary, wifi: wifi) == source else { throw ArchiveError.verification }
+        try wifi?.requireConnection()
         try files.moveItem(at: temporary, to: destination)
         return source
     }
 
-    private static func read(_ url: URL, chunk: (Data) -> Void = { _ in }) throws -> ArchiveFingerprint {
+    private static func read(_ url: URL, wifi: ArchiveWiFi?, chunk: (Data) -> Void = { _ in }) throws -> ArchiveFingerprint {
+        try wifi?.requireConnection()
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
         var hash = SHA256()
         var bytes: Int64 = 0
-        while let data = try handle.read(upToCount: 256 * 1024), !data.isEmpty {
+        while true {
+            try wifi?.requireConnection()
+            guard let data = try handle.read(upToCount: 256 * 1024), !data.isEmpty else { break }
             hash.update(data: data)
             bytes += Int64(data.count)
             chunk(data)
@@ -205,12 +213,14 @@ enum VerifiedArchive {
 private final class ArchiveWriter: @unchecked Sendable {
     private let lock = NSLock()
     private let handle: FileHandle
+    private let wifi: ArchiveWiFi?
     private var hash = SHA256()
     private var bytes: Int64 = 0
     private var error: Error?
     private var closed = false
 
-    init(url: URL) throws {
+    init(url: URL, wifi: ArchiveWiFi?) throws {
+        self.wifi = wifi
         guard FileManager.default.createFile(atPath: url.path, contents: nil) else { throw ArchiveError.unavailable }
         handle = try FileHandle(forWritingTo: url)
     }
@@ -220,6 +230,7 @@ private final class ArchiveWriter: @unchecked Sendable {
         defer { lock.unlock() }
         guard !closed, error == nil else { return }
         do {
+            try wifi?.requireConnection()
             try handle.write(contentsOf: data)
             hash.update(data: data)
             bytes += Int64(data.count)

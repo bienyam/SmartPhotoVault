@@ -36,6 +36,12 @@ actor DuplicateScanner {
         return records
     }
 
+    func archiveFingerprint(for id: String) async throws -> ResourceFingerprint {
+        guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject,
+              let resource = VerifiedArchive.original(for: asset) else { throw ArchiveError.unsupportedPhoto }
+        return try await hash(resource)
+    }
+
     private func hash(_ resource: PHAssetResource) async throws -> ResourceFingerprint {
         let state = ResourceHashState()
         let manager = PHAssetResourceManager.default()

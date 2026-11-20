@@ -12,4 +12,6 @@ If you choose files for size analysis, the app reads the names and reported size
 
 If you approve an archive or test restore, the app reads the items you selected and writes verified copies to the folder you chose in Files. Its provider may download source files or sync copies to your account. The app keeps per-file verification results in memory while the archive screen is open and records authorization, item counts, and an outcome in the local activity log.
 
+If you approve removing a synced iCloud Drive download, the app asks iCloud Drive to remove the downloaded copy from your iPhone. The authorization, selected size, and outcome are recorded in the local activity log.
+
 For privacy questions, use the [SmartPhotoVault support page](https://github.com/bienyam/SmartPhotoVault/issues). Issues are public, so leave out personal photos and library information.

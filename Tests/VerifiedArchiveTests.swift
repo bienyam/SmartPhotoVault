@@ -3,6 +3,12 @@ import XCTest
 @testable import SmartPhotoVault
 
 final class VerifiedArchiveTests: XCTestCase {
+    func testCapacityComparisonUsesOnlyKnownAvailableSpace() {
+        XCTAssertNil(ArchiveCapacity(selected: 100, available: nil).fits)
+        XCTAssertEqual(ArchiveCapacity(selected: 100, available: 100).fits, true)
+        XCTAssertEqual(ArchiveCapacity(selected: 100, available: 99).fits, false)
+    }
+
     func testCopyAndRestorePreserveSourceAndRejectAnOverwrite() throws {
         try withFolders { source, archive, restore in
             let bytes = Data(repeating: 0x7f, count: 600_000)
