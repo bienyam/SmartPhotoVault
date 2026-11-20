@@ -10,10 +10,11 @@ enum DemoLibrary {
         }
         func asset(_ id: String, _ name: String, _ favorite: Bool, _ resources: [ResourceFingerprint], issue: String? = nil,
                    mediaType: PHAssetMediaType = .image, subtypes: PHAssetMediaSubtype = [], animated: Bool = false,
-                   burst: (id: String, frames: Int)? = nil) -> AssetRecord {
+                   burst: (id: String, frames: Int)? = nil, pixels: (Int, Int) = (4032, 3024), hasLocation: Bool = true) -> AssetRecord {
             AssetRecord(id: id, filename: name, mediaType: mediaType.rawValue, favorite: favorite, createdAt: nil, resources: resources, issue: issue,
                         isScreenshot: subtypes.contains(.photoScreenshot), subtypes: subtypes.rawValue, animated: animated,
-                        burstID: burst?.id, burstFrames: burst?.frames)
+                        burstID: burst?.id, burstFrames: burst?.frames,
+                        pixelWidth: pixels.0, pixelHeight: pixels.1, hasLocation: hasLocation)
         }
         return ScanSnapshot(date: Date(), limitedAccess: false, includedCloudDownloads: false, assets: [
             asset("sample-1", "Beach.heic", true, [resource("synthetic beach image")]),
@@ -26,7 +27,8 @@ enum DemoLibrary {
             asset("sample-8", "Goal celebration.heic", false, [resource("synthetic burst frame")], burst: ("demo-burst", 14)),
             asset("sample-9", "Mountain view.heic", false, [resource("synthetic panorama")], subtypes: .photoPanorama),
             asset("sample-10", "Skate trick.mov", false, [resource("synthetic slow motion video", type: 2)], mediaType: .video, subtypes: .videoHighFrameRate),
-            asset("sample-11", "Sunset.mov", false, [resource("synthetic time-lapse video", type: 2)], mediaType: .video, subtypes: .videoTimelapse)
+            asset("sample-11", "Sunset.mov", false, [resource("synthetic time-lapse video", type: 2)], mediaType: .video, subtypes: .videoTimelapse),
+            asset("sample-12", "IMG-20240512-WA0007.jpg", false, [resource("synthetic chat image")], pixels: (1280, 960), hasLocation: false)
         ])
     }
 }

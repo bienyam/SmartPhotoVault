@@ -214,6 +214,7 @@ struct PhotoDetailsView: View {
                 if model.snapshot != nil {
                     CleanCategoriesSection(summaries: model.categorySummaries)
                 }
+                CleanElsewhereSection()
             case .help:
                 Section("Activity") {
                     NavigationLink("View local activity log") {
