@@ -44,7 +44,7 @@ struct RootView: View {
             }
             .tabItem { Label("Clean", systemImage: "square.on.square") }
             NavigationStack {
-                PhotoCopyOptionsView(snapshot: model.isDemo ? nil : model.snapshot)
+                PhotoArchiveView(snapshot: model.isDemo ? nil : model.snapshot)
             }
             .tabItem { Label("Archive", systemImage: "archivebox") }
             NavigationStack {
