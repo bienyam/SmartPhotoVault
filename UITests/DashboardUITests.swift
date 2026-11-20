@@ -6,6 +6,7 @@ final class DashboardUITests: XCTestCase {
     func testPrepareFullPhotoAccess() {
         let app = XCUIApplication()
         app.resetAuthorizationStatus(for: .photos)
+        app.launchArguments += ["--skip-welcome"]
         app.launch()
         app.buttons["Check my photos"].tap()
         let scan = app.buttons["Scan Apple Photos"]
@@ -34,6 +35,7 @@ final class DashboardUITests: XCTestCase {
 
     func testAuthorizedLibraryScanReviewsRealResources() {
         let app = XCUIApplication()
+        app.launchArguments += ["--skip-welcome"]
         app.launch()
         XCTAssertTrue(app.navigationBars["TidyAway"].waitForExistence(timeout: 15))
         app.buttons["Find duplicates"].tap()
@@ -61,6 +63,7 @@ final class DashboardUITests: XCTestCase {
     func testDeniedPhotosAccessShowsSettings() {
         let app = XCUIApplication()
         app.resetAuthorizationStatus(for: .photos)
+        app.launchArguments += ["--skip-welcome"]
         app.launch()
         app.buttons["Check my photos"].tap()
         let scan = app.buttons["Scan Apple Photos"]
@@ -85,6 +88,7 @@ final class DashboardUITests: XCTestCase {
 
     func testDuplicateScanExplainsLocalOnlyScope() {
         let app = XCUIApplication()
+        app.launchArguments += ["--skip-welcome"]
         app.launch()
         app.buttons["Find duplicates"].tap()
         XCTAssertTrue(app.buttons["Find exact duplicates"].waitForExistence(timeout: 5))
@@ -94,6 +98,7 @@ final class DashboardUITests: XCTestCase {
 
     func testSampleDuplicateReview() {
         let app = XCUIApplication()
+        app.launchArguments += ["--skip-welcome"]
         app.launch()
         XCTAssertTrue(app.navigationBars["TidyAway"].waitForExistence(timeout: 15))
         app.buttons["Find duplicates"].tap()
@@ -121,6 +126,7 @@ final class DashboardUITests: XCTestCase {
 
     func testStorageQuestionnaireRecommendsAnOptionUsersCanReview() {
         let app = XCUIApplication()
+        app.launchArguments += ["--skip-welcome"]
         app.launch()
         app.buttons["Analyze storage & cost"].tap()
         app.buttons["Free up phone space"].tap()
@@ -147,6 +153,7 @@ final class DashboardUITests: XCTestCase {
 
     func testFilesAnalysisCanStartWithoutAnsweringStorageQuestions() {
         let app = XCUIApplication()
+        app.launchArguments += ["--skip-welcome"]
         app.launch()
         app.buttons["Analyze storage & cost"].tap()
         let files = app.buttons["Analyze selected files"]
@@ -154,6 +161,18 @@ final class DashboardUITests: XCTestCase {
         files.tap()
         XCTAssertTrue(app.navigationBars["Analyze selected files"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["Choose files to analyze"].exists)
+    }
+
+    func testFirstLaunchWelcomeLeadsToHome() {
+        let app = XCUIApplication()
+        app.launchArguments += ["--reset-welcome"]
+        app.launch()
+        let start = app.buttons["Get started"]
+        XCTAssertTrue(start.waitForExistence(timeout: 15))
+        XCTAssertTrue(app.staticTexts["Nothing is removed until you approve it."].exists)
+        start.tap()
+        XCTAssertTrue(app.navigationBars["TidyAway"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.tabBars.buttons["Archive"].exists)
     }
 
     private func reveal(_ element: XCUIElement, in app: XCUIApplication) {

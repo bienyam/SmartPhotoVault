@@ -1,7 +1,7 @@
 import SwiftUI
 import Photos
 
-private enum DashboardDestination {
+enum DashboardDestination {
     case inventory, duplicates, help
 
     var title: String {
@@ -14,7 +14,7 @@ private enum DashboardDestination {
 }
 
 struct DashboardView: View {
-    @StateObject private var model = DashboardModel()
+    @ObservedObject var model: DashboardModel
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.colorScheme) private var colorScheme
 
@@ -33,6 +33,9 @@ struct DashboardView: View {
                             .scaledToFit()
                             .frame(maxWidth: .infinity, maxHeight: 170)
                             .accessibilityHidden(true)
+                        Text("Your photos are safe. Nothing is removed until you confirm it.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
                     }
                     .padding(18)
                     .background(.linearGradient(
@@ -102,7 +105,7 @@ struct DashboardView: View {
     }
 }
 
-private struct PhotoDetailsView: View {
+struct PhotoDetailsView: View {
     @ObservedObject var model: DashboardModel
     let destination: DashboardDestination
     @Environment(\.openURL) private var openURL
