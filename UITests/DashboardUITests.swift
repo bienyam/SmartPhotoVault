@@ -190,6 +190,32 @@ final class DashboardUITests: XCTestCase {
         XCTAssertFalse(delete.isEnabled, "Each removal needs a fresh sign-off.")
     }
 
+    func testSampleCategoriesOpenForReview() {
+        let app = XCUIApplication()
+        app.launchArguments += ["--skip-welcome"]
+        app.launch()
+        app.tabBars.buttons["Clean"].tap()
+        let samples = app.buttons["Explore sample results"]
+        reveal(samples, in: app)
+        XCTAssertTrue(samples.waitForExistence(timeout: 5))
+        samples.tap()
+        let screenshots = app.buttons["category-screenshots"]
+        reveal(screenshots, in: app)
+        guard screenshots.waitForExistence(timeout: 5) else {
+            XCTFail("Screenshots category is missing. UI: \(app.debugDescription)")
+            return
+        }
+        XCTAssertTrue(app.buttons["category-bursts"].exists)
+        screenshots.tap()
+        XCTAssertTrue(app.navigationBars["Screenshots"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Boarding pass.png"].exists)
+        XCTAssertFalse(app.staticTexts["Beach.heic"].exists)
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "Sample screenshots category"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     func testArchiveTabOpensTheArchiveWorkflow() {
         let app = XCUIApplication()
         app.launchArguments += ["--skip-welcome"]

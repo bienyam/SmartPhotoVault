@@ -211,6 +211,9 @@ struct PhotoDetailsView: View {
                         }
                     }
                 }
+                if let snapshot = model.snapshot {
+                    CleanCategoriesSection(snapshot: snapshot)
+                }
             case .help:
                 Section("Activity") {
                     NavigationLink("View local activity log") {

@@ -16,6 +16,14 @@ struct AssetRecord: Codable, Identifiable {
     let resources: [ResourceFingerprint]
     let issue: String?
     var isScreenshot: Bool? = nil
+    // Added for Clean categories. Nil in scans saved before these were recorded.
+    var subtypes: UInt? = nil
+    var animated: Bool? = nil
+    var burstID: String? = nil
+    var burstFrames: Int? = nil
+    var pixelWidth: Int? = nil
+    var pixelHeight: Int? = nil
+    var hasLocation: Bool? = nil
 
     var fingerprint: String? {
         guard issue == nil, !resources.isEmpty else { return nil }
