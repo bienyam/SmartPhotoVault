@@ -2,18 +2,18 @@ import SwiftUI
 
 /// Clean tab section listing each category with its count and measured size.
 struct CleanCategoriesSection: View {
-    let snapshot: ScanSnapshot
+    /// Nil for scans saved before categories were recorded.
+    let summaries: [CleanCategorySummary]?
 
     var body: some View {
         Section {
-            if snapshot.recordsCategories {
-                ForEach(CleanCategory.allCases) { category in
-                    let summary = snapshot.summary(for: category)
+            if let summaries {
+                ForEach(summaries, id: \.category) { summary in
                     if summary.items.isEmpty {
                         row(summary)
                     } else {
                         NavigationLink { CleanCategoryReviewView(summary: summary) } label: { row(summary) }
-                            .accessibilityIdentifier("category-\(category.rawValue)")
+                            .accessibilityIdentifier("category-\(summary.category.rawValue)")
                     }
                 }
             } else {
@@ -36,6 +36,9 @@ struct CleanCategoriesSection: View {
 
     private func detail(_ summary: CleanCategorySummary) -> String {
         guard !summary.items.isEmpty else { return "None found" }
+        if summary.category == .bursts {
+            return "\(summary.items.count.formatted()) · \(summary.burstFrames.formatted()) frames"
+        }
         let size = ByteCountFormatter.string(fromByteCount: summary.knownBytes, countStyle: .file)
         return "\(summary.items.count.formatted()) · \(size)"
     }
@@ -49,7 +52,13 @@ struct CleanCategoryReviewView: View {
             Section {
                 Text(summary.category.guidance).font(.footnote)
                 LabeledContent("Items", value: summary.items.count.formatted())
-                LabeledContent("Measured size (estimate)", value: ByteCountFormatter.string(fromByteCount: summary.knownBytes, countStyle: .file))
+                if summary.category == .bursts {
+                    LabeledContent("Frames kept", value: summary.burstFrames.formatted())
+                    Text("Sizes below are for the one photo Photos shows from each burst. The hidden frames take space too.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                } else {
+                    LabeledContent("Measured size (estimate)", value: ByteCountFormatter.string(fromByteCount: summary.knownBytes, countStyle: .file))
+                }
                 if summary.unreadCount > 0 {
                     Text("\(summary.unreadCount.formatted()) not on this iPhone, so their size isn't counted.")
                         .font(.footnote).foregroundStyle(.secondary)

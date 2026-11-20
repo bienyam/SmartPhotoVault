@@ -45,6 +45,19 @@ final class CleanCategoryTests: XCTestCase {
         XCTAssertFalse(CleanCategory.bursts.includes(record("single", bytes: 1)))
     }
 
+    func testEachBurstIsListedOnceAndCountsItsHiddenFrames() {
+        var first = record("b1", bytes: 10, burstID: "burst")
+        first.burstFrames = 9
+        var pick = record("b2", bytes: 20, burstID: "burst")
+        pick.burstFrames = 9
+        var other = record("c1", bytes: 5, burstID: "other")
+        other.burstFrames = 3
+        let result = snapshot([first, pick, other]).summary(for: .bursts)
+        XCTAssertEqual(result.items.count, 2)
+        XCTAssertEqual(result.burstFrames, 12)
+        XCTAssertEqual(snapshot([first, other]).cleanSummaries().map(\.category), CleanCategory.allCases)
+    }
+
     func testScansSavedBeforeCategoriesStillLoadAndAskForARescan() throws {
         let old = """
         {"date":0,"limitedAccess":false,"includedCloudDownloads":false,"assets":[

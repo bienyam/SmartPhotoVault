@@ -211,8 +211,8 @@ struct PhotoDetailsView: View {
                         }
                     }
                 }
-                if let snapshot = model.snapshot {
-                    CleanCategoriesSection(snapshot: snapshot)
+                if model.snapshot != nil {
+                    CleanCategoriesSection(summaries: model.categorySummaries)
                 }
             case .help:
                 Section("Activity") {

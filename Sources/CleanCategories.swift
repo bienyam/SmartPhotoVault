@@ -71,14 +71,28 @@ struct CleanCategorySummary {
     /// Bytes of items read in full during the scan. An estimate, not guaranteed recoverable space.
     var knownBytes: Int64 { items.filter { $0.fingerprint != nil }.reduce(0) { $0 + $1.bytes } }
     var unreadCount: Int { items.filter { $0.fingerprint == nil }.count }
+    /// Bursts only: every frame Photos keeps, including the hidden ones.
+    var burstFrames: Int { items.reduce(0) { $0 + max($1.burstFrames ?? 1, 1) } }
 }
 
 extension ScanSnapshot {
     /// False for scans saved before categories were recorded; those need a new scan.
     var recordsCategories: Bool { assets.isEmpty || assets.contains { $0.subtypes != nil } }
 
+    /// All categories at once, so views don't re-filter the library on every redraw.
+    func cleanSummaries() -> [CleanCategorySummary] {
+        CleanCategory.allCases.map(summary(for:))
+    }
+
     func summary(for category: CleanCategory) -> CleanCategorySummary {
-        let items = assets.filter(category.includes).sorted { lhs, rhs in
+        var seenBursts = Set<String>()
+        let matching = assets.filter { asset in
+            guard category.includes(asset) else { return false }
+            // One row per burst, even if Photos returns more than one photo from it.
+            if category == .bursts, let burst = asset.burstID { return seenBursts.insert(burst).inserted }
+            return true
+        }
+        let items = matching.sorted { lhs, rhs in
             let left = lhs.fingerprint == nil ? -1 : lhs.bytes
             let right = rhs.fingerprint == nil ? -1 : rhs.bytes
             return left == right ? lhs.id < rhs.id : left > right
