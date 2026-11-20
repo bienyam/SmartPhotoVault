@@ -34,14 +34,15 @@ Porcelain Blue: ivory `#FCFAF5`, slate `#305270`, powder card `#E0EBF5`. Green o
 - Work in small PRs, squash-merge when CI is green.
 
 ## Status
-Merged: rename and icon, welcome screen and tabs, duplicate removal with sign-off, Archive tab filters and review, encryption declaration (#16, `ITSAppUsesNonExemptEncryption: false`), Archived tab with restore plus Ledger tab (#18).
+Merged: rename and icon, welcome screen and tabs, duplicate removal with sign-off, Archive tab filters and review, encryption declaration (#16, `ITSAppUsesNonExemptEncryption: false`), Archived tab with restore plus Ledger tab (#18), Clean tab categories by type (#21: screenshots, GIFs, bursts, Live Photos, slo-mo, time-lapse, panoramas; review-only), "Maybe saved from chats or the web" heuristic and Messages attachments guide.
 Open: #9 and #10 are older PRs from a previous agent that overlap main; close only if confirmed superseded.
 
-## Next
-1. Clean tab: more categories (screenshots, GIFs, bursts, Live Photos, slo-mo/time-lapse, panoramas, chat/meme heuristic as review-only, a guide for Messages attachments).
-2. Archive: album and place filters (the scan does not record these yet), video suggestions.
-3. Pro upgrade placement.
-4. App Store Connect: turn on automatic distribution for the internal TestFlight group (create a new internal group if the existing one cannot be edited).
-5. Nothing has been tested on a physical iPhone yet: test deletion with throwaway duplicates, and archive copy and restore.
+Clean categories need the full scan (new fields on `AssetRecord`); scans saved before #21 show "Scan again". Categories are review-only: removing by category would need new sign-off wording in `ACTION_AUTHORIZATION.md` first (owner decision).
 
-Owner to-dos: trademark clearance for the name, consider making the repo private, pick the Pro price.
+## Next
+1. Archive: album and place filters (the scan does not record these yet), video suggestions.
+2. Pro upgrade placement.
+3. App Store Connect: turn on automatic distribution for the internal TestFlight group (create a new internal group if the existing one cannot be edited).
+4. Nothing has been tested on a physical iPhone yet: test deletion with throwaway duplicates, archive copy and restore, and check the Clean categories and chat-image guess against a real library.
+
+Owner to-dos: trademark clearance for the name, consider making the repo private, pick the Pro price, decide whether categories should get removal with sign-off.
