@@ -8,6 +8,7 @@ actor DuplicateScanner {
         try Task.checkCancellation()
         let assets = PHAsset.fetchAssets(with: nil)
         var records: [AssetRecord] = []
+        var burstFrameCounts: [String: Int] = [:]
         for index in 0..<assets.count {
             try Task.checkCancellation()
             let asset = assets.object(at: index)
@@ -22,6 +23,19 @@ actor DuplicateScanner {
                 if resources.isEmpty { issue = "No accessible resources." }
             } catch is CancellationError { throw CancellationError() }
             catch { issue = error.localizedDescription }
+            var frames: Int?
+            if let burst = asset.burstIdentifier {
+                if let known = burstFrameCounts[burst] {
+                    frames = known
+                } else {
+                    // The default fetch returns one photo per burst; count the hidden frames too.
+                    let options = PHFetchOptions()
+                    options.includeAllBurstAssets = true
+                    let count = PHAsset.fetchAssets(withBurstIdentifier: burst, options: options).count
+                    burstFrameCounts[burst] = count
+                    frames = count
+                }
+            }
             records.append(AssetRecord(id: asset.localIdentifier,
                                        filename: resources.first?.originalFilename ?? "Untitled asset",
                                        mediaType: asset.mediaType.rawValue,
@@ -29,7 +43,14 @@ actor DuplicateScanner {
                                        createdAt: asset.creationDate,
                                        resources: fingerprints,
                                        issue: issue,
-                                       isScreenshot: asset.mediaSubtypes.contains(.photoScreenshot)))
+                                       isScreenshot: asset.mediaSubtypes.contains(.photoScreenshot),
+                                       subtypes: asset.mediaSubtypes.rawValue,
+                                       animated: asset.playbackStyle == .imageAnimated,
+                                       burstID: asset.burstIdentifier,
+                                       burstFrames: frames,
+                                       pixelWidth: asset.pixelWidth,
+                                       pixelHeight: asset.pixelHeight,
+                                       hasLocation: asset.location != nil))
             await progress(index + 1, assets.count)
         }
         try Task.checkCancellation()

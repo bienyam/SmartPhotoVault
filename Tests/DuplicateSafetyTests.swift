@@ -56,9 +56,9 @@ final class DuplicateSafetyTests: XCTestCase {
     }
     func testSyntheticLibraryHasOneDuplicateGroupAndOneUnreadableAsset() {
         let result = DemoLibrary.snapshot
-        XCTAssertEqual(result.assets.count, 5)
+        XCTAssertEqual(result.assets.count, 11)
         XCTAssertEqual(result.groups.count, 1)
-        XCTAssertEqual(result.verifiedCount, 4)
+        XCTAssertEqual(result.verifiedCount, 10)
     }
     func testDatabaseRoundTripAndActivityLog() throws {
         let path = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".sqlite")

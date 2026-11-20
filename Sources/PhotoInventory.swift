@@ -34,7 +34,13 @@ final class DashboardModel: ObservableObject {
     @Published var inventory: PhotoInventory?
     @Published var authorization = PHPhotoLibrary.authorizationStatus(for: .readWrite)
     @Published var isScanning = false
-    @Published var snapshot: ScanSnapshot?
+    @Published var snapshot: ScanSnapshot? {
+        didSet {
+            categorySummaries = snapshot.flatMap { $0.recordsCategories ? $0.cleanSummaries() : nil }
+        }
+    }
+    /// Clean tab categories, worked out once per scan rather than on every redraw.
+    @Published private(set) var categorySummaries: [CleanCategorySummary]?
     @Published var activity: [ActivityEntry] = []
     @Published var errorMessage: String?
     @Published private(set) var duplicateScanStatus: String?
@@ -52,6 +58,8 @@ final class DashboardModel: ObservableObject {
             store = try InventoryStore.openDefault()
             if authorization == .authorized {
                 snapshot = try store?.load()
+                // didSet doesn't run during init, so fill the categories here.
+                categorySummaries = snapshot.flatMap { $0.recordsCategories ? $0.cleanSummaries() : nil }
             }
             activity = try store?.activity() ?? []
         } catch { errorMessage = "Could not open local inventory: \(error.localizedDescription)" }

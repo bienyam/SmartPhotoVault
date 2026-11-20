@@ -211,6 +211,9 @@ struct PhotoDetailsView: View {
                         }
                     }
                 }
+                if model.snapshot != nil {
+                    CleanCategoriesSection(summaries: model.categorySummaries)
+                }
             case .help:
                 Section("Activity") {
                     NavigationLink("View local activity log") {
