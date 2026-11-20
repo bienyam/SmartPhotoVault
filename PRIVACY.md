@@ -1,10 +1,10 @@
-# SmartPhotoVault privacy policy
+# TidyAway privacy policy
 
-SmartPhotoVault reads the photos and videos you authorize through Apple Photos. It inventories those items and checks for exact duplicates on your device. The app has no account system, analytics, or advertising and does not transmit your photo library or scan results to the developer.
+TidyAway reads the photos and videos you authorize through Apple Photos. It inventories those items and checks for exact duplicates on your device. The app has no account system, analytics, or advertising and does not transmit your photo library or scan results to the developer.
 
 The latest completed inventory and a scan activity log are stored in the app’s local storage. The inventory can include Apple Photos identifiers, file names, dates, favorite status, resource sizes, and hashes. The app does not store a separate copy of your photos or videos.
 
-Scans use photo and video resources already available on your iPhone. SmartPhotoVault does not request iCloud Photos originals during a scan or archive copy, or edit or delete items in Apple Photos. You can change Photos access in Settings. Delete the app to remove the local inventory and activity log from your device.
+Scans use photo and video resources already available on your iPhone. TidyAway does not request iCloud Photos originals during a scan or archive copy, and does not edit items in Apple Photos. It deletes items only as described below. You can change Photos access in Settings. Delete the app to remove the local inventory and activity log from your device.
 
 Saved storage comparisons contain the costs, usage, and preferences you enter and are stored in the app’s local storage. You can remove saved comparisons in the app or by deleting the app. If you choose to share a report, the system share sheet lets you choose where it goes. Apple handles in-app purchase transactions.
 
@@ -14,4 +14,6 @@ If you approve an archive or test restore, the app reads the items you selected 
 
 If you approve removing a synced iCloud Drive download, the app asks iCloud Drive to remove the downloaded copy from your iPhone. The authorization, selected size, and outcome are recorded in the local activity log.
 
-For privacy questions, use the [SmartPhotoVault support page](https://github.com/bienyam/SmartPhotoVault/issues). Issues are public, so leave out personal photos and library information.
+If you authorize removing exact duplicates, the app re-reads the copy to keep and the copies to remove, then asks Apple Photos to delete the items you approved. Apple shows its own confirmation and normally keeps deleted items in Recently Deleted for up to 30 days. If iCloud Photos is on, the deletion also applies to iCloud Photos and your synced devices. The authorization, item count, and outcome are recorded in the local activity log.
+
+For privacy questions, use the [TidyAway support page](https://github.com/bienyam/SmartPhotoVault/issues). Issues are public, so leave out personal photos and library information.

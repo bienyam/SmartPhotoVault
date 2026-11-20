@@ -35,6 +35,25 @@ final class DuplicateSafetyTests: XCTestCase {
     func testResourceTypesMustMatch() {
         XCTAssertTrue(snapshot([asset("a", [still]), asset("b", [ResourceFingerprint(type: 5, digest: "still", bytes: 100)])]).groups.isEmpty)
     }
+    func testRemovalPlanKeepsTheFirstCopyAndNeverRemovesFavorites() throws {
+        let group = try XCTUnwrap(snapshot([asset("a", [still]), asset("b", [still], favorite: true), asset("c", [still]), asset("d", [still], favorite: true)]).groups.first)
+        let plan = try XCTUnwrap(DuplicateRemovalPlan(group: group))
+        XCTAssertTrue(["b", "d"].contains(plan.keepID), "A favorite is kept.")
+        XCTAssertEqual(plan.removeIDs.sorted(), ["a", "c"], "Only non-favorite extra copies are removable.")
+        XCTAssertEqual(plan.removeBytes, 200)
+        XCTAssertEqual(plan.deleteLabel, "Delete 2 items from Apple Photos")
+    }
+    func testRemovalPlanIsUnavailableWhenEveryExtraCopyIsAFavorite() throws {
+        let group = try XCTUnwrap(snapshot([asset("a", [still], favorite: true), asset("b", [still], favorite: true)]).groups.first)
+        XCTAssertNil(DuplicateRemovalPlan(group: group))
+    }
+    func testSampleRemovalPlanRemovesOnlyTheCopy() throws {
+        let group = try XCTUnwrap(DemoLibrary.snapshot.groups.first)
+        let plan = try XCTUnwrap(DuplicateRemovalPlan(group: group))
+        XCTAssertEqual(plan.keepID, "sample-1")
+        XCTAssertEqual(plan.removeIDs, ["sample-2"])
+        XCTAssertEqual(plan.deleteLabel, "Delete 1 item from Apple Photos")
+    }
     func testSyntheticLibraryHasOneDuplicateGroupAndOneUnreadableAsset() {
         let result = DemoLibrary.snapshot
         XCTAssertEqual(result.assets.count, 5)

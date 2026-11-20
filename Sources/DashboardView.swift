@@ -197,9 +197,9 @@ struct PhotoDetailsView: View {
                         LabeledContent("Unverified or unreadable", value: (snapshot.assets.count - snapshot.verifiedCount).formatted())
                         LabeledContent("Exact duplicate groups", value: snapshot.groups.count.formatted())
                         LabeledContent("Extra duplicate resource bytes (estimate)", value: ByteCountFormatter.string(fromByteCount: snapshot.candidateBytes, countStyle: .file))
-                        Text("Estimated matching resource bytes, not guaranteed recoverable device space. No cleanup is available. Results describe the library at scan time; rescan after library changes.")
+                        Text("Estimated matching resource bytes, not guaranteed recoverable device space. Review a group to remove its extra copies. Results describe the library at scan time; rescan after library changes.")
                             .font(.footnote).foregroundStyle(.secondary)
-                        NavigationLink("Review duplicate groups") { DuplicateResultsView(snapshot: snapshot) }
+                        NavigationLink("Review duplicate groups") { DuplicateResultsView(snapshot: snapshot, model: model) }
                         NavigationLink("Review videos by size") { VideoSizesView(snapshot: snapshot) }
                         NavigationLink("Review unverified assets") {
                             List(snapshot.assets.filter { $0.fingerprint == nil }) { asset in
@@ -229,6 +229,7 @@ struct PhotoDetailsView: View {
                                 Text("TidyAway reads the Apple Photos items you authorize. Scanning and exact duplicate matching run on your device.")
                                 Text("The app stores the latest completed inventory and its activity log locally. The inventory can include Photos identifiers, file names, dates, favorite status, resource sizes and hashes. The app does not transmit this information to the developer or include advertising or analytics.")
                                 Text("Scans read originals already available on your iPhone. If you approve an archive or restore, the app writes a copy to your chosen Files folder. The source stays in place and the Files provider may sync the copy.")
+                                Text("If you authorize removing exact duplicates, the app asks Apple Photos to delete the items you approved. Apple shows its own confirmation and normally keeps deleted items in Recently Deleted for up to 30 days. The authorization, item count and outcome are recorded in the local activity log.")
                                 Text("You can change Photos access in Settings. To remove the local inventory and activity log from this device, delete the app.")
                                 Text("Saved storage comparisons stay in the app’s local storage. You can remove them in the app or by deleting the app. If you share a comparison, you choose where the report goes. Apple handles in-app purchases.")
                                 Text("When you select files for size analysis, the app reads their names and reported sizes for that session.")
@@ -274,10 +275,11 @@ private struct VideoSizesView: View {
 
 struct DuplicateResultsView: View {
     let snapshot: ScanSnapshot
+    var model: DashboardModel? = nil
     var body: some View {
         List {
             Section {
-                Text("All resource hashes and resource types must match. Favorites appear first for review. Keep all desired destination copies. No deletion actions are available.")
+                Text("All resource hashes and resource types must match. Favorites appear first and are always kept. Nothing is deleted until you authorize it for a group and confirm Apple’s own prompt.")
                     .font(.footnote)
                 Text("Scan from \(snapshot.date.formatted()). Rescan after changing your library.")
                     .font(.caption).foregroundStyle(.secondary)
@@ -297,6 +299,14 @@ struct DuplicateResultsView: View {
                                     .font(.caption).foregroundStyle(.secondary)
                                 if let date = asset.createdAt { Text(date.formatted()).font(.caption) }
                             }
+                        }
+                    }
+                    if let model {
+                        if let plan = DuplicateRemovalPlan(group: group) {
+                            DuplicateRemovalControls(plan: plan, model: model)
+                        } else {
+                            Text("The extra copies here are favorites, so TidyAway leaves them alone.")
+                                .font(.footnote).foregroundStyle(.secondary)
                         }
                     }
                 }
