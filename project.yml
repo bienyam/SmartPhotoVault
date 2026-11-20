@@ -15,7 +15,7 @@ targets:
     info:
       path: build/Info.plist
       properties:
-        CFBundleDisplayName: SmartPhotoVault
+        CFBundleDisplayName: TidyAway
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
@@ -26,7 +26,7 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        NSPhotoLibraryUsageDescription: SmartPhotoVault reads your photo library to inventory photos and videos. This version never changes or deletes photos.
+        NSPhotoLibraryUsageDescription: TidyAway reads your photo library to inventory photos and videos. This version never changes or deletes photos.
     settings:
       base:
         TARGETED_DEVICE_FAMILY: '1,2'

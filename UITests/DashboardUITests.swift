@@ -35,7 +35,7 @@ final class DashboardUITests: XCTestCase {
     func testAuthorizedLibraryScanReviewsRealResources() {
         let app = XCUIApplication()
         app.launch()
-        XCTAssertTrue(app.navigationBars["SmartPhotoVault"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.navigationBars["TidyAway"].waitForExistence(timeout: 15))
         app.buttons["Find duplicates"].tap()
         let scan = app.buttons["Find exact duplicates"]
         reveal(scan, in: app)
@@ -95,7 +95,7 @@ final class DashboardUITests: XCTestCase {
     func testSampleDuplicateReview() {
         let app = XCUIApplication()
         app.launch()
-        XCTAssertTrue(app.navigationBars["SmartPhotoVault"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.navigationBars["TidyAway"].waitForExistence(timeout: 15))
         app.buttons["Find duplicates"].tap()
         let samples = app.buttons["Explore sample results"]
         reveal(samples, in: app)

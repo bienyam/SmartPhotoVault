@@ -213,7 +213,7 @@ struct StorageComparisonView: View {
     }
 
     private func report(_ current: StorageScenario) -> String {
-        var content = "SmartPhotoVault storage comparison\n\nCurrent scenario\n\(current.report)"
+        var content = "TidyAway storage comparison\n\nCurrent scenario\n\(current.report)"
         if let selected { content += "\n\nSaved scenario\n\(selected.report)" }
         return content + "\n\nEstimates use the values and currency entered for each scenario. Verify provider costs and restore terms before making changes."
     }
