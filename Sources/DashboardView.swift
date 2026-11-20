@@ -62,7 +62,7 @@ struct DashboardView: View {
                 .frame(maxWidth: .infinity)
             }
             .background(colorScheme == .dark ? Color(uiColor: .systemBackground) : Color(red: 0.99, green: 0.98, blue: 0.96))
-            .navigationTitle("SmartPhotoVault")
+            .navigationTitle("TidyAway")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -223,7 +223,7 @@ private struct PhotoDetailsView: View {
                     NavigationLink("Privacy Policy") {
                         ScrollView {
                             VStack(alignment: .leading, spacing: 16) {
-                                Text("SmartPhotoVault reads the Apple Photos items you authorize. Scanning and exact duplicate matching run on your device.")
+                                Text("TidyAway reads the Apple Photos items you authorize. Scanning and exact duplicate matching run on your device.")
                                 Text("The app stores the latest completed inventory and its activity log locally. The inventory can include Photos identifiers, file names, dates, favorite status, resource sizes and hashes. The app does not transmit this information to the developer or include advertising or analytics.")
                                 Text("Scans read originals already available on your iPhone. If you approve an archive or restore, the app writes a copy to your chosen Files folder. The source stays in place and the Files provider may sync the copy.")
                                 Text("You can change Photos access in Settings. To remove the local inventory and activity log from this device, delete the app.")
