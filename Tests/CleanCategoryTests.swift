@@ -17,7 +17,29 @@ final class CleanCategoryTests: XCTestCase {
         let sample = DemoLibrary.snapshot
         XCTAssertTrue(sample.recordsCategories)
         let counts = Dictionary(uniqueKeysWithValues: CleanCategory.allCases.map { ($0, sample.summary(for: $0).items.count) })
-        XCTAssertEqual(counts, [.screenshots: 1, .gifs: 1, .bursts: 1, .livePhotos: 2, .sloMo: 1, .timeLapse: 1, .panoramas: 1])
+        XCTAssertEqual(counts, [.screenshots: 1, .gifs: 1, .bursts: 1, .livePhotos: 2, .sloMo: 1, .timeLapse: 1, .panoramas: 1, .savedImages: 1])
+    }
+
+    func testSavedImageGuessUsesChatNamesOrSmallImagesWithoutLocation() {
+        func image(_ name: String, _ size: (Int, Int)?, location: Bool?, subtypes: PHAssetMediaSubtype = []) -> AssetRecord {
+            var asset = record(name, bytes: 1, subtypes: subtypes)
+            asset.pixelWidth = size?.0
+            asset.pixelHeight = size?.1
+            asset.hasLocation = location
+            return asset
+        }
+        let guess = CleanCategory.savedImages
+        XCTAssertTrue(guess.includes(image("IMG-20240512-WA0007.jpg", (4000, 3000), location: true)))
+        XCTAssertTrue(guess.includes(image("photo_2024-05-12_10-20-30.jpg", nil, location: nil)))
+        XCTAssertTrue(guess.includes(image("IMG_0001.JPG", (1280, 960), location: false)))
+        XCTAssertFalse(guess.includes(image("IMG_0002.HEIC", (4032, 3024), location: false)), "Camera-sized photos are not guessed")
+        XCTAssertFalse(guess.includes(image("IMG_0003.JPG", (1280, 960), location: true)), "A location suggests the camera")
+        XCTAssertFalse(guess.includes(image("IMG_0004.JPG", (1280, 960), location: nil)), "Unknown location is not a match")
+        XCTAssertFalse(guess.includes(image("IMG-1-WA0001.jpg", (800, 600), location: false, subtypes: .photoScreenshot)))
+        var video = image("clip-WA0001.mp4", (640, 360), location: false)
+        video = AssetRecord(id: video.id, filename: video.filename, mediaType: 2, favorite: false, createdAt: nil,
+                            resources: video.resources, issue: nil, subtypes: 0, pixelWidth: 640, pixelHeight: 360, hasLocation: false)
+        XCTAssertFalse(guess.includes(video), "Only still images are guessed")
     }
 
     func testItemsSortLargestFirstAndUnreadItemsAreNotCounted() {

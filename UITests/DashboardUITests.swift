@@ -216,6 +216,22 @@ final class DashboardUITests: XCTestCase {
         add(attachment)
     }
 
+    func testMessagesAttachmentsGuideOpensWithoutAScan() {
+        let app = XCUIApplication()
+        app.launchArguments += ["--skip-welcome"]
+        app.launch()
+        app.tabBars.buttons["Clean"].tap()
+        let guide = app.buttons["guide-messages"]
+        reveal(guide, in: app)
+        guard guide.waitForExistence(timeout: 5) else {
+            XCTFail("Messages guide is missing. UI: \(app.debugDescription)")
+            return
+        }
+        guide.tap()
+        XCTAssertTrue(app.navigationBars["Messages attachments"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Wait for the list to load, then tap Messages."].exists)
+    }
+
     func testArchiveTabOpensTheArchiveWorkflow() {
         let app = XCUIApplication()
         app.launchArguments += ["--skip-welcome"]

@@ -3,7 +3,7 @@ import Foundation
 
 /// Ways to look through the library by type. Review only: nothing here removes anything.
 enum CleanCategory: String, CaseIterable, Identifiable {
-    case screenshots, gifs, bursts, livePhotos, sloMo, timeLapse, panoramas
+    case screenshots, gifs, bursts, livePhotos, sloMo, timeLapse, panoramas, savedImages
 
     var id: String { rawValue }
 
@@ -16,6 +16,7 @@ enum CleanCategory: String, CaseIterable, Identifiable {
         case .sloMo: "Slo-mo videos"
         case .timeLapse: "Time-lapse videos"
         case .panoramas: "Panoramas"
+        case .savedImages: "Maybe saved from chats or the web"
         }
     }
 
@@ -28,6 +29,7 @@ enum CleanCategory: String, CaseIterable, Identifiable {
         case .sloMo: "slowmo"
         case .timeLapse: "timelapse"
         case .panoramas: "pano"
+        case .savedImages: "bubble.left.and.bubble.right"
         }
     }
 
@@ -47,6 +49,8 @@ enum CleanCategory: String, CaseIterable, Identifiable {
             "Time-lapses are usually small, but long ones can add up."
         case .panoramas:
             "Panoramas are very wide, high-resolution photos, often several times the size of a normal photo."
+        case .savedImages:
+            "Photos doesn't record which app an image came from, so this is a guess. TidyAway looks for chat-app file names, and for smaller images with no location, which is typical of pictures saved from chats and the web. Some of your own photos may appear here too, such as cropped photos or ones from older phones, so look carefully."
         }
     }
 
@@ -60,7 +64,35 @@ enum CleanCategory: String, CaseIterable, Identifiable {
         case .sloMo: return subtypes.contains(.videoHighFrameRate)
         case .timeLapse: return subtypes.contains(.videoTimelapse)
         case .panoramas: return subtypes.contains(.photoPanorama)
+        case .savedImages: return SavedImageHeuristic.matches(asset, subtypes: subtypes)
         }
+    }
+}
+
+/// A guess, never a fact: Photos doesn't record the source app. Review only.
+enum SavedImageHeuristic {
+    /// A long side at or below this is typical of images sent through chat apps; camera photos are larger.
+    static let maxChatSide = 2048
+
+    static func matches(_ asset: AssetRecord, subtypes: PHAssetMediaSubtype) -> Bool {
+        guard asset.mediaType == PHAssetMediaType.image.rawValue,
+              asset.subtypes != nil,
+              !subtypes.contains(.photoScreenshot),
+              !subtypes.contains(.photoPanorama),
+              !subtypes.contains(.photoLive),
+              asset.animated != true,
+              asset.burstID == nil else { return false }
+        if hasChatFilename(asset.filename) { return true }
+        guard asset.hasLocation == false, let width = asset.pixelWidth, let height = asset.pixelHeight,
+              width > 0, height > 0 else { return false }
+        return max(width, height) <= maxChatSide
+    }
+
+    /// Android WhatsApp ("IMG-20240512-WA0007.jpg") and Telegram ("photo_2024-05-12_10-20-30.jpg") naming.
+    /// Mostly seen in libraries moved over from Android; on iPhone, the size and location test does most of the work.
+    static func hasChatFilename(_ name: String) -> Bool {
+        let patterns = [#"-WA\d+\."#, #"^photo_\d{4}-\d{2}-\d{2}"#]
+        return patterns.contains { name.range(of: $0, options: [.regularExpression, .caseInsensitive]) != nil }
     }
 }
 
