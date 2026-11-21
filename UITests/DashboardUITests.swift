@@ -24,7 +24,8 @@ final class DashboardUITests: XCTestCase {
             return
         }
         allow.tap()
-        XCTAssertTrue(app.buttons["row-duplicates"].waitForExistence(timeout: 60))
+        XCTAssertTrue(app.buttons["check-again"].waitForExistence(timeout: 90), "The check should finish.")
+        XCTAssertTrue(app.buttons["row-duplicates"].exists)
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "Authorized Free up results"
         attachment.lifetime = .keepAlways
@@ -40,8 +41,9 @@ final class DashboardUITests: XCTestCase {
         let start = app.buttons["free-up-space"]
         XCTAssertTrue(again.waitForExistence(timeout: 15) || start.exists)
         if again.exists { again.tap() } else { start.tap() }
+        XCTAssertTrue(app.buttons["check-again"].waitForExistence(timeout: 90), "The check should finish.")
         let duplicates = app.buttons["row-duplicates"]
-        guard duplicates.waitForExistence(timeout: 60) else {
+        guard duplicates.waitForExistence(timeout: 5) else {
             XCTFail("Real Photos scan did not produce results: \(app.debugDescription)")
             return
         }

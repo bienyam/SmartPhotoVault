@@ -54,6 +54,9 @@ final class DashboardModel: ObservableObject {
     private var changeObserver: LibraryChangeObserver?
     /// Our own deletions also trigger Photos' change notice; those are already reflected in the results.
     private var ownChanges = 0
+    /// Items deleted while a check is still running, left out of its final results.
+    private var deletedDuringScan: Set<String> = []
+    private var partialDate = Date()
 
     init() {
         do {
@@ -107,7 +110,6 @@ final class DashboardModel: ObservableObject {
     /// the scan first; if anything changed, nothing is removed. Deleted items go to Recently Deleted.
     func removeDuplicates(_ plans: [DuplicateRemovalPlan]) async -> DuplicateRemovalOutcome {
         if isDemo { return .sample }
-        guard !isScanning else { return .blocked("Wait for the scan to finish, then try again.") }
         let ids = plans.flatMap(\.removeIDs)
         guard !ids.isEmpty else { return .blocked("Select at least one extra copy.") }
         let operation = String(UUID().uuidString.prefix(8))
@@ -135,7 +137,6 @@ final class DashboardModel: ObservableObject {
     /// Apple Photos then shows its own confirmation, and deleted items go to Recently Deleted.
     func removeItems(_ ids: [String], bytes: Int64, from category: String) async -> DuplicateRemovalOutcome {
         if isDemo { return .sample }
-        guard !isScanning else { return .blocked("Wait for the scan to finish, then try again.") }
         guard !ids.isEmpty else { return .blocked("Select at least one item.") }
         let operation = String(UUID().uuidString.prefix(8))
         try? store?.log("Authorized deleting \(ids.count) item(s) from \(category) in Apple Photos. Disclosure v2. Operation \(operation).")
@@ -163,7 +164,11 @@ final class DashboardModel: ObservableObject {
                 PHAssetChangeRequest.deleteAssets(targets)
             }
             try? store?.log("Operation \(operation) finished: \(ids.count) item(s) moved to Recently Deleted.")
-            if let current = snapshot {
+            if isScanning {
+                // People can act on early results; the rest of the check keeps going.
+                deletedDuringScan.formUnion(ids)
+                if let rescue { self.rescue = rescue.removing(Set(ids)) }
+            } else if let current = snapshot {
                 let updated = current.removing(Set(ids))
                 snapshot = updated
                 try? store?.save(updated)
@@ -209,9 +214,15 @@ final class DashboardModel: ObservableObject {
             startObserving()
             try Task.checkCancellation()
             try? store?.log("Local duplicate scan started.")
-            let records = try await scanner.scan { [weak self] done, count in
+            deletedDuringScan = []
+            partialDate = Date()
+            let found = try await scanner.scanProgressively(progress: { [weak self] done, count in
                 await self?.setProgress(done, count)
-            }
+            }, partial: { [weak self] records in
+                await self?.showPartial(records)
+            })
+            let records = found.filter { !deletedDuringScan.contains($0.id) }
+            deletedDuringScan = []
             try Task.checkCancellation()
             let current = PHPhotoLibrary.authorizationStatus(for: .readWrite)
             guard current == authorization else {
@@ -234,17 +245,39 @@ final class DashboardModel: ObservableObject {
             }
             activity = (try? store?.activity()) ?? []
         } catch is CancellationError {
-            if errorMessage == nil { duplicateScanStatus = "Scan stopped. No new results were saved." }
+            restoreAfterIncompleteScan()
+            if errorMessage == nil { duplicateScanStatus = "Check stopped. Your earlier results are still here." }
             try? store?.log("Scan cancelled; incomplete results were not saved.")
             activity = (try? store?.activity()) ?? []
         } catch {
+            restoreAfterIncompleteScan()
             errorMessage = error.localizedDescription
             try? store?.log("Scan failed: \(error.localizedDescription)")
             activity = (try? store?.activity()) ?? []
         }
     }
 
+    /// A stopped or failed check falls back to the last complete one, minus anything deleted meanwhile.
+    private func restoreAfterIncompleteScan() {
+        if !deletedDuringScan.isEmpty, let current = snapshot {
+            let updated = current.removing(deletedDuringScan)
+            snapshot = updated
+            try? store?.save(updated)
+        } else {
+            rescue = snapshot.map(RescueSummary.init)
+        }
+        deletedDuringScan = []
+    }
+
     private func setProgress(_ done: Int, _ count: Int) { completed = done; total = count }
+
+    /// Early results while the check continues, biggest items first.
+    private func showPartial(_ records: [AssetRecord]) {
+        guard isScanning else { return }
+        let kept = records.filter { !deletedDuringScan.contains($0.id) }
+        rescue = RescueSummary(snapshot: ScanSnapshot(date: partialDate, limitedAccess: authorization == .limited,
+                                                      includedCloudDownloads: false, assets: kept))
+    }
 
     func showDemo() {
         guard !isScanning else { return }

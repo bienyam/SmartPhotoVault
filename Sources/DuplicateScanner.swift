@@ -8,8 +8,21 @@ actor DuplicateScanner {
     private(set) var lastAlbums: [AlbumInfo] = []
 
     func scan(progress: @escaping @Sendable (Int, Int) async -> Void) async throws -> [AssetRecord] {
+        try await scanProgressively(progress: progress, partial: nil)
+    }
+
+    /// Reads the biggest things first, longest videos then the largest photos, and hands back
+    /// what it has found every couple of seconds, so the Free up tab fills in within moments
+    /// instead of waiting for the whole library.
+    func scanProgressively(progress: @escaping @Sendable (Int, Int) async -> Void,
+                           partial: (@Sendable ([AssetRecord]) async -> Void)?) async throws -> [AssetRecord] {
         try Task.checkCancellation()
-        let assets = PHAsset.fetchAssets(with: nil)
+        let fetched = PHAsset.fetchAssets(with: nil)
+        var assets: [PHAsset] = []
+        assets.reserveCapacity(fetched.count)
+        fetched.enumerateObjects { asset, _, _ in assets.append(asset) }
+        assets.sort(by: Self.biggestFirst)
+        var lastPartial = Date()
         var records: [AssetRecord] = []
         var burstFrameCounts: [String: Int] = [:]
         var albums: [AlbumInfo] = []
@@ -25,9 +38,9 @@ actor DuplicateScanner {
             }
         }
         let sortedAlbums = albums.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
-        for index in 0..<assets.count {
+        for index in assets.indices {
             try Task.checkCancellation()
-            let asset = assets.object(at: index)
+            let asset = assets[index]
             let resources = PHAssetResource.assetResources(for: asset)
             var fingerprints: [ResourceFingerprint] = []
             var issue: String?
@@ -71,10 +84,25 @@ actor DuplicateScanner {
                                        latitude: asset.location.map { PlaceArea.rounded($0.coordinate.latitude) },
                                        longitude: asset.location.map { PlaceArea.rounded($0.coordinate.longitude) }))
             await progress(index + 1, assets.count)
+            if let partial, Date().timeIntervalSince(lastPartial) > 1.5 {
+                lastPartial = Date()
+                await partial(records)
+            }
         }
         try Task.checkCancellation()
         lastAlbums = sortedAlbums
         return records
+    }
+
+    /// Videos before photos; longer videos first; then photos by pixel count. A cheap stand-in for
+    /// file size, which PhotoKit only reveals by reading the file.
+    static func biggestFirst(_ lhs: PHAsset, _ rhs: PHAsset) -> Bool {
+        let leftVideo = lhs.mediaType == .video, rightVideo = rhs.mediaType == .video
+        if leftVideo != rightVideo { return leftVideo }
+        if leftVideo, lhs.duration != rhs.duration { return lhs.duration > rhs.duration }
+        let left = lhs.pixelWidth * lhs.pixelHeight, right = rhs.pixelWidth * rhs.pixelHeight
+        if left != right { return left > right }
+        return lhs.localIdentifier < rhs.localIdentifier
     }
 
     /// Re-reads every resource of one asset so a removal can be checked against the scan.

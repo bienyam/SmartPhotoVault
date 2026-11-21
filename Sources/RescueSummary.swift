@@ -12,7 +12,16 @@ struct RescueSummary {
     /// Every type except screenshots, which has its own row.
     let otherTypes: [CleanCategorySummary]
 
+    /// The results these rows were built from.
+    let snapshot: ScanSnapshot
+
+    /// The same rows without items that were just deleted.
+    func removing(_ ids: Set<String>) -> RescueSummary {
+        RescueSummary(snapshot: snapshot.removing(ids))
+    }
+
     init(snapshot: ScanSnapshot) {
+        self.snapshot = snapshot
         videos = snapshot.assets
             .filter { $0.mediaType == PHAssetMediaType.video.rawValue && $0.fingerprint != nil }
             .sorted { $0.bytes == $1.bytes ? $0.id < $1.id : $0.bytes > $1.bytes }
