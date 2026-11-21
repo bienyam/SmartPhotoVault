@@ -6,7 +6,7 @@ iPhone app for phone and cloud storage cleanup and archiving. Display name **Tid
 - Goal: small versions on the phone, full resolution in iCloud, and a third-party store as a true archive that can be pulled back on demand.
 - Archive destinations: Google Drive first (through Files), home file server, iCloud Drive, other Files locations. More "plugins" later, by demand.
 - Tabs: Home, Clean, Archive, Archived, Ledger.
-- Pricing plan: free analysis plus a one-time Pro unlock ($4.99 or $7.99, undecided). Never weekly subscriptions.
+- Pricing (owner, 2026-11-21): generous free tier; Pro is $7.99 a month (com.bienyam.SmartPhotoVault.pro.monthly, group "TidyAway Pro") or $39.99 lifetime (com.bienyam.SmartPhotoVault.storagepro), both with Family Sharing. Never weekly subscriptions.
 - Owner prefers brief, direct updates and iterating in small steps.
 
 ## Simplify redesign (approved by the owner 2026-11-21)
@@ -15,7 +15,7 @@ Plan: `TidyAway_Simplify_Plan.html`. All ★ recommendations approved:
 - Headlines are actions, never instruction pages. Extra detail goes behind an (i) popover.
 - Rescue flow: list sorted by size, Select all, one short sign-off and one Apple confirmation per batch, then a result screen explaining Recently Deleted (3 picture steps; no undocumented `photos-redirect://` link). Never say "freed" until space is actually back.
 - "Analyze storage & cost" becomes "Analyze storage" under More; cost stays one quiet line. The cost wizard is a Pro extra.
-- Free: scan, all cleanup, restore, Activity, first 5 GB of archiving. Pro, $7.99 one-time, Family Sharing on: unlimited archiving, archive-then-remove (once proven), archive filters, multi-file iCloud Drive download removal, storage comparisons, Activity export. Prompt only quietly under More and inline when an archive passes 5 GB.
+- Free: scan, all cleanup, restore, Activity, first 5 GB of archiving. Pro ($7.99 a month or $39.99 lifetime, Family Sharing on): unlimited archiving, archive-then-remove (once proven), archive filters, multi-file iCloud Drive download removal, storage comparisons, Activity export. Prompt only quietly under More and inline when an archive passes 5 GB.
 - Archive destinations in order: drive plugged into the iPhone (format/read-only/space checks, NTFS explained, iOS 18 Files Erase → ExFAT), Google Drive via Google sign-in with the `drive.file` scope, then a free "TidyAway Receiver" desktop app (Windows first) paired by a 6-digit code. NAS only via Files "Connect to Server" for now. No storage brand recommendations, one neutral (i) tip.
 - Archive destinations are write-only: TidyAway never deletes or changes anything there.
 
@@ -60,7 +60,7 @@ Scans saved before #21 or #25 show "Scan again" for categories or album/place fi
 
 ## Next
 1. Owner runs `PHONE_TEST_CHECKLIST.md` on a physical iPhone with throwaway items, including a USB-C drive and the Pro sandbox purchase.
-2. Set the Pro price to $7.99 and turn on Family Sharing for the in-app purchase in App Store Connect.
+2. Owner: add a bank account and W-9 in App Store Connect so the Paid Apps Agreement goes active (needed even for sandbox purchases). Both Pro products exist; each needs a review screenshot and goes to review with the first app version.
 3. Google Drive sign-in connection (`drive.file` scope): needs the owner to create a Google Cloud OAuth client for iOS first.
 4. TidyAway Receiver desktop app (Windows first): prototype after phone testing.
 5. Fix whatever phone testing finds; only then consider removal after archiving. Promo stays parked.
