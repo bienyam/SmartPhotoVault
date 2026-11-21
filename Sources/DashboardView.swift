@@ -18,7 +18,7 @@ struct DashboardView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.colorScheme) private var colorScheme
 
-    private let slate = Color(red: 0.19, green: 0.32, blue: 0.44)
+    private let accent = Brand.primary
 
     var body: some View {
         NavigationStack {
@@ -28,18 +28,16 @@ struct DashboardView: View {
                         Text("Photos & storage")
                             .font(.largeTitle.bold())
                             .accessibilityAddTraits(.isHeader)
-                        Image("PorcelainHero")
-                            .resizable()
-                            .scaledToFit()
-                            .frame(maxWidth: .infinity, maxHeight: 170)
-                            .accessibilityHidden(true)
+                        BrandMark(size: 96)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
                         Text("Your photos are safe. Nothing is removed until you confirm it.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
                     .padding(18)
                     .background(.linearGradient(
-                        colors: colorScheme == .dark ? [slate, .clear] : [Color(red: 0.80, green: 0.87, blue: 0.94), .clear],
+                        colors: [Brand.heroTop, .clear],
                         startPoint: .top, endPoint: .bottom
                     ), in: RoundedRectangle(cornerRadius: 24))
 
@@ -85,7 +83,7 @@ struct DashboardView: View {
                 .padding(.bottom, 24)
                 .frame(maxWidth: .infinity)
             }
-            .background(colorScheme == .dark ? Color(uiColor: .systemBackground) : Color(red: 0.99, green: 0.98, blue: 0.96))
+            .background(colorScheme == .dark ? Color(uiColor: .systemBackground) : Brand.background)
             .navigationTitle("TidyAway")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -105,7 +103,7 @@ struct DashboardView: View {
                 if phase == .active { model.refreshAuthorization() }
             }
         }
-        .tint(colorScheme == .dark ? Color(red: 0.69, green: 0.82, blue: 0.95) : slate)
+        .tint(colorScheme == .dark ? Brand.primary : accent)
     }
 
     private func action(_ title: String, icon: String, prominent: Bool = false) -> some View {
@@ -120,7 +118,7 @@ struct DashboardView: View {
         .padding(.vertical, 15)
         .frame(minHeight: 56)
         .background(
-            prominent ? slate : (colorScheme == .dark ? Color(uiColor: .secondarySystemBackground) : Color(red: 0.88, green: 0.92, blue: 0.96)),
+            prominent ? accent : (colorScheme == .dark ? Color(uiColor: .secondarySystemBackground) : Brand.surface),
             in: RoundedRectangle(cornerRadius: 17)
         )
     }
@@ -133,10 +131,10 @@ struct PhotoDetailsView: View {
     @Environment(\.colorScheme) private var colorScheme
 
     private var porcelain: Color {
-        colorScheme == .dark ? Color(red: 0.08, green: 0.13, blue: 0.19) : Color(red: 0.99, green: 0.98, blue: 0.96)
+        colorScheme == .dark ? Brand.background : Brand.background
     }
 
-    private var slate: Color { Color(red: 0.19, green: 0.32, blue: 0.44) }
+    private var accent: Color { Brand.primary }
 
     var body: some View {
         List {
@@ -169,7 +167,7 @@ struct PhotoDetailsView: View {
                             .font(.footnote).foregroundStyle(.secondary)
                     }
                     if model.authorization == .limited {
-                        Text("Limited access: counts cover only your selected items.").foregroundStyle(.orange)
+                        Text("Limited access: counts cover only your selected items.").foregroundStyle(Brand.caution)
                     }
                     if model.authorization == .denied || model.authorization == .restricted {
                         Text("Photo access is unavailable. You can review access in Settings; device restrictions may prevent changes.")
@@ -202,7 +200,7 @@ struct PhotoDetailsView: View {
                     }
                     if let status = model.duplicateScanStatus { Text(status) }
                     if let error = model.errorMessage {
-                        Text(error).foregroundStyle(.red).accessibilityLabel("Error: \(error)")
+                        Text(error).foregroundStyle(Brand.caution).accessibilityLabel("Error: \(error)")
                     }
                     if model.authorization == .denied || model.authorization == .restricted {
                         Button("Open Settings") {
@@ -212,7 +210,7 @@ struct PhotoDetailsView: View {
                     if let snapshot = model.snapshot {
                         if model.isDemo { Label("Sample data — not your photo library", systemImage: "testtube.2") }
                         Text("Scanned \(snapshot.date.formatted())").font(.footnote)
-                        if snapshot.limitedAccess { Text("Only selected photos are included.").foregroundStyle(.orange) }
+                        if snapshot.limitedAccess { Text("Only selected photos are included.").foregroundStyle(Brand.caution) }
                         LabeledContent("Assets inventoried", value: snapshot.assets.count.formatted())
                         LabeledContent("Fully hashed at scan time", value: snapshot.verifiedCount.formatted())
                         LabeledContent("Unverified or unreadable", value: (snapshot.assets.count - snapshot.verifiedCount).formatted())
@@ -272,7 +270,7 @@ struct PhotoDetailsView: View {
         .buttonStyle(.borderless)
         .scrollContentBackground(.hidden)
         .background(porcelain)
-        .tint(colorScheme == .dark ? Color(red: 0.69, green: 0.82, blue: 0.95) : slate)
+        .tint(colorScheme == .dark ? Brand.primary : accent)
         .navigationTitle(destination.title)
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -321,7 +319,7 @@ struct DuplicateResultsView: View {
                             AssetThumbnail(assetID: asset.id)
                             VStack(alignment: .leading, spacing: 4) {
                                 Label(asset.filename, systemImage: asset.favorite ? "heart.fill" : "photo")
-                                if asset.favorite { Text("Favorite — preserve").font(.caption).foregroundStyle(.orange) }
+                                if asset.favorite { Text("Favorite — preserve").font(.caption).foregroundStyle(Brand.caution) }
                                 Text("\(asset.resources.count) resources · \(ByteCountFormatter.string(fromByteCount: asset.bytes, countStyle: .file))")
                                     .font(.caption).foregroundStyle(.secondary)
                                 if let date = asset.createdAt { Text(date.formatted()).font(.caption) }

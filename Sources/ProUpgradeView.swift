@@ -40,7 +40,7 @@ struct ProUpgradeView: View {
                     ProgressView("Checking Pro access…")
                 } else if unlocked {
                     Label("Pro is unlocked on this Apple Account.", systemImage: "checkmark.seal")
-                        .foregroundStyle(.green)
+                        .foregroundStyle(Brand.safe)
                 } else {
                     if let product {
                         Button("Unlock Pro for \(product.displayPrice)") {

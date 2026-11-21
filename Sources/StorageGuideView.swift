@@ -111,12 +111,12 @@ struct StorageGuideView: View {
         step < 6 ? "Advanced analysis" : step == 6 ? "Storage & cost analysis" : "Compare alternatives"
     }
 
-    private var slate: Color { Color(red: 0.19, green: 0.32, blue: 0.44) }
+    private var accent: Color { Brand.primary }
 
     private var powder: Color {
         colorScheme == .dark
-            ? Color(red: 0.16, green: 0.23, blue: 0.31)
-            : Color(red: 0.88, green: 0.92, blue: 0.96)
+            ? Brand.surface
+            : Brand.surface
     }
 
     private var quickWins: some View {
@@ -216,7 +216,7 @@ struct StorageGuideView: View {
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(.plain)
-        .background(colorScheme == .dark ? Color(uiColor: .systemBackground) : Color(red: 0.99, green: 0.98, blue: 0.96))
+        .background(colorScheme == .dark ? Color(uiColor: .systemBackground) : Brand.background)
     }
 
     private func quickCard(_ title: String, benefit: String, icon: String, prominent: Bool = false) -> some View {
@@ -236,7 +236,7 @@ struct StorageGuideView: View {
         .frame(minHeight: 44)
         .padding(16)
         .foregroundStyle(prominent ? Color.white : Color.primary)
-        .background(prominent ? slate : powder, in: RoundedRectangle(cornerRadius: 17))
+        .background(prominent ? accent : powder, in: RoundedRectangle(cornerRadius: 17))
         .contentShape(RoundedRectangle(cornerRadius: 17))
     }
 

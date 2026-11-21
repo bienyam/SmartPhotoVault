@@ -104,7 +104,7 @@ struct PhotoArchiveView: View {
     @State private var homeReceipts: Set<String> = []
     @State private var failures: [String] = []
 
-    private let blue = Color(red: 0.22, green: 0.40, blue: 0.59)
+    private let accent = Brand.primary
 
     init(snapshot: ScanSnapshot?, selectedFiles: [URL] = []) {
         self.snapshot = snapshot
@@ -140,7 +140,7 @@ struct PhotoArchiveView: View {
                 Section { Text(message).accessibilityAddTraits(.updatesFrequently) }
             }
         }
-        .tint(blue)
+        .tint(accent)
         .navigationTitle("Archive originals")
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(busy)
