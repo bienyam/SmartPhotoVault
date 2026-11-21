@@ -16,9 +16,10 @@ struct FreeUpView: View {
                     header
                     if model.isScanning {
                         scanning
-                    } else if let rescue = model.rescue {
+                    }
+                    if let rescue = model.rescue {
                         results(rescue)
-                    } else {
+                    } else if !model.isScanning {
                         start
                     }
                     if let error = model.errorMessage {
@@ -90,7 +91,9 @@ struct FreeUpView: View {
             } else {
                 ProgressView("Looking through your photos…")
             }
-            Button("Cancel", role: .cancel) { model.cancel() }
+            Text("The biggest finds show up first. You can start clearing them now.")
+                .font(.footnote).foregroundStyle(.secondary)
+            Button("Stop", role: .cancel) { model.cancel() }
         }
         .padding(16)
         .background(Brand.surface, in: RoundedRectangle(cornerRadius: 16))
@@ -144,9 +147,11 @@ struct FreeUpView: View {
         if let status = model.duplicateScanStatus, status != "Scan complete." {
             Text(status).font(.footnote).foregroundStyle(.secondary)
         }
-        Button(model.isDemo ? "Check my photos instead" : "Check again") { model.startDuplicateScan() }
-            .font(.subheadline)
-            .accessibilityIdentifier("check-again")
+        if !model.isScanning {
+            Button(model.isDemo ? "Check my photos instead" : "Check again") { model.startDuplicateScan() }
+                .font(.subheadline)
+                .accessibilityIdentifier("check-again")
+        }
     }
 
     private func row(_ title: String, icon: String, detail: String) -> some View {

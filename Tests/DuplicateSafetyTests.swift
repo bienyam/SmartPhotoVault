@@ -63,6 +63,15 @@ final class DuplicateSafetyTests: XCTestCase {
         XCTAssertTrue(updated.summary(for: .screenshots).items.isEmpty)
         XCTAssertEqual(updated.date, original.date)
     }
+    func testRescueRowsDropDeletedItemsDuringACheck() {
+        let rescue = RescueSummary(snapshot: DemoLibrary.snapshot)
+        XCTAssertEqual(rescue.duplicateCopies, 1)
+        XCTAssertEqual(rescue.screenshots.items.count, 1)
+        let after = rescue.removing(["sample-2", "sample-6"])
+        XCTAssertEqual(after.duplicateCopies, 0)
+        XCTAssertTrue(after.screenshots.items.isEmpty)
+        XCTAssertEqual(after.videos.count, rescue.videos.count, "Other rows are unchanged.")
+    }
     func testRemovalMessageNeverClaimsSpaceIsFreedYet() {
         let message = DuplicateRemovalOutcome.removedMessage(count: 2, bytes: 2_000_000)
         XCTAssertTrue(message.hasPrefix("Moved 2 items to Recently Deleted."))
