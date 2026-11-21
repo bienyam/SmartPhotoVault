@@ -107,7 +107,7 @@ enum GoogleKeychain {
     }
 }
 
-enum GoogleDriveError: LocalizedError {
+enum GoogleDriveError: LocalizedError, Equatable {
     case cancelled, signInFailed, notConnected, server(Int), verification, noSpace
 
     var errorDescription: String? {
@@ -289,40 +289,6 @@ enum GoogleDriveClient {
                                                                       "mimeType": "application/vnd.google-apps.folder"])
         let folder: UploadedFile = try await send(create, token: token)
         return folder.id
-    }
-
-    /// Uploads a new file (resumable upload, so large videos don't have to fit in memory) and
-    /// checks Drive's own SHA-256 of what it stored against the original's.
-    static func upload(_ file: URL, name: String, folderID: String, expectedDigest: String, token: String) async throws -> String {
-        let size = (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize).flatMap { $0 } ?? 0
-        var start = URLRequest(url: URL(string: "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,sha256Checksum,size")!)
-        start.httpMethod = "POST"
-        start.setValue("application/json; charset=UTF-8", forHTTPHeaderField: "Content-Type")
-        start.setValue(String(size), forHTTPHeaderField: "X-Upload-Content-Length")
-        start.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        start.httpBody = try JSONSerialization.data(withJSONObject: ["name": name, "parents": [folderID]])
-        let (_, response) = try await URLSession.shared.data(for: start)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200,
-              let location = http.value(forHTTPHeaderField: "Location"), let sessionURL = URL(string: location) else {
-            throw GoogleDriveError.server((response as? HTTPURLResponse)?.statusCode ?? 0)
-        }
-        var put = URLRequest(url: sessionURL)
-        put.httpMethod = "PUT"
-        put.timeoutInterval = 3600
-        let (data, putResponse) = try await URLSession.shared.upload(for: put, fromFile: file)
-        guard let code = (putResponse as? HTTPURLResponse)?.statusCode, (200...201).contains(code) else {
-            throw GoogleDriveError.server((putResponse as? HTTPURLResponse)?.statusCode ?? 0)
-        }
-        let uploaded = try JSONDecoder().decode(UploadedFile.self, from: data)
-        if let checksum = uploaded.sha256Checksum {
-            guard checksum.lowercased() == expectedDigest.lowercased() else { throw GoogleDriveError.verification }
-        } else {
-            // Drive didn't report a checksum: read the copy back and hash it.
-            guard try await download(uploaded.id, token: token).digest == expectedDigest.lowercased() else {
-                throw GoogleDriveError.verification
-            }
-        }
-        return uploaded.id
     }
 
     /// Downloads an archived file to a temporary location and hashes it.
