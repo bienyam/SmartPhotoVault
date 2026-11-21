@@ -266,7 +266,7 @@ final class DashboardUITests: XCTestCase {
     func testGoogleDriveAsksToConnectInsteadOfShowingFolders() {
         let app = launch()
         app.tabBars.buttons["Archive"].tap()
-        let picker = app.buttons["Storage location"]
+        let picker = app.buttons["storage-location"]
         reveal(picker, in: app)
         XCTAssertTrue(picker.waitForExistence(timeout: 10))
         picker.tap()

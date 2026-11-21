@@ -191,6 +191,7 @@ struct PhotoArchiveView: View {
                     Label(kind.rawValue, systemImage: kind.icon).tag(Optional(kind))
                 }
             }
+            .accessibilityIdentifier("storage-location")
             .onChange(of: destinationKind) {
                 destination = nil
                 availableGB = ""
