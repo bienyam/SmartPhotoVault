@@ -64,6 +64,11 @@ struct ScanSnapshot: Codable {
                 })
             }.sorted { $0.id < $1.id }
     }
+    /// The same scan without items that were just deleted, so results stay usable without a rescan.
+    func removing(_ ids: Set<String>) -> ScanSnapshot {
+        ScanSnapshot(date: date, limitedAccess: limitedAccess, includedCloudDownloads: includedCloudDownloads,
+                     assets: assets.filter { !ids.contains($0.id) }, albums: albums)
+    }
     var verifiedCount: Int { assets.filter { $0.fingerprint != nil }.count }
     var candidateBytes: Int64 { groups.reduce(0) { $0 + $1.extraBytes } }
 }

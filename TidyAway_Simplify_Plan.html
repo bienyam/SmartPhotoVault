@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TidyAway Simplify Plan</title>
+<style>
+:root{--ink:#1B1F3B;--muted:#5d6275;--bg:#FFF7EE;--card:#ffffff;--line:#f0dccb;--primary:#C8501F;--soft:#FFE7D3;--safe:#1E7A4F;--caution:#9A6200}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:980px;margin:0 auto;padding:32px 20px 64px}
+h1{font-size:30px;margin:0 0 4px;letter-spacing:-.02em}
+h1 span{color:var(--primary)}
+h2{font-size:21px;margin:40px 0 10px;letter-spacing:-.01em}
+h3{font-size:16px;margin:22px 0 6px}
+p{margin:8px 0}
+.sub{color:var(--muted);margin:0 0 20px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px 20px;margin:14px 0}
+.hero{background:linear-gradient(180deg,#FFD7BC,#FFF7EE);border:none}
+.hero b{color:var(--primary)}
+table{width:100%;border-collapse:collapse;margin:8px 0;font-size:14px;background:var(--card);border-radius:12px;overflow:hidden}
+th,td{text-align:left;vertical-align:top;padding:8px 10px;border-bottom:1px solid var(--line)}
+th{background:var(--soft);font-weight:600}
+tr:last-child td{border-bottom:none}
+.tag{display:inline-block;font-size:12px;font-weight:600;padding:1px 8px;border-radius:999px;white-space:nowrap}
+.free{background:#dff3e8;color:var(--safe)}
+.pro{background:var(--soft);color:var(--primary)}
+.cut{background:#eee;color:#555}
+.warn{background:#fff2d6;color:var(--caution)}
+.star{color:var(--primary);font-weight:700}
+ol.flow{counter-reset:s;list-style:none;padding:0;margin:8px 0}
+ol.flow li{counter-increment:s;position:relative;padding:8px 10px 8px 46px;border-bottom:1px dashed var(--line)}
+ol.flow li:before{content:counter(s);position:absolute;left:8px;top:7px;width:26px;height:26px;border-radius:50%;background:var(--primary);color:#fff;font-weight:700;text-align:center;line-height:26px;font-size:13px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
+.phone{background:#fff;border:1px solid var(--line);border-radius:28px;padding:16px;font-size:13px}
+.phone .big{background:var(--primary);color:#fff;border-radius:14px;padding:14px;text-align:center;font-weight:700;font-size:16px;margin:10px 0}
+.phone .row{display:flex;justify-content:space-between;padding:8px 2px;border-bottom:1px solid #f3e7dc}
+.phone .tabs{display:flex;justify-content:space-around;margin-top:12px;color:var(--muted);font-size:12px}
+.phone .tabs b{color:var(--primary)}
+.note{font-size:13px;color:var(--muted)}
+code{background:var(--soft);padding:1px 5px;border-radius:5px;font-size:13px}
+@media (max-width:600px){main{padding:20px 14px}th,td{padding:6px}}
+</style>
+</head>
+<body>
+<main>
+<h1>Tidy<span>Away</span> simplify plan</h1>
+<p class="sub">Response to your TestFlight review, 11/20/2026. Built from four Fable 5.2 reviews: an Apple-style UX designer, a senior iOS engineer, a pricing expert, and a click-through tester. Nothing has been changed in the app yet.</p>
+
+<div class="card hero">
+<p><b>The short version.</b> Today the app has 5 tabs, about 8 different names for "duplicates", 3 duplicate screens that can't actually delete, and headlines that open instructions. Getting rid of 50 screenshots takes about 56 taps. Nothing tells the user that deleted items stay in Recently Deleted, so a panicked user frees <b>no space at all</b>.</p>
+<p><b>The fix.</b> Three tabs. One big <b>Free up space</b> button. A list sorted by size that's ready in seconds, "Select all", one sign-off, and one Apple confirmation. Then a single clear last step: empty Recently Deleted. About 4 taps from opening the app to space back.</p>
+<p><b>Tagline pick:</b> "Storage full? Get your camera back."</p>
+</div>
+
+<h2>1. Your feedback, and what we'll do</h2>
+<table>
+<tr><th style="width:30%">You said</th><th>What we found</th><th>What we'll do</th></tr>
+<tr><td>1. Cumbersome, too much context</td><td>5 tabs. Home is mostly logo. Archive has 6 entry points. Storage, Pro and Help are each reachable from 2 places.</td><td>Cut to 3 tabs (Free up, Archive, More), with one route to each screen.</td></tr>
+<tr><td>2. "Analyze storage &amp; cost" → "Analyze storage"</td><td>3 of the 7 entries are about money, plus a 6-question cost wizard.</td><td>Rename to <b>Analyze storage</b> and move it under More. Show one quiet cost line ("about $X a year"). The wizard and saved comparisons become an optional Pro extra.</td></tr>
+<tr><td>3. The "Storage Full" moment</td><td>The scan reads every byte of every photo before showing anything. The app never mentions Recently Deleted.</td><td>A fast first pass (seconds) lists the biggest items first. The full duplicate check finishes in the background. The result screen walks the user through emptying Recently Deleted.</td></tr>
+<tr><td>4. Headlines that lead to instructions</td><td>"Free up phone space", "Keep smaller copies on my iPhone", the Messages guide and "Check my photos" are all text with no action button.</td><td>Every headline is an action. Things the app can't do itself move to More → Tips, with an <b>Open Settings</b> button where possible.</td></tr>
+<tr><td>5. Redundancy ("Review exact photo duplicates" vs "Find duplicates")</td><td>8 names for one thing. 3 of the 4 duplicate screens can't delete (bug). One of them runs a second, separate scan.</td><td>One word everywhere: <b>Duplicates</b>. Delete the second scanner and the dead screens.</td></tr>
+<tr><td>6. Pro must work, and testers should click everything</td><td>Pro unlocks only one buried screen (6+ taps deep). The purchase has never been exercised end to end. Purchase updates are missed when the Pro screen isn't open.</td><td>Rebuild Pro as one app-wide unlock with StoreKit tests. Add a UI test that walks every tab and taps every button.</td></tr>
+<tr><td>7. Free vs Pro list</td><td colspan="2">See section 4.</td></tr>
+<tr><td>8. Quick and punchy, details on hover</td><td>Long paragraphs on most screens.</td><td>One-line labels, with details behind an <b>(i)</b> button that opens a small popover. iPhone has no hover, so tap-to-reveal is the Apple equivalent.</td></tr>
+</table>
+
+<h2>2. The new app: 3 tabs</h2>
+<div class="grid">
+<div class="phone">
+<b>Free up</b> (opens here)
+<div class="note">iPhone: 2.1 GB free of 128 GB</div>
+<div class="big">Free up space</div>
+<div class="row"><span>Large videos</span><b>6.4 GB</b></div>
+<div class="row"><span>Duplicates</span><b>1.2 GB</b></div>
+<div class="row"><span>Screenshots</span><b>0.9 GB</b></div>
+<div class="row"><span>More types</span><span>›</span></div>
+<div class="tabs"><b>Free up</b><span>Archive</span><span>More</span></div>
+</div>
+<div class="phone">
+<b>Archive</b>
+<div class="note">[ Move out | Get back ]</div>
+<div class="row"><span>Where to?</span><span>Google Drive ›</span></div>
+<div class="row"><span>What</span><span>Videos over 25 MB ›</span></div>
+<div class="big">Copy 12 items</div>
+<div class="note">Get back: archived items, tap to restore</div>
+<div class="tabs"><span>Free up</span><b>Archive</b><span>More</span></div>
+</div>
+<div class="phone">
+<b>More</b>
+<div class="row"><span>Activity</span><span>›</span></div>
+<div class="row"><span>Analyze storage</span><span>›</span></div>
+<div class="row"><span>TidyAway Pro</span><span>›</span></div>
+<div class="row"><span>Tips (Messages, iCloud settings)</span><span>›</span></div>
+<div class="row"><span>Help &amp; privacy</span><span>›</span></div>
+<div class="tabs"><span>Free up</span><span>Archive</span><b>More</b></div>
+</div>
+</div>
+<p class="note">Archive and Archived merge into one tab with Move out / Get back. Ledger becomes More → Activity. Clean and Home merge into Free up.</p>
+
+<h2>3. The "Storage Full" rescue, tap by tap</h2>
+<ol class="flow">
+<li>Open the app. The <b>Free up</b> tab says "Storage full? Get your camera back."</li>
+<li>Tap <b>Free up space</b>. (First time only: Apple asks for Photos access.) In seconds you see a list with the biggest videos at the top, with thumbnails and sizes. Duplicates fill in underneath as the background check finishes.</li>
+<li>Tap items, or <b>Select all</b> in a section. A bar stays at the bottom: "4 selected · 3.2 GB". Favorites can't be selected.</li>
+<li>Tick the one-line sign-off in that bottom bar, then tap <b>Delete 4 items</b>. The full wording is behind (i).</li>
+<li>Apple's own confirmation appears once for the whole batch. Tap Delete.</li>
+<li>The result screen says "3.2 GB is waiting in Recently Deleted. Empty it to free the space now," with 3 picture steps: Albums → Recently Deleted → Delete All. We never say "freed" until the app re-checks free space.</li>
+</ol>
+<p><b>Today:</b> 6 taps plus 2 system dialogs before the first duplicate is gone, about 56 taps for 50 screenshots, and no space freed. <b>After:</b> about 4 taps plus Apple's dialog, then one Recently Deleted step that we explain.</p>
+<div class="card"><b>The one thing no app can fix.</b> Apple keeps deleted photos in Recently Deleted for 30 days, and apps cannot empty it or open it directly. Every cleaner app runs into this. We'll be the one that says so plainly and makes the last step easy. Space from iCloud Drive downloads <i>is</i> freed instantly, so that stays as an extra rescue option.</div>
+
+<h2>4. Free vs Pro <span class="note">(recommended split)</span></h2>
+<p>The principle: <b>getting out of trouble is always free</b>, and Pro is for archiving at scale and power tools. Competitors charge weekly fees just to delete (their #1 complaint). We do the opposite: free cleanup, a one-time Pro.</p>
+<table>
+<tr><th>Feature</th><th>Tier</th><th>Why</th></tr>
+<tr><td>Scan and storage analysis</td><td><span class="tag free">Free</span></td><td>Shows the value up front.</td></tr>
+<tr><td>Free up space: large videos, duplicates, screenshots and all types, with Select all</td><td><span class="tag free">Free, unlimited</span></td><td>This is the rescue moment. Putting it behind a paywall is the most-hated pattern in this category.</td></tr>
+<tr><td>Free iCloud Drive downloads, one at a time</td><td><span class="tag free">Free</span></td><td>Instant space.</td></tr>
+<tr><td>Activity record</td><td><span class="tag free">Free</span></td><td>It's the safety record.</td></tr>
+<tr><td>Restore from archive</td><td><span class="tag free">Free, always</span></td><td>Never hold someone's own photos hostage.</td></tr>
+<tr><td>Archive copy and verify, first 5 GB</td><td><span class="tag free">Free</span></td><td>Lets people prove the archive works with their own files. Shown as a meter: "3.2 of 5 GB used".</td></tr>
+<tr><td>Archive beyond 5 GB (unlimited)</td><td><span class="tag pro">Pro</span></td><td>Our unique, high-value feature.</td></tr>
+<tr><td>Archive then remove from iPhone (once proven on a real phone)</td><td><span class="tag pro">Pro</span></td><td>This turns archiving into real space. Until it ships, Pro is weak, so don't charge before then.</td></tr>
+<tr><td>Album, place and size filters for archiving</td><td><span class="tag pro">Pro</span></td><td>Power targeting.</td></tr>
+<tr><td>Free many iCloud Drive downloads at once</td><td><span class="tag pro">Pro</span></td><td>Convenience at scale.</td></tr>
+<tr><td>Storage plan comparisons (save, compare, share) and activity export</td><td><span class="tag pro">Pro</span></td><td>Planning extras, kept away from the main flow.</td></tr>
+</table>
+<p><span class="star">★ Price: $7.99 one-time.</span> No renewals, no timed trial; the 5 GB free archive is the trial. That's about 1–2 weeks of a competitor's subscription. An honest $4.99 launch price is optional. This is a judgment call: we found no public conversion data for one-time pricing.</p>
+<p><b>Where Pro appears:</b> a quiet row under More, plus an inline note only when an archive selection goes past the free 5 GB ("Archive 1.8 GB now, or unlock Pro for the rest. One-time $7.99."). Both buttons get equal weight. No launch paywall, no pop-ups, and nothing in the middle of a delete.</p>
+
+<h2>5. Bugs the testers found</h2>
+<table>
+<tr><th>#</th><th>Problem</th><th>Effect</th></tr>
+<tr><td>B1</td><td>3 of the 4 duplicate screens are missing the delete controls</td><td>The user reviews duplicates and can't remove them.</td></tr>
+<tr><td>B2</td><td>"Scan for exact duplicates" runs a second, private scan</td><td>Its results vanish when you leave the screen.</td></tr>
+<tr><td>B3</td><td>Any Photos change wipes the results, including our own delete</td><td>After deleting duplicates you must rescan the whole library before you can clean screenshots.</td></tr>
+<tr><td>B4</td><td>"Scan Apple Photos" erases the duplicate results</td><td>Work is lost.</td></tr>
+<tr><td>B5</td><td>With Limited Photos access, results are wiped every time the app reopens</td><td>Returning from Apple's dialog can clear the list.</td></tr>
+<tr><td>B6</td><td>After one category delete, a second delete is blocked and deleted rows stay listed</td><td>Looks broken.</td></tr>
+<tr><td>B7</td><td>A stale saved scan can make deletes fail with no clear "scan again"</td><td>Dead end.</td></tr>
+<tr><td>B8</td><td>Pro unlocks only one buried screen. Purchase updates are heard only while the Pro screen is open. No retry if the product fails to load. Never tested end to end.</td><td>Pro feels like nothing, and may be missed (Ask to Buy, refunds, purchases on another device).</td></tr>
+<tr><td>B9</td><td>"Removed… about 3.2 GB" message</td><td>Claims space that isn't freed yet.</td></tr>
+</table>
+<p class="note">Grade: PRELIMINARY. These come from tracing the code and CI screenshots, not from a real iPhone. Each fix will add a UI test that proves it.</p>
+
+<h2>6. Build plan (small PRs, each tested and shipped)</h2>
+<table>
+<tr><th>Step</th><th>What</th><th>Proof</th></tr>
+<tr><td>1</td><td><b>Fix the bugs</b> (B1–B7, B9): one scan shared by every screen; keep results after a delete; correct result wording.</td><td>UI tests: delete duplicates and then screenshots without rescanning.</td></tr>
+<tr><td>2</td><td><b>One removal engine</b>: Select all, one sign-off for a whole batch, one Apple confirmation.</td><td>Unit tests (favorites kept, one copy kept) + UI test.</td></tr>
+<tr><td>3</td><td><b>Fast scan</b>: sizes and types in seconds, duplicate check in the background, incremental updates instead of full rescans.</td><td>Speed test on a 50,000-item synthetic library.</td></tr>
+<tr><td>4</td><td><b>New Free up tab</b> with the rescue flow and the Recently Deleted result screen.</td><td>UI test taps every control on the tab.</td></tr>
+<tr><td>5</td><td><b>3-tab layout</b>: merge Archive and Archived, move Ledger, Analyze, Help and Tips under More; rename labels; (i) popovers.</td><td>A "walk every tab, tap every button, no crash" UI test.</td></tr>
+<tr><td>6</td><td><b>Pro, rebuilt</b>: one app-wide unlock, purchase listener from launch, retry, 5 GB meter, gates per section 4.</td><td>StoreKit test file and tests for buy, restore, Ask to Buy and refund.</td></tr>
+<tr><td>7</td><td>TestFlight build; you run a short phone checklist with throwaway photos.</td><td>Your sign-off.</td></tr>
+<tr><td>8</td><td><b>Google Drive sign-in connection</b> + write-only message.</td><td>Upload/verify tests against a mock Drive; you test with a throwaway Google account.</td></tr>
+<tr><td>8a</td><td><b>Drive plugged into the iPhone</b>: format, read-only, space and 4 GB checks; reconnect handling.</td><td>Unit tests for the checks; you test with any USB-C stick.</td></tr>
+<tr><td>9</td><td><b>TidyAway Receiver</b> (Windows first, then Mac): pairing code, write-only receiving, verified copies.</td><td>Prototype on your Windows PC before full build.</td></tr>
+</table>
+<p class="note">Later: archive-then-remove (after phone proof), shrinking big videos, burst frames.</p>
+
+<h2>6b. Archive connections: sign in, don't browse folders</h2>
+<div class="card">
+<p><b>What you saw.</b> Choosing Google Drive just opened a list of folders on the phone, with no sign-in. That's because every destination today goes through Apple's Files folder picker. The app never asks for access; it only shows a line of instructions first (<code>PhotoArchiveView.swift:59, 155-157</code>). Apple's forums also report that third-party drives are often greyed out when an app asks for a folder.</p>
+<p><b>New rule:</b> every outside service connects with its own sign-in and grant-access screen. The user never browses folders. TidyAway creates a "TidyAway Archive" folder by itself.</p>
+
+<h3>Cloud services (Google Drive first)</h3>
+<ol class="flow">
+<li>Archive → <b>Where to?</b> → <b>Google Drive</b>.</li>
+<li>Google's own sign-in opens and asks: "Allow TidyAway to see and add only the files it creates?" Tap Allow.</li>
+<li>Done. The screen shows "Connected: you@gmail.com · TidyAway Archive". Disconnect is one tap.</li>
+</ol>
+<p>It uses Google's narrowest Drive permission (<code>drive.file</code>). TidyAway can't see, change or delete anything else in the Drive, so "write only" is enforced by Google, not just promised. Google classes it as non-sensitive, so its review is lighter, but Google must approve our sign-in screen before public launch. Dropbox and OneDrive can follow later the same way.</p>
+
+<h3>What people actually own (research, PRELIMINARY)</h3>
+<table>
+<tr><th>Item</th><th>Share</th><th>Source</th></tr>
+<tr><td>Pay for iCloud+ (US iPhone owners)</td><td>about 64–70%</td><td>CIRP 2024, 2026 (CONFIRMED)</td></tr>
+<tr><td>Use an external hard drive for backup</td><td>34–45%</td><td>ExpressVPN 2024, Western Digital 2025 (vendor surveys)</td></tr>
+<tr><td>Own a NAS</td><td>16–19% claimed; real home ownership is likely single digits</td><td>same surveys; the claimed figure looks inflated</td></tr>
+<tr><td>iPhone owners with a computer who have a Mac</td><td>about 36–41%; the rest have <b>Windows</b></td><td>CIRP 2021, 2025 (CONFIRMED)</td></tr>
+<tr><td>Under-30s with no real computer setup</td><td>about one in three</td><td>HP 2026, Statista 2024</td></tr>
+<tr><td>Buyers who take base storage (64/128 GB, the "Storage Full" crowd)</td><td>54–58%</td><td>CIRP 2024–25 (CONFIRMED)</td></tr>
+</table>
+<p>Your hunch holds: drives are common and NAS boxes are rare. Most people with a computer have Windows, and roughly a third of younger users have no computer at all. Nobody measures whether that drive is plugged into a computer or sitting in a drawer.</p>
+
+<h3>Destinations, in build order</h3>
+<table>
+<tr><th>#</th><th>Destination</th><th>How it works for the user</th><th>Effort</th></tr>
+<tr><td>1</td><td><span class="star">★</span> <b>Drive plugged into the iPhone</b> (USB-C on iPhone 15 and later; adapter on older)</td><td>Plug in, tap <b>Use this drive</b>, sign off, copy. No computer, no network, no permission prompt. It already almost works through today's code. TidyAway checks the drive the moment it's chosen: "This drive is formatted for Windows (NTFS). iPhone can read it but can't save to it", "FAT32 drives can't hold videos over 4 GB", "Only 12 GB free". If the drive is unplugged, it says "Reconnect the drive to continue".</td><td>Small</td></tr>
+<tr><td>2</td><td><b>Google Drive</b> (and OneDrive next)</td><td>Google's own sign-in asks for access, as described above. Covers people with no computer.</td><td>Medium</td></tr>
+<tr><td>3</td><td><b>A computer, Windows or Mac, with its drive</b>: a free "TidyAway Receiver" app on the computer</td><td>Install the Receiver and pick the drive folder once. On the phone: Archive → <b>A computer</b>. Confirm same Wi-Fi, allow the local network prompt once, tap your computer, and type the 6-digit code it shows. That code is the grant-access moment. The Receiver only accepts new files; it has no way to delete, so write-only is enforced. Same idea as PhotoSync's free companion and LocalSend.</td><td>Large: 4–8 weeks, plus a Windows signing certificate (about $150–300 a year)</td></tr>
+<tr><td>Later</td><td>NAS / Mac file sharing / router USB drives</td><td>Use Files "Connect to Server" for the few who have them. No custom build until demand shows up.</td><td>None now</td></tr>
+</table>
+<p><b>Why not make people set up Windows file sharing?</b> Recent Windows 11 versions require a real account password for shared folders. The PIN or Microsoft-account sign-in most people use doesn't work, and it's one of the most common complaint threads on Microsoft's own forums. It can't be done without a page of instructions, which is exactly what we're removing. A Receiver app avoids that.</p>
+<p><b>Should we tell people to buy specific storage?</b> <span class="star">★</span> No push, just one optional tip. We work with what people already own. A small (i) under "Drive" says: "No drive yet? A portable USB-C SSD formatted as exFAT works best. Spinning drives may need power." No brands and no links, which keeps it helpful rather than salesy. If a drive is NTFS, TidyAway explains it plainly. Since iOS 18 the iPhone can reformat a drive itself (Files → hold the drive → Erase → ExFAT), but that wipes the drive, so we say so first and suggest copying anything on it elsewhere. ExFAT then works on iPhone, Windows and Mac. TidyAway cannot write NTFS itself: iOS gives apps no access to the raw drive, only to files the system already understands.</p>
+<p class="note">Not yet verified on a device: drive power limits on iPhone, whether the app can recognise the drive again after replugging (Apple says no reliable fix, so plan to re-pick), and the format checks on external drives. Proof comes from your iPhone plus any USB-C stick.</p>
+
+<h3>Still via Files</h3>
+<p>iCloud Drive and "Other location" keep the Files picker, because iCloud is Apple's own and already signed in. They gain a "test write" check right after choosing.</p>
+
+<h3>Write-only message (every destination)</h3>
+<p>Shown on the Archive screen and in the sign-off: "TidyAway only adds copies to your archive. It never deletes or changes anything there, by design." The code matches the message: no delete call is ever made against an archive destination (the only file it removes is its own unfinished temporary copy).</p>
+</div>
+
+<h2>7. Decisions I need from you</h2>
+<table>
+<tr><th>#</th><th>Decision</th><th>My recommendation</th></tr>
+<tr><td>1</td><td>Approve removing and renaming existing screens (sections 2 and 5)</td><td><span class="star">★</span> Yes, all of it. Nothing is lost that the new layout doesn't cover.</td></tr>
+<tr><td>2</td><td>One sign-off for a whole batch instead of one per duplicate group</td><td><span class="star">★</span> Yes. It still lists exactly what will go, and Apple still confirms.</td></tr>
+<tr><td>3</td><td>Shorter sign-off line: "I understand these leave Photos and iCloud and can be recovered for 30 days." Full text behind (i)</td><td><span class="star">★</span> Yes, pending counsel review.</td></tr>
+<tr><td>4</td><td>"Select all" buttons. The "nothing pre-selected" rule still holds: the user taps to select.</td><td><span class="star">★</span> Yes.</td></tr>
+<tr><td>5</td><td>"Open Photos" button using an undocumented Apple link</td><td><span class="star">★</span> No. Use the 3 picture steps; it's safer for App Review.</td></tr>
+<tr><td>6</td><td>Free vs Pro split and price</td><td><span class="star">★</span> As in section 4, $7.99 one-time.</td></tr>
+<tr><td>7</td><td>Family Sharing for Pro (can't be turned off later)</td><td><span class="star">★</span> On. It fits the "helping, not selling" tone.</td></tr>
+<tr><td>8</td><td>Tagline</td><td><span class="star">★</span> "Storage full? Get your camera back."</td></tr>
+<tr><td>9</td><td>The 6-question cost wizard</td><td><span class="star">★</span> Keep it only as a Pro extra under More → Analyze storage.</td></tr>
+<tr><td>10</td><td>Outside services connect by sign-in (Google Drive first) instead of the Files folder picker</td><td><span class="star">★</span> Yes, with Google's limited <code>drive.file</code> permission. Files stays only for iCloud Drive and "Other location".</td></tr>
+<tr><td>11</td><td>Destination order: drive into the iPhone → Google Drive → TidyAway Receiver for Windows/Mac; NAS only via Files for now</td><td><span class="star">★</span> Yes. It matches what people own.</td></tr>
+<tr><td>12</td><td>Build the computer Receiver app (needs a yearly Windows signing certificate, about $150–300)</td><td><span class="star">★</span> Yes, after 1 and 2 ship. Prototype first to prove phone-to-PC transfer is reliable.</td></tr>
+<tr><td>13</td><td>Recommend specific storage?</td><td><span class="star">★</span> One neutral (i) tip only: no brands, no links.</td></tr>
+</table>
+</main>
+</body>
+</html>

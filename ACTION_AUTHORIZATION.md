@@ -20,6 +20,22 @@ Used when someone deletes items they picked one by one from a Clean category (sc
 
 Button **Delete [count] items from Apple Photos**.
 
+### Short sign-off (disclosure v2, approved by the owner 2026-11-21, pending counsel)
+
+Used on every Apple Photos deletion from the Free up tab. The checkbox line is short; the full wording above for that kind of deletion (duplicates or reviewed items) stays one tap away behind an (i) button next to it.
+
+> I understand these leave Photos and iCloud and can be recovered for 30 days.
+
+- One sign-off may cover a whole batch: several duplicate groups, or every item the user selected in a list. The screen still shows the count and size of exactly what will go, and Apple's own confirmation still follows.
+- "Select all" is allowed, but nothing is ever pre-selected: the user taps to select. Favorites can't be selected, one copy of each duplicate group is always kept, and bursts stay review-only.
+- After deletion, say items were moved to Recently Deleted and that space returns once it is emptied. Never say "freed" before then.
+
+### Archive destinations are write-only
+
+Shown on the Archive screen and in its sign-off:
+
+> TidyAway only adds copies to your archive. It never deletes or changes anything there, by design.
+
 ### Copy to cloud storage
 
 > I authorize copying [count] items, including [files and metadata], to [provider and account]. The transfer will use approximately [size] and may cost [amount or pricing basis]. Existing copies stay where they are.

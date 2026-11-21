@@ -73,7 +73,7 @@ struct CategoryRemovalControls: View {
     private func result(_ outcome: DuplicateRemovalOutcome) -> some View {
         switch outcome {
         case .removed(let count, let bytes):
-            Label("Removed \(count) \(count == 1 ? "item" : "items"), about \(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)). Recoverable in Recently Deleted for up to 30 days.", systemImage: "checkmark.circle.fill")
+            Label(DuplicateRemovalOutcome.removedMessage(count: count, bytes: bytes), systemImage: "checkmark.circle.fill")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(Brand.safe)
         case .cancelled:

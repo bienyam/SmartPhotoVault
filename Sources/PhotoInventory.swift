@@ -47,16 +47,20 @@ final class DashboardModel: ObservableObject {
     @Published var completed = 0
     @Published var total = 0
     @Published var isDemo = false
+    /// True when Photos changed outside TidyAway since the last scan. Results stay usable;
+    /// every removal re-checks its items, and the user can refresh when they like.
+    @Published private(set) var libraryChanged = false
     private var store: InventoryStore?
     private let scanner = DuplicateScanner()
     private var scanTask: Task<Void, Never>?
     private var changeObserver: LibraryChangeObserver?
-    private var ownChangePending = false
+    /// Our own deletions also trigger Photos' change notice; those are already reflected in the results.
+    private var ownChanges = 0
 
     init() {
         do {
             store = try InventoryStore.openDefault()
-            if authorization == .authorized {
+            if authorization == .authorized || authorization == .limited {
                 snapshot = try store?.load()
                 // didSet doesn't run during init, so fill the categories here.
                 categorySummaries = snapshot.flatMap { $0.recordsCategories ? $0.cleanSummaries() : nil }
@@ -71,16 +75,12 @@ final class DashboardModel: ObservableObject {
         changeObserver = LibraryChangeObserver { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self, !self.isDemo else { return }
-                self.cancel()
-                self.snapshot = nil
-                self.inventory = nil
-                if self.ownChangePending {
-                    self.ownChangePending = false
-                    self.duplicateScanStatus = "Items removed. Scan again to refresh the results."
+                if self.ownChanges > 0 {
+                    self.ownChanges -= 1
                     return
                 }
-                self.duplicateScanStatus = nil
-                self.errorMessage = "Your Photos library changed. Run a new scan to refresh the results."
+                // Keep the results: wiping them forced a full rescan after every edit in Photos.
+                if self.snapshot != nil { self.libraryChanged = true }
             }
         }
     }
@@ -100,52 +100,39 @@ final class DashboardModel: ObservableObject {
     }
 
     /// Removes the extra copies in one exact-duplicate group after the user has signed off.
-    /// Every item is re-read and compared with the scan first. Apple Photos then shows its own
-    /// confirmation, and deleted items go to Recently Deleted.
     func removeDuplicates(_ plan: DuplicateRemovalPlan) async -> DuplicateRemovalOutcome {
-        if isDemo { return .sample }
-        guard !isScanning else { return .blocked("Wait for the scan to finish, then try again.") }
-        let operation = String(UUID().uuidString.prefix(8))
-        let count = plan.removeIDs.count
-        try? store?.log("Authorized deleting \(count) exact duplicate item(s) from Apple Photos. Operation \(operation).")
-        defer { activity = (try? store?.activity()) ?? [] }
-        func blocked(_ reason: String) -> DuplicateRemovalOutcome {
-            try? store?.log("Operation \(operation) blocked. Nothing was removed.")
-            return .blocked(reason)
-        }
-        do {
-            guard try await scanner.fingerprint(for: plan.keepID) == plan.fingerprint else {
-                return blocked("The copy to keep could not be verified, so nothing was removed. Scan again.")
-            }
-            for id in plan.removeIDs {
-                guard try await scanner.fingerprint(for: id) == plan.fingerprint else {
-                    return blocked("An item changed since the scan, so nothing was removed. Scan again.")
-                }
-            }
-            let targets = PHAsset.fetchAssets(withLocalIdentifiers: plan.removeIDs, options: nil)
-            var includesFavorite = false
-            targets.enumerateObjects { asset, _, _ in if asset.isFavorite { includesFavorite = true } }
-            guard targets.count == count, !includesFavorite else {
-                return blocked("An item changed since the scan, so nothing was removed. Scan again.")
-            }
-            ownChangePending = true
-            try await PHPhotoLibrary.shared().performChanges {
-                PHAssetChangeRequest.deleteAssets(targets)
-            }
-            try? store?.log("Operation \(operation) finished: \(count) item(s) moved to Recently Deleted.")
-            return .removed(count: count, bytes: plan.removeBytes)
-        } catch {
-            ownChangePending = false
-            if (error as NSError).code == 3072 {
-                try? store?.log("Operation \(operation) cancelled at Apple's confirmation. Nothing was removed.")
-                return .cancelled
-            }
-            try? store?.log("Operation \(operation) failed. Nothing was removed.")
-            return .blocked("Apple Photos did not remove the items: \(error.localizedDescription)")
-        }
+        await removeDuplicates([plan])
     }
 
-    /// Deletes items the user picked one by one from a Clean category, after they signed off.
+    /// Removes extra copies across any number of exact-duplicate groups under one sign-off and one
+    /// Apple confirmation. Every copy to keep and every copy to remove is re-read and compared with
+    /// the scan first; if anything changed, nothing is removed. Deleted items go to Recently Deleted.
+    func removeDuplicates(_ plans: [DuplicateRemovalPlan]) async -> DuplicateRemovalOutcome {
+        if isDemo { return .sample }
+        guard !isScanning else { return .blocked("Wait for the scan to finish, then try again.") }
+        let ids = plans.flatMap(\.removeIDs)
+        guard !ids.isEmpty else { return .blocked("Select at least one extra copy.") }
+        let operation = String(UUID().uuidString.prefix(8))
+        try? store?.log("Authorized deleting \(ids.count) exact duplicate item(s) from \(plans.count) group(s) in Apple Photos. Disclosure v2. Operation \(operation).")
+        defer { activity = (try? store?.activity()) ?? [] }
+        do {
+            for plan in plans {
+                guard try await scanner.fingerprint(for: plan.keepID) == plan.fingerprint else {
+                    return blocked(operation, "A copy to keep could not be checked, so nothing was removed. Refresh and try again.")
+                }
+                for id in plan.removeIDs {
+                    guard try await scanner.fingerprint(for: id) == plan.fingerprint else {
+                        return blocked(operation, "An item changed since the scan, so nothing was removed. Refresh and try again.")
+                    }
+                }
+            }
+        } catch {
+            return blocked(operation, "An item couldn't be checked, so nothing was removed. Refresh and try again.")
+        }
+        return await delete(ids, bytes: plans.reduce(0) { $0 + $1.removeBytes }, operation: operation)
+    }
+
+    /// Deletes items the user picked from a Clean category, after they signed off.
     /// These are not duplicates, so every item is re-checked first: still present, still not a favorite.
     /// Apple Photos then shows its own confirmation, and deleted items go to Recently Deleted.
     func removeItems(_ ids: [String], bytes: Int64, from category: String) async -> DuplicateRemovalOutcome {
@@ -153,26 +140,40 @@ final class DashboardModel: ObservableObject {
         guard !isScanning else { return .blocked("Wait for the scan to finish, then try again.") }
         guard !ids.isEmpty else { return .blocked("Select at least one item.") }
         let operation = String(UUID().uuidString.prefix(8))
-        let count = ids.count
-        try? store?.log("Authorized deleting \(count) item(s) from \(category) in Apple Photos. Operation \(operation).")
+        try? store?.log("Authorized deleting \(ids.count) item(s) from \(category) in Apple Photos. Disclosure v2. Operation \(operation).")
         defer { activity = (try? store?.activity()) ?? [] }
+        return await delete(ids, bytes: bytes, operation: operation)
+    }
+
+    private func blocked(_ operation: String, _ reason: String) -> DuplicateRemovalOutcome {
+        try? store?.log("Operation \(operation) blocked. Nothing was removed.")
+        return .blocked(reason)
+    }
+
+    /// The one place that asks Photos to delete. Re-checks presence and favorites, then drops the
+    /// deleted items from the saved results so the lists stay usable without a rescan.
+    private func delete(_ ids: [String], bytes: Int64, operation: String) async -> DuplicateRemovalOutcome {
         let targets = PHAsset.fetchAssets(withLocalIdentifiers: ids, options: nil)
         var includesFavorite = false
         targets.enumerateObjects { asset, _, _ in if asset.isFavorite { includesFavorite = true } }
-        guard targets.count == count, !includesFavorite else {
-            try? store?.log("Operation \(operation) blocked. Nothing was removed.")
-            return .blocked("An item changed since the scan, so nothing was removed. Scan again.")
+        guard targets.count == ids.count, !includesFavorite else {
+            return blocked(operation, "An item changed since the scan, so nothing was removed. Refresh and try again.")
         }
         do {
-            ownChangePending = true
+            ownChanges += 1
             try await PHPhotoLibrary.shared().performChanges {
                 PHAssetChangeRequest.deleteAssets(targets)
             }
-            try? store?.log("Operation \(operation) finished: \(count) item(s) moved to Recently Deleted.")
-            return .removed(count: count, bytes: bytes)
+            try? store?.log("Operation \(operation) finished: \(ids.count) item(s) moved to Recently Deleted.")
+            if let current = snapshot {
+                let updated = current.removing(Set(ids))
+                snapshot = updated
+                try? store?.save(updated)
+            }
+            return .removed(count: ids.count, bytes: bytes)
         } catch {
-            ownChangePending = false
-            if (error as NSError).code == 3072 {
+            ownChanges = max(0, ownChanges - 1)
+            if (error as NSError).code == PHPhotosError.userCancelled.rawValue {
                 try? store?.log("Operation \(operation) cancelled at Apple's confirmation. Nothing was removed.")
                 return .cancelled
             }
@@ -194,7 +195,6 @@ final class DashboardModel: ObservableObject {
         completed = 0
         total = 0
         errorMessage = nil
-        snapshot = nil
         defer { isScanning = false; scanTask = nil }
         do {
             try Task.checkCancellation()
@@ -222,6 +222,7 @@ final class DashboardModel: ObservableObject {
             let result = ScanSnapshot(date: Date(), limitedAccess: authorization == .limited, includedCloudDownloads: false, assets: records,
                                       albums: await scanner.lastAlbums)
             snapshot = result
+            libraryChanged = false
             inventory = counts(for: records)
             duplicateScanStatus = "Scan complete."
             do {
@@ -267,7 +268,6 @@ final class DashboardModel: ObservableObject {
     private func scan() async {
         isDemo = false
         duplicateScanStatus = nil
-        snapshot = nil
         isScanning = true
         defer { isScanning = false; scanTask = nil }
         inventory = nil
@@ -287,9 +287,10 @@ final class DashboardModel: ObservableObject {
         let previous = authorization
         authorization = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         guard !isDemo else { return }
-        // Keep a completed inventory when access is unchanged. In particular,
-        // closing the initial permission dialog must not erase a just-finished scan.
-        if previous != authorization || (authorization == .limited && !isScanning) {
+        // Keep completed results when access is unchanged. In particular, returning from Apple's
+        // delete confirmation or the permission dialog must not erase a just-finished scan.
+        // Changes to a Limited selection arrive through the library change notice instead.
+        if previous != authorization {
             inventory = nil
             if previous != .notDetermined && isScanning {
                 errorMessage = "Photos access changed. Run a new scan with your current access."

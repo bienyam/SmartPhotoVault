@@ -9,10 +9,20 @@ iPhone app for phone and cloud storage cleanup and archiving. Display name **Tid
 - Pricing plan: free analysis plus a one-time Pro unlock ($4.99 or $7.99, undecided). Never weekly subscriptions.
 - Owner prefers brief, direct updates and iterating in small steps.
 
+## Simplify redesign (approved by the owner 2026-11-21)
+Plan: `TidyAway_Simplify_Plan.html`. All ★ recommendations approved:
+- Three tabs: **Free up** (launch tab: one "Free up space" button, then Large videos, Duplicates, Screenshots, More types), **Archive** (Move out / Get back), **More** (Activity, Analyze storage, TidyAway Pro, Tips, Help & privacy). One route to each screen, one word per thing ("Duplicates").
+- Headlines are actions, never instruction pages. Extra detail goes behind an (i) popover.
+- Rescue flow: list sorted by size, Select all, one short sign-off and one Apple confirmation per batch, then a result screen explaining Recently Deleted (3 picture steps; no undocumented `photos-redirect://` link). Never say "freed" until space is actually back.
+- "Analyze storage & cost" becomes "Analyze storage" under More; cost stays one quiet line. The cost wizard is a Pro extra.
+- Free: scan, all cleanup, restore, Activity, first 5 GB of archiving. Pro, $7.99 one-time, Family Sharing on: unlimited archiving, archive-then-remove (once proven), archive filters, multi-file iCloud Drive download removal, storage comparisons, Activity export. Prompt only quietly under More and inline when an archive passes 5 GB.
+- Archive destinations in order: drive plugged into the iPhone (format/read-only/space checks, NTFS explained, iOS 18 Files Erase → ExFAT), Google Drive via Google sign-in with the `drive.file` scope, then a free "TidyAway Receiver" desktop app (Windows first) paired by a 6-digit code. NAS only via Files "Connect to Server" for now. No storage brand recommendations, one neutral (i) tip.
+- Archive destinations are write-only: TidyAway never deletes or changes anything there.
+
 ## Rules that must hold
-- Sign-off before any copy, removal or restore: an unchecked acknowledgment and a disabled button. Wording comes from `ACTION_AUTHORIZATION.md`; do not reword it casually.
+- Sign-off before any copy, removal or restore: an unchecked acknowledgment and a disabled button. Wording comes from `ACTION_AUTHORIZATION.md` (short line, disclosure v2, full text behind (i)); do not reword it casually. One sign-off may cover a whole batch.
 - Removal after archiving stays switched off until copy and restore are proven on a physical iPhone (see `PHONE_TEST_CHECKLIST.md`).
-- Category removal: nothing pre-selected, favorites can't be picked, bursts stay review-only.
+- Category removal: nothing pre-selected (Select all is fine, the user taps it), favorites can't be picked, bursts stay review-only.
 - Never remove favorites; always keep one copy of a duplicate group.
 - Activity log records approvals and outcomes without file names.
 - Do not trigger a TestFlight upload unless the owner asks for a build.

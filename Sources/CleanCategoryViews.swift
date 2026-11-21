@@ -154,7 +154,7 @@ struct CleanCategoryReviewView: View {
                     Text("For review only. To remove something, delete it in Photos, which normally keeps it in Recently Deleted for up to 30 days.")
                 }
             }
-            if let model, canRemove, !selected.isEmpty {
+            if let model, canRemove, !selectedRecords.isEmpty {
                 Section("Delete selected items") {
                     CategoryRemovalControls(category: summary.category, records: selectedRecords, model: model)
                 }
