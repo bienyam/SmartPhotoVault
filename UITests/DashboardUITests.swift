@@ -232,6 +232,25 @@ final class DashboardUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Wait for the list to load, then tap Messages."].exists)
     }
 
+    func testProOpensFromHomeAndLedger() {
+        let app = XCUIApplication()
+        app.launchArguments += ["--skip-welcome"]
+        app.launch()
+        XCTAssertTrue(app.navigationBars["TidyAway"].waitForExistence(timeout: 15))
+        let homePro = app.buttons["home-pro"]
+        reveal(homePro, in: app)
+        XCTAssertTrue(homePro.waitForExistence(timeout: 5))
+        homePro.tap()
+        XCTAssertTrue(app.navigationBars["TidyAway Pro"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["One-time unlock. Never a subscription."].exists)
+        app.tabBars.buttons["Ledger"].tap()
+        let ledgerPro = app.buttons["ledger-pro"]
+        reveal(ledgerPro, in: app)
+        XCTAssertTrue(ledgerPro.waitForExistence(timeout: 5))
+        ledgerPro.tap()
+        XCTAssertTrue(app.navigationBars["TidyAway Pro"].waitForExistence(timeout: 5))
+    }
+
     func testArchiveTabOpensTheArchiveWorkflow() {
         let app = XCUIApplication()
         app.launchArguments += ["--skip-welcome"]

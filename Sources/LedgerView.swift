@@ -27,6 +27,10 @@ struct LedgerView: View {
                     StorageGuideView(snapshot: model.isDemo ? nil : model.snapshot)
                 }
             }
+            Section("TidyAway Pro") {
+                NavigationLink("What Pro adds") { ProUpgradeView() }
+                    .accessibilityIdentifier("ledger-pro")
+            }
             Section("About") {
                 NavigationLink("Help and privacy") {
                     PhotoDetailsView(model: model, destination: .help)
