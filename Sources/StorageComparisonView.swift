@@ -48,9 +48,7 @@ struct StorageComparisonView: View {
 
     var body: some View {
         List {
-            if pro.checking {
-                ProgressView("Checking Pro…")
-            } else if !pro.unlocked {
+            if !pro.unlocked {
                 purchaseOptions
             } else if let current {
                 comparisons(current)

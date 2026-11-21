@@ -130,9 +130,8 @@ struct ProPurchaseControls: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if pro.checking {
-                ProgressView("Checking Pro…")
-            } else if pro.unlocked {
+            // Never block on the App Store: the buttons work while the check finishes.
+            if pro.unlocked {
                 Label("Pro is unlocked.", systemImage: "checkmark.seal.fill")
                     .foregroundStyle(Brand.safe)
                     .accessibilityIdentifier("pro-unlocked")
