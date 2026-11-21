@@ -38,11 +38,6 @@ struct PhotoArchiveView: View {
         }
     }
 
-    private enum Kind: String, CaseIterable {
-        case photos = "All photos"
-        case screenshots = "Screenshots only"
-        case notScreenshots = "No screenshots"
-    }
 
     private static let suggestionLimit = 200
 
@@ -92,7 +87,10 @@ struct PhotoArchiveView: View {
     @State private var showFiles = false
     @State private var age: Age = .two
     @State private var sizeFloor: SizeFloor = .any
-    @State private var kind: Kind = .photos
+    @State private var kind: ArchiveKind = .photos
+    @State private var albumID: String?
+    @State private var place: PlaceArea?
+    @State private var showPlacePicker = false
     @State private var showSuggested = false
     @State private var suggested: [ArchiveItem] = []
     @State private var archiveConsent = false
@@ -146,6 +144,9 @@ struct PhotoArchiveView: View {
         .navigationTitle("Archive originals")
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(busy)
+        .sheet(isPresented: $showPlacePicker) {
+            if let snapshot { PlacePickerSheet(place: $place, snapshot: snapshot) }
+        }
         .fileImporter(isPresented: $showFiles,
                       allowedContentTypes: picker == .files ? [.data] : [.folder],
                       allowsMultipleSelection: picker == .files,
@@ -187,8 +188,8 @@ struct PhotoArchiveView: View {
         Section("2. Choose what to copy") {
             switch photoAccess {
             case .authorized, .limited:
-                PhotosPicker(selection: $photoSelection, maxSelectionCount: 25, matching: .images, photoLibrary: .shared()) {
-                    Label("Pick photos myself", systemImage: "photo.on.rectangle")
+                PhotosPicker(selection: $photoSelection, maxSelectionCount: 25, matching: .any(of: [.images, .videos]), photoLibrary: .shared()) {
+                    Label("Pick photos or videos myself", systemImage: "photo.on.rectangle")
                 }
             case .notDetermined:
                 Button {
@@ -212,16 +213,51 @@ struct PhotoArchiveView: View {
                     ForEach(SizeFloor.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                 }
                 Picker("Kind", selection: $kind) {
-                    ForEach(Kind.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                    ForEach(ArchiveKind.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                }
+                if let albums = snapshot.albums {
+                    if !albums.isEmpty {
+                        Picker("Album", selection: $albumID) {
+                            Text("Any album").tag(String?.none)
+                            ForEach(albums) { Text($0.title).tag(Optional($0.id)) }
+                        }
+                    }
+                    if snapshot.assets.contains(where: { $0.latitude != nil }) {
+                        Button { showPlacePicker = true } label: {
+                            LabeledContent {
+                                Text(place == nil ? "Anywhere" : "Area on map")
+                            } label: {
+                                Label("Place", systemImage: "map")
+                            }
+                        }
+                        .accessibilityIdentifier("archive-place")
+                        if place != nil {
+                            Button("Clear place") { place = nil }
+                        }
+                    }
+                } else {
+                    Text("Scan again to also choose by album or place.")
+                        .font(.footnote).foregroundStyle(.secondary)
                 }
                 Button { showSuggestions(from: snapshot) } label: {
-                    Label("Show matching photos", systemImage: "line.3.horizontal.decrease.circle")
+                    Label(kind == .videos ? "Show matching videos" : "Show matching photos", systemImage: "line.3.horizontal.decrease.circle")
                 }
+                Button {
+                    kind = .videos
+                    sizeFloor = .twentyFive
+                    age = .any
+                    albumID = nil
+                    place = nil
+                    showSuggestions(from: snapshot)
+                } label: {
+                    Label("Suggest large videos", systemImage: "film.stack")
+                }
+                .accessibilityIdentifier("archive-suggest-videos")
                 if showSuggested {
                     let matchingBytes = suggested.compactMap { bytes(for: $0) }.reduce(Int64(0), +)
-                    LabeledContent("Matching photos", value: "\(suggested.count.formatted()) · \(formattedBytes(matchingBytes))")
+                    LabeledContent(kind == .videos ? "Matching videos" : "Matching photos", value: "\(suggested.count.formatted()) · \(formattedBytes(matchingBytes))")
                     if suggested.isEmpty {
-                        Text("No photos from your last scan match. Try a wider choice.")
+                        Text("Nothing from your last scan matches. Try a wider choice.")
                             .font(.footnote).foregroundStyle(.secondary)
                     } else {
                         Button("Add all \(suggested.count.formatted()) to the selection") {
@@ -246,7 +282,7 @@ struct PhotoArchiveView: View {
                     }
                 }
             }
-            Text("Photos supports single-resource JPEG and HEIC originals readable on this iPhone. Use Files for selected videos or documents. Photos suggestions leave out favorites.")
+            Text("Photos supports JPEG and HEIC photos and single-file videos already on this iPhone. Live Photos, slo-mo and edited videos aren't supported yet. Use Files for documents. Suggestions leave out favorites.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
@@ -448,22 +484,9 @@ struct PhotoArchiveView: View {
     }
 
     private func showSuggestions(from snapshot: ScanSnapshot) {
-        let cutoff = age.years.flatMap { Calendar.current.date(byAdding: .year, value: -$0, to: .now) }
-        let minimum = sizeFloor.bytes
-        let wanted = kind
-        let records = snapshot.assets.filter { record in
-            guard record.issue == nil, !record.favorite, record.mediaType == PHAssetMediaType.image.rawValue,
-                  record.resources.count == 1, record.resources.first?.type == PHAssetResourceType.photo.rawValue,
-                  record.bytes >= minimum else { return false }
-            if let cutoff, !(record.createdAt.map { $0 < cutoff } ?? false) { return false }
-            switch wanted {
-            case .photos: return true
-            case .screenshots: return record.isScreenshot == true
-            case .notScreenshots: return record.isScreenshot != true
-            }
-        }.sorted { left, right in
-            left.bytes == right.bytes ? left.id < right.id : left.bytes > right.bytes
-        }.prefix(Self.suggestionLimit)
+        let filter = ArchiveSuggestionFilter(olderThanYears: age.years, minimumBytes: sizeFloor.bytes, kind: kind,
+                                             albumID: albumID, place: place, limit: Self.suggestionLimit)
+        let records = filter.matches(in: snapshot)
         let assets = PHAsset.fetchAssets(withLocalIdentifiers: records.map(\.id), options: nil)
         var names: [String: String] = [:]
         assets.enumerateObjects { asset, _, _ in

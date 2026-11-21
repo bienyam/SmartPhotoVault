@@ -183,7 +183,8 @@ final class DashboardModel: ObservableObject {
             guard current == authorization else {
                 throw NSError(domain: "PhotoAccess", code: 1, userInfo: [NSLocalizedDescriptionKey: "Photo access changed during the scan. Please scan again."])
             }
-            let result = ScanSnapshot(date: Date(), limitedAccess: authorization == .limited, includedCloudDownloads: false, assets: records)
+            let result = ScanSnapshot(date: Date(), limitedAccess: authorization == .limited, includedCloudDownloads: false, assets: records,
+                                      albums: await scanner.lastAlbums)
             snapshot = result
             inventory = counts(for: records)
             duplicateScanStatus = "Scan complete."

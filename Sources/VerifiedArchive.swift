@@ -40,7 +40,7 @@ enum ArchiveError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .unsupportedPhoto: "Only single-resource JPEG and HEIC originals available on this iPhone can be copied."
+        case .unsupportedPhoto: "Only JPEG and HEIC photos and single-file videos available on this iPhone can be copied. Live Photos, slo-mo and edited videos aren't supported yet."
         case .missingFile: "Choose an accessible regular file."
         case .conflict: "A file with that name already exists. Choose a different folder."
         case .verification: "The copied bytes did not match the original."
@@ -99,12 +99,21 @@ enum VerifiedArchive {
         }
     }
 
+    /// The single original file for a photo (JPEG or HEIC) or a video, or nil when the asset has more
+    /// than one resource (Live Photos, slo-mo, edits) and can't be archived as one verified file.
     static func original(for asset: PHAsset) -> PHAssetResource? {
-        guard asset.mediaType == .image, !asset.mediaSubtypes.contains(.photoLive) else { return nil }
         let resources = PHAssetResource.assetResources(for: asset)
-        guard resources.count == 1, let resource = resources.first, resource.type == .photo,
-              let type = UTType(resource.uniformTypeIdentifier),
-              type.conforms(to: .jpeg) || type.conforms(to: .heic) else { return nil }
+        guard resources.count == 1, let resource = resources.first,
+              let type = UTType(resource.uniformTypeIdentifier) else { return nil }
+        switch asset.mediaType {
+        case .image:
+            guard !asset.mediaSubtypes.contains(.photoLive), resource.type == .photo,
+                  type.conforms(to: .jpeg) || type.conforms(to: .heic) else { return nil }
+        case .video:
+            guard resource.type == .video, type.conforms(to: .movie) else { return nil }
+        default:
+            return nil
+        }
         return resource
     }
 
@@ -123,7 +132,9 @@ enum VerifiedArchive {
             writer.finish(error)
             completion.signal()
         }
-        if completion.wait(timeout: .now() + 120) == .timedOut {
+        // Videos can be large and a home server may be slow, so they get far longer than photos.
+        let limit: DispatchTimeInterval = asset.mediaType == .video ? .seconds(3600) : .seconds(120)
+        if completion.wait(timeout: .now() + limit) == .timedOut {
             writer.finish(ArchiveError.unavailable)
             manager.cancelDataRequest(request)
         }
