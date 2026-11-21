@@ -48,13 +48,21 @@ Brand set by the Sweep app icon (tangerine, photos swept up into a cloud, archiv
 
 ## Status
 Merged: rename and icon, welcome screen and tabs, duplicate removal with sign-off, Archive tab filters and review, encryption declaration (#16, `ITSAppUsesNonExemptEncryption: false`), Archived tab with restore plus Ledger tab (#18), Clean tab categories by type (#21: screenshots, GIFs, bursts, Live Photos, slo-mo, time-lapse, panoramas; review-only), "Maybe saved from chats or the web" heuristic and Messages attachments guide (#22), Sweep app icon (#23), TidyAway Pro on Home and Ledger (#24), Archive album and place filters, video suggestions and single-file video archiving (#25), category removal with sign-off (#26), brand colours and refined icon (#27).
+Simplify redesign merged 2026-11-21:
+- #31 scan results survive library changes; batch duplicate removal; honest Recently Deleted wording.
+- #32 three tabs (Free up, Archive, More), cleanup lists with Select all and the short sign-off, result screen; redundant screens removed.
+- #33 ProStore (app-wide, launch-time update listener), 5 GB free archive, Pro gates on album/place filters, Advanced analysis and saved comparisons. StoreKit calls hang headless in CI, so the purchase is tested only on a device.
+- #34 archive folder check on pick (NTFS, FAT32, read-only, free space, test write); a drive plugged into the iPhone is the first destination.
+- #35 progressive scan: biggest items first, partial results every ~1.5 s, deleting allowed during a check.
 Open: #9 and #10 are older PRs from a previous agent that overlap main; close only if confirmed superseded.
 
 Scans saved before #21 or #25 show "Scan again" for categories or album/place filters. Location is stored rounded to about 1 km; the privacy text says so.
 
 ## Next
-1. Owner runs `PHONE_TEST_CHECKLIST.md` on a physical iPhone with throwaway items: duplicate and category removal, archive copy/verify/restore including video, Pro sandbox purchase. The app has been installed on the owner's iPhone via TestFlight, but these flows haven't been checked there.
-2. Fix whatever that finds; only then consider removal after archiving.
-3. Promo page and marketing artwork are parked by the owner.
+1. Owner runs `PHONE_TEST_CHECKLIST.md` on a physical iPhone with throwaway items, including a USB-C drive and the Pro sandbox purchase.
+2. Set the Pro price to $7.99 and turn on Family Sharing for the in-app purchase in App Store Connect.
+3. Google Drive sign-in connection (`drive.file` scope): needs the owner to create a Google Cloud OAuth client for iOS first.
+4. TidyAway Receiver desktop app (Windows first): prototype after phone testing.
+5. Fix whatever phone testing finds; only then consider removal after archiving. Promo stays parked.
 
-Owner to-dos: trademark clearance for the name, consider making the repo private, pick the Pro price, counsel review of the `ACTION_AUTHORIZATION.md` wording.
+Owner to-dos: trademark clearance for the name, consider making the repo private, counsel review of the `ACTION_AUTHORIZATION.md` wording (including disclosure v2).
