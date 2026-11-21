@@ -193,7 +193,20 @@ struct AssetRow: View {
     let toggle: () -> Void
 
     var body: some View {
-        Button(action: toggle) {
+        if selectable {
+            Button(action: toggle) { content }
+                .buttonStyle(.plain)
+                .accessibilityLabel(selected ? "Selected \(asset.filename)" : "Select \(asset.filename)")
+                .accessibilityIdentifier("select-\(asset.id)")
+        } else {
+            // Kept and review-only items aren't buttons, so they don't look tappable.
+            content
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("kept-\(asset.id)")
+        }
+    }
+
+    private var content: some View {
             HStack(spacing: 12) {
                 if selectable {
                     Image(systemName: selected ? "checkmark.circle.fill" : "circle")
@@ -219,11 +232,6 @@ struct AssetRow: View {
                 Spacer(minLength: 0)
             }
             .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(!selectable)
-        .accessibilityLabel(selectable ? (selected ? "Selected \(asset.filename)" : "Select \(asset.filename)") : asset.filename)
-        .accessibilityIdentifier("select-\(asset.id)")
     }
 }
 

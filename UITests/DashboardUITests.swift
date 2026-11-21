@@ -93,7 +93,7 @@ final class DashboardUITests: XCTestCase {
         let app = launchWithSamples()
         app.buttons["row-duplicates"].tap()
         XCTAssertTrue(app.navigationBars["Duplicates"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["select-sample-1"].exists, "The copy to keep is listed.")
+        XCTAssertTrue(app.descendants(matching: .any)["kept-sample-1"].exists, "The copy to keep is listed, not selectable.")
         XCTAssertTrue(app.staticTexts["Keeping this one"].exists)
         XCTAssertTrue(app.buttons["select-sample-2"].exists)
         XCTAssertFalse(app.buttons["select-sample-4"].exists, "A Live Photo with different motion is not a duplicate.")
@@ -124,7 +124,7 @@ final class DashboardUITests: XCTestCase {
         app.buttons["row-screenshots"].tap()
         XCTAssertTrue(app.navigationBars["Screenshots"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["delete-selected"].exists, "Nothing is selected for you.")
-        XCTAssertFalse(app.buttons["select-sample-1"].exists, "Only screenshots are listed.")
+        XCTAssertFalse(app.descendants(matching: .any)["kept-sample-1"].exists || app.buttons["select-sample-1"].exists, "Only screenshots are listed.")
         let pick = app.buttons["select-sample-6"]
         XCTAssertTrue(pick.waitForExistence(timeout: 5))
         pick.tap()
