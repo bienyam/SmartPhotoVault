@@ -103,6 +103,9 @@ struct PhotoArchiveView: View {
     @State private var restored: Set<String> = []
     @State private var homeReceipts: Set<String> = []
     @State private var failures: [String] = []
+    @State private var archivedBytes: Int64 = 0
+    @State private var showPro = false
+    @EnvironmentObject private var pro: ProStore
 
     private let accent = Brand.primary
 
@@ -149,6 +152,16 @@ struct PhotoArchiveView: View {
         .navigationTitle("Archive originals")
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(busy)
+        .sheet(isPresented: $showPro) {
+            NavigationStack {
+                ProUpgradeView()
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) { Button("Not now") { showPro = false } }
+                    }
+            }
+            .environmentObject(pro)
+        }
+        .onAppear { refreshArchivedBytes() }
         .sheet(isPresented: $showPlacePicker) {
             if let snapshot { PlacePickerSheet(place: $place, snapshot: snapshot) }
         }
@@ -225,7 +238,16 @@ struct PhotoArchiveView: View {
                 Picker("Kind", selection: $kind) {
                     ForEach(ArchiveKind.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                 }
-                if let albums = snapshot.albums {
+                if !pro.unlocked {
+                    Button { showPro = true } label: {
+                        LabeledContent {
+                            Text("Pro").font(.caption.bold()).foregroundStyle(Brand.primary)
+                        } label: {
+                            Label("Choose by album or place", systemImage: "lock")
+                        }
+                    }
+                    .accessibilityIdentifier("archive-filters-pro")
+                } else if let albums = snapshot.albums {
                     if !albums.isEmpty {
                         Picker("Album", selection: $albumID) {
                             Text("Any album").tag(String?.none)
@@ -338,12 +360,28 @@ struct PhotoArchiveView: View {
             if !availableGB.isEmpty && availableBytes == nil {
                 Text("Enter available space as a number in GB.").foregroundStyle(.secondary)
             }
+            let allowance = ProStore.archiveAllowance(used: archivedBytes, selection: selectedBytes, unlocked: pro.unlocked)
+            switch allowance {
+            case .unlimited:
+                EmptyView()
+            case .fits(let left):
+                Text("Free archive: \(formattedBytes(left)) of 5 GB left.")
+                    .font(.footnote).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("archive-allowance")
+            case .over(let left):
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("This selection is \(formattedBytes(selectedBytes)). \(formattedBytes(left)) of your free 5 GB archive is left. Remove some items, or unlock Pro to archive without a limit. One-time purchase.")
+                    Button("See TidyAway Pro") { showPro = true }
+                }
+                .accessibilityIdentifier("archive-allowance")
+            }
             if let destination {
                 LabeledContent("Archive folder", value: destination.lastPathComponent)
                 Toggle("I authorize copying these items to this folder. Files providers may download selected files and sync these copies. Source items stay where they are and this step frees no space.", isOn: $archiveConsent)
                 Button("Copy and verify", action: beginCopy)
                     .fontWeight(.semibold)
-                    .disabled(!archiveConsent || comparison.fits == false || (!availableGB.isEmpty && availableBytes == nil))
+                    .disabled(!archiveConsent || comparison.fits == false || (!availableGB.isEmpty && availableBytes == nil)
+                              || { if case .over = allowance { return true } else { return false } }())
             } else {
                 Text("Choose an archive folder above to continue.")
             }
@@ -567,6 +605,7 @@ struct PhotoArchiveView: View {
                                digest: receipt.fingerprint.digest, date: archivedAt,
                                viaHomeServer: home, folderBookmark: bookmark)
             })
+            refreshArchivedBytes()
             homeReceipts.subtract(copied)
             if home { homeReceipts.formUnion(copied) }
             restored.subtract(copied)
@@ -606,6 +645,11 @@ struct PhotoArchiveView: View {
             }
             busy = false
         }
+    }
+
+    /// Everything archived so far counts toward the free 5 GB.
+    private func refreshArchivedBytes() {
+        archivedBytes = ((try? InventoryStore.openDefault().archived()) ?? []).reduce(0) { $0 + $1.bytes }
     }
 
     /// Lets the Archived tab reopen the folder later without asking the user to pick it again.

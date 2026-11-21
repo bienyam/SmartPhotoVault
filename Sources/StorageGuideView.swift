@@ -25,6 +25,8 @@ struct StorageGuideView: View {
     @Environment(\.locale) private var locale
     @Environment(\.colorScheme) private var colorScheme
     @State private var showsAdvanced = false
+    @State private var showsPro = false
+    @EnvironmentObject private var pro: ProStore
     @State private var showsQuickBill = false
     @State private var lastQuestion = 0
     @State private var step = 0
@@ -101,8 +103,18 @@ struct StorageGuideView: View {
                 .navigationTitle(plan.rawValue)
                 .navigationBarTitleDisplayMode(.inline)
             }
+            .environmentObject(pro)
         }
         .sheet(isPresented: $showsQuickBill) { quickBill }
+        .sheet(isPresented: $showsPro) {
+            NavigationStack {
+                ProUpgradeView()
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) { Button("Not now") { showsPro = false } }
+                    }
+            }
+            .environmentObject(pro)
+        }
     }
 
     private var analysisTitle: String {
@@ -172,11 +184,11 @@ struct StorageGuideView: View {
                 .accessibilityIdentifier("Analyze selected files")
 
                 Button {
-                    showsAdvanced = true
+                    if pro.unlocked { showsAdvanced = true } else { showsPro = true }
                 } label: {
                     quickCard(
                         "Advanced analysis",
-                        benefit: "Compare your current setup, a smaller plan, or an archive.",
+                        benefit: pro.unlocked ? "Compare your current setup, a smaller plan, or an archive." : "Pro: compare your current setup, a smaller plan, or an archive.",
                         icon: "slider.horizontal.3"
                     )
                 }
@@ -230,11 +242,13 @@ struct StorageGuideView: View {
                         Text("Based on the monthly amount you entered. Taxes, one-time fees and other plans may change the total.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
-                        Button("Compare storage options") {
-                            goal = .savings
-                            step = 3
-                            showsAdvanced = true
-                            showsQuickBill = false
+                        if pro.unlocked {
+                            Button("Compare storage options") {
+                                goal = .savings
+                                step = 3
+                                showsAdvanced = true
+                                showsQuickBill = false
+                            }
                         }
                     }
                 }

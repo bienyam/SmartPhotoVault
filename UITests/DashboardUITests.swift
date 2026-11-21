@@ -177,8 +177,33 @@ final class DashboardUITests: XCTestCase {
         }
     }
 
-    func testStorageQuestionnaireRecommendsAnOptionUsersCanReview() {
+    func testAdvancedAnalysisIsProAndOffersThePurchaseCalmly() {
         let app = launch()
+        app.tabBars.buttons["More"].tap()
+        app.buttons["more-analyze"].tap()
+        let advanced = app.buttons["Advanced analysis"]
+        if !advanced.isHittable { app.swipeUp() }
+        advanced.tap()
+        XCTAssertTrue(app.navigationBars["TidyAway Pro"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["pro-restore"].waitForExistence(timeout: 15), "Restore is always offered.")
+        app.buttons["Not now"].tap()
+        XCTAssertTrue(app.navigationBars["Analyze storage"].waitForExistence(timeout: 5))
+    }
+
+    func testProUnlockedShowsAsUnlocked() {
+        let app = XCUIApplication()
+        app.launchArguments += ["--skip-welcome", "--pro"]
+        app.launch()
+        app.tabBars.buttons["More"].tap()
+        app.buttons["more-pro"].tap()
+        XCTAssertTrue(app.staticTexts["Pro is unlocked."].waitForExistence(timeout: 5))
+    }
+
+    func testStorageQuestionnaireRecommendsAnOptionUsersCanReview() {
+        let app = XCUIApplication()
+        app.launchArguments += ["--skip-welcome", "--pro"]
+        app.launch()
+        XCTAssertTrue(app.navigationBars["TidyAway"].waitForExistence(timeout: 15))
         app.tabBars.buttons["More"].tap()
         app.buttons["more-analyze"].tap()
         XCTAssertTrue(app.navigationBars["Analyze storage"].waitForExistence(timeout: 5))
@@ -213,6 +238,8 @@ final class DashboardUITests: XCTestCase {
         app.buttons["more-pro"].tap()
         XCTAssertTrue(app.navigationBars["TidyAway Pro"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["One-time unlock. Never a subscription."].exists)
+        XCTAssertTrue(app.staticTexts["Archive up to 5 GB, with every copy checked"].exists)
+        XCTAssertTrue(app.buttons["pro-restore"].waitForExistence(timeout: 15))
     }
 
     func testArchiveTabHasMoveOutAndGetBack() {

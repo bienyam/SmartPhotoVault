@@ -1,0 +1,33 @@
+{
+  "identifier" : "7C3E9A51",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+    {
+      "displayPrice" : "7.99",
+      "familyShareable" : true,
+      "internalID" : "6740000001",
+      "localizations" : [
+        {
+          "description" : "Archive without a limit, choose by album and place, and compare storage plans.",
+          "displayName" : "TidyAway Pro",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.bienyam.SmartPhotoVault.storagepro",
+      "referenceName" : "TidyAway Pro",
+      "type" : "NonConsumable"
+    }
+  ],
+  "settings" : {
+    "_failTransactionsEnabled" : false
+  },
+  "subscriptionGroups" : [
+
+  ],
+  "version" : {
+    "major" : 4,
+    "minor" : 0
+  }
+}

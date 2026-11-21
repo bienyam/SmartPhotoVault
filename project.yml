@@ -41,6 +41,7 @@ targets:
     sources: [Tests]
     dependencies:
       - target: SmartPhotoVault
+      - sdk: StoreKitTest.framework
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
