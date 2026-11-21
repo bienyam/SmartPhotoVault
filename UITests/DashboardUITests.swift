@@ -166,7 +166,7 @@ final class DashboardUITests: XCTestCase {
         app.tabBars.buttons["More"].tap()
         let rows = ["more-activity": "Activity", "more-pro": "TidyAway Pro",
                     "guide-messages": "Messages attachments", "more-explainer": "Where your storage goes",
-                    "more-optimize": "Keep smaller copies",
+                    "more-optimize": "Keep smaller copies", "more-icloud-downloads": "Remove a file download",
                     "more-help": "Help & privacy"]
         for (id, title) in rows {
             let row = app.buttons[id]
@@ -255,6 +255,20 @@ final class DashboardUITests: XCTestCase {
         }
     }
 
+    /// Regression guard: restored features stay reachable.
+    func testScanDetailsAndUnreadableItemsAreAvailable() {
+        let app = launchWithSamples()
+        let details = app.buttons["scan-details"]
+        reveal(details, in: app)
+        XCTAssertTrue(details.waitForExistence(timeout: 5))
+        details.tap()
+        XCTAssertTrue(app.navigationBars["Scan details"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Items checked"].exists)
+        app.buttons["scan-unreadable"].tap()
+        XCTAssertTrue(app.navigationBars["Couldn't read"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Cloud-only.heic"].exists)
+    }
+
     func testFirstLaunchWelcomeLeadsToFreeUp() {
         let app = XCUIApplication()
         app.launchArguments += ["--reset-welcome"]
@@ -285,10 +299,11 @@ final class DashboardUITests: XCTestCase {
     }
 
     private func reveal(_ element: XCUIElement, in app: XCUIApplication) {
-        let list = app.collectionViews.firstMatch
         for _ in 0..<12 {
             if element.exists && element.isHittable { return }
-            list.swipeUp(velocity: .slow)
+            // Lists scroll as collection views; Free up is a plain scroll view.
+            let list = app.collectionViews.firstMatch
+            if list.exists { list.swipeUp(velocity: .slow) } else { app.swipeUp(velocity: .slow) }
         }
     }
 }

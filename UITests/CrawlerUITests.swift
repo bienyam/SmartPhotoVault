@@ -159,19 +159,24 @@ final class CrawlerUITests: XCTestCase {
 
     // MARK: - Reading the screen
 
+    /// Buttons and switches on screen, read from one frozen snapshot so a screen that's still
+    /// animating can't make an element vanish halfway through reading it. Skips the tab bar and Back.
     private func candidates(_ app: XCUIApplication) -> [String] {
+        guard let root = try? app.snapshot() else { return [] }
         var keys: [String] = []
-        let backLabel = app.navigationBars.buttons.firstMatch.exists ? app.navigationBars.buttons.firstMatch.label : nil
-        for query in [app.buttons, app.switches] {
-            for element in query.allElementsBoundByIndex.prefix(60) where element.exists {
-                if app.tabBars.buttons.matching(NSPredicate(format: "label == %@", element.label)).count > 0 { continue }
-                if element.label == backLabel && element.frame.minY < 120 { continue }
-                let key = element.identifier.isEmpty ? "label:\(element.label)" : "id:\(element.identifier)"
-                if element.label.isEmpty && element.identifier.isEmpty { continue }
+        func walk(_ node: XCUIElementSnapshot, inTabBar: Bool, inNavBar: Bool) {
+            let tab = inTabBar || node.elementType == .tabBar
+            let nav = inNavBar || node.elementType == .navigationBar
+            if node.elementType == .button || node.elementType == .switch, !tab,
+               !(nav && node.frame.minX < 120),
+               !(node.label.isEmpty && node.identifier.isEmpty) {
+                let key = node.identifier.isEmpty ? "label:\(node.label)" : "id:\(node.identifier)"
                 if !keys.contains(key) { keys.append(key) }
             }
+            for child in node.children { walk(child, inTabBar: tab, inNavBar: nav) }
         }
-        return keys
+        walk(root, inTabBar: false, inNavBar: false)
+        return Array(keys.prefix(60))
     }
 
     private func navTitle(_ app: XCUIApplication) -> String {
@@ -189,11 +194,20 @@ final class CrawlerUITests: XCTestCase {
         return "\(selectedTab) › \(title.isEmpty ? "(untitled)" : title)"
     }
 
+    /// What's on screen, from one frozen snapshot (texts, buttons, switches and their state).
     private func signature(_ app: XCUIApplication) -> String {
-        let texts = app.staticTexts.allElementsBoundByIndex.prefix(50).map(\.label)
-        let buttons = app.buttons.allElementsBoundByIndex.prefix(50).map { "\($0.identifier)|\($0.label)|\($0.isSelected)|\($0.isEnabled)" }
-        let switches = app.switches.allElementsBoundByIndex.prefix(20).map { "\($0.label)=\($0.value as? String ?? "")" }
-        return ([navTitle(app)] + ["\(app.sheets.count)/\(app.popovers.count)"] + texts + buttons + switches).joined(separator: "§")
+        guard let root = try? app.snapshot() else { return navTitle(app) }
+        var parts: [String] = []
+        var overlays = 0
+        func walk(_ node: XCUIElementSnapshot) {
+            if node.elementType == .sheet || node.elementType == .popover { overlays += 1 }
+            if [.staticText, .button, .switch].contains(node.elementType), parts.count < 150 {
+                parts.append("\(node.elementType.rawValue)|\(node.identifier)|\(node.label)|\(node.isSelected)|\(node.isEnabled)|\(node.value as? String ?? "")")
+            }
+            node.children.forEach(walk)
+        }
+        walk(root)
+        return ([navTitle(app), "\(overlays)"] + parts).joined(separator: "§")
     }
 
     private func checkHealthy(_ app: XCUIApplication, _ path: [Step]) {
