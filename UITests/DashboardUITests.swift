@@ -8,15 +8,14 @@ final class DashboardUITests: XCTestCase {
         app.resetAuthorizationStatus(for: .photos)
         app.launchArguments += ["--skip-welcome"]
         app.launch()
-        app.buttons["Check my photos"].tap()
-        let scan = app.buttons["Scan Apple Photos"]
-        XCTAssertTrue(scan.waitForExistence(timeout: 15))
+        let start = app.buttons["free-up-space"]
+        XCTAssertTrue(start.waitForExistence(timeout: 15))
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-        XCTAssertFalse(springboard.alerts.firstMatch.exists, "Opening the dashboard must not request Photos access.")
-        scan.tap()
+        XCTAssertFalse(springboard.alerts.firstMatch.exists, "Opening the app must not request Photos access.")
+        start.tap()
         let alert = springboard.alerts.firstMatch
         guard alert.waitForExistence(timeout: 10) else {
-            XCTFail("Expected the Photos consent dialog after tapping Scan.")
+            XCTFail("Expected the Photos consent dialog after tapping Free up space.")
             return
         }
         let labels = ["Allow Full Access", "Allow Access to All Photos"]
@@ -25,9 +24,9 @@ final class DashboardUITests: XCTestCase {
             return
         }
         allow.tap()
-        XCTAssertTrue(app.buttons["Rescan Apple Photos"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["row-duplicates"].waitForExistence(timeout: 60))
         let attachment = XCTAttachment(screenshot: app.screenshot())
-        attachment.name = "Authorized Photos inventory"
+        attachment.name = "Authorized Free up results"
         attachment.lifetime = .keepAlways
         add(attachment)
         app.terminate()
@@ -37,21 +36,18 @@ final class DashboardUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments += ["--skip-welcome"]
         app.launch()
-        XCTAssertTrue(app.navigationBars["TidyAway"].waitForExistence(timeout: 15))
-        app.buttons["Find duplicates"].tap()
-        let scan = app.buttons["Find exact duplicates"]
-        reveal(scan, in: app)
-        XCTAssertTrue(scan.waitForExistence(timeout: 5))
-        scan.tap()
-        let review = app.buttons["Review duplicate groups"]
-        reveal(review, in: app)
-        guard review.waitForExistence(timeout: 15) else {
+        let again = app.buttons["check-again"]
+        let start = app.buttons["free-up-space"]
+        XCTAssertTrue(again.waitForExistence(timeout: 15) || start.exists)
+        if again.exists { again.tap() } else { start.tap() }
+        let duplicates = app.buttons["row-duplicates"]
+        guard duplicates.waitForExistence(timeout: 60) else {
             XCTFail("Real Photos scan did not produce results: \(app.debugDescription)")
             return
         }
-        review.tap()
-        XCTAssertTrue(app.navigationBars["Exact duplicates"].waitForExistence(timeout: 10))
-        let fixture = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "SPV-test-")).firstMatch
+        duplicates.tap()
+        XCTAssertTrue(app.navigationBars["Duplicates"].waitForExistence(timeout: 10))
+        let fixture = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "SPV-test-")).firstMatch
         XCTAssertTrue(fixture.waitForExistence(timeout: 5), "Expected actual simulator-library fixture files in review.")
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "Real Photos duplicate scan"
@@ -65,20 +61,17 @@ final class DashboardUITests: XCTestCase {
         app.resetAuthorizationStatus(for: .photos)
         app.launchArguments += ["--skip-welcome"]
         app.launch()
-        app.buttons["Check my photos"].tap()
-        let scan = app.buttons["Scan Apple Photos"]
-        XCTAssertTrue(scan.waitForExistence(timeout: 15))
-        scan.tap()
+        let start = app.buttons["free-up-space"]
+        XCTAssertTrue(start.waitForExistence(timeout: 15))
+        start.tap()
         let alert = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.firstMatch
-        XCTAssertTrue(alert.waitForExistence(timeout: 10), "Photo access should be requested only after Scan is tapped.")
+        XCTAssertTrue(alert.waitForExistence(timeout: 10), "Photo access should be requested only after Free up space is tapped.")
         let curlyApostrophe = alert.buttons["Don’t Allow"]
         let straightApostrophe = alert.buttons["Don't Allow"]
         if curlyApostrophe.exists { curlyApostrophe.tap() }
         else if straightApostrophe.exists { straightApostrophe.tap() }
         else { XCTFail("Expected a deny-access button: \(alert.debugDescription)"); return }
-        let settings = app.buttons["Open Settings"]
-        reveal(settings, in: app)
-        XCTAssertTrue(settings.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["Open Settings"].waitForExistence(timeout: 10))
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "Denied photo permission"
         attachment.lifetime = .keepAlways
@@ -86,53 +79,109 @@ final class DashboardUITests: XCTestCase {
         app.terminate()
     }
 
-    func testDuplicateScanExplainsLocalOnlyScope() {
-        let app = XCUIApplication()
-        app.launchArguments += ["--skip-welcome"]
-        app.launch()
-        app.buttons["Find duplicates"].tap()
-        XCTAssertTrue(app.buttons["Find exact duplicates"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Scans files already available on this iPhone. Originals that require an iCloud download are left unverified."].exists)
-        XCTAssertFalse(app.buttons["Scan with iCloud downloads"].exists)
+    func testFreeUpLeadsWithOneAction() {
+        let app = launch()
+        XCTAssertTrue(app.staticTexts["Storage full? Get your camera back."].exists)
+        XCTAssertTrue(app.buttons["free-up-space"].exists || app.buttons["check-again"].exists,
+                      "One action leads: start a check, or check again after a saved one.")
+        XCTAssertEqual(app.tabBars.buttons.count, 3)
     }
 
     func testSampleDuplicateReview() {
-        let app = XCUIApplication()
-        app.launchArguments += ["--skip-welcome"]
-        app.launch()
-        XCTAssertTrue(app.navigationBars["TidyAway"].waitForExistence(timeout: 15))
-        app.buttons["Find duplicates"].tap()
-        let samples = app.buttons["Explore sample results"]
-        reveal(samples, in: app)
-        XCTAssertTrue(samples.waitForExistence(timeout: 5))
-        samples.tap()
-        XCTAssertTrue(app.staticTexts["Sample data — not your photo library"].firstMatch.waitForExistence(timeout: 5))
-        let review = app.buttons["Review duplicate groups"]
-        reveal(review, in: app)
-        guard review.waitForExistence(timeout: 5) else {
-            XCTFail("Duplicate review is missing. UI: \(app.debugDescription)")
-            return
-        }
-        review.tap()
-        XCTAssertTrue(app.navigationBars["Exact duplicates"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Beach.heic"].exists)
-        XCTAssertTrue(app.staticTexts["Beach copy.heic"].exists)
-        XCTAssertFalse(app.staticTexts["Different motion.heic"].exists)
+        let app = launchWithSamples()
+        app.buttons["row-duplicates"].tap()
+        XCTAssertTrue(app.navigationBars["Duplicates"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["select-sample-1"].exists, "The copy to keep is listed.")
+        XCTAssertTrue(app.staticTexts["Keeping this one"].exists)
+        XCTAssertTrue(app.buttons["select-sample-2"].exists)
+        XCTAssertFalse(app.buttons["select-sample-4"].exists, "A Live Photo with different motion is not a duplicate.")
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "Sample duplicate review"
         attachment.lifetime = .keepAlways
         add(attachment)
     }
 
-    func testStorageQuestionnaireRecommendsAnOptionUsersCanReview() {
-        let app = XCUIApplication()
-        app.launchArguments += ["--skip-welcome"]
-        app.launch()
-        app.buttons["Analyze storage & cost"].tap()
-        app.buttons["Free up phone space"].tap()
-        XCTAssertTrue(app.navigationBars["Optimize iPhone Storage"].waitForExistence(timeout: 5))
-        app.buttons["Done"].tap()
+    func testDuplicateRemovalNeedsSelectionAndSignOff() {
+        let app = launchWithSamples()
+        app.buttons["row-duplicates"].tap()
+        XCTAssertTrue(app.navigationBars["Duplicates"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["delete-selected"].exists, "Nothing is selected for you.")
+        app.buttons["select-all"].tap()
+        let delete = app.buttons["delete-selected"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 5))
+        XCTAssertFalse(delete.isEnabled, "Removal stays off until the user signs off.")
+        app.buttons["signoff"].tap()
+        XCTAssertTrue(delete.isEnabled)
+        delete.tap()
+        XCTAssertTrue(app.staticTexts["Sample data. Nothing was removed."].waitForExistence(timeout: 5))
+        XCTAssertFalse(delete.isEnabled, "Each removal needs a fresh sign-off.")
+    }
 
+    func testCategoryRemovalNeedsSelectionAndSignOff() {
+        let app = launchWithSamples()
+        app.buttons["row-screenshots"].tap()
+        XCTAssertTrue(app.navigationBars["Screenshots"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["delete-selected"].exists, "Nothing is selected for you.")
+        XCTAssertFalse(app.buttons["select-sample-1"].exists, "Only screenshots are listed.")
+        let pick = app.buttons["select-sample-6"]
+        XCTAssertTrue(pick.waitForExistence(timeout: 5))
+        pick.tap()
+        let delete = app.buttons["delete-selected"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 5))
+        XCTAssertFalse(delete.isEnabled, "Delete stays off until the sign-off is checked.")
+        app.buttons["signoff"].tap()
+        XCTAssertTrue(delete.isEnabled)
+        delete.tap()
+        XCTAssertTrue(app.staticTexts["Sample data. Nothing was removed."].waitForExistence(timeout: 5))
+    }
+
+    func testEveryFreeUpRowOpens() {
+        let app = launchWithSamples()
+        let rows = ["row-videos": "Large videos", "row-duplicates": "Duplicates",
+                    "row-screenshots": "Screenshots", "row-more": "More types"]
+        for (id, title) in rows {
+            app.buttons[id].tap()
+            XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 5), "\(id) should open \(title)")
+            app.navigationBars.buttons.element(boundBy: 0).tap()
+            XCTAssertTrue(app.buttons[id].waitForExistence(timeout: 5))
+        }
+        app.buttons["row-more"].tap()
+        XCTAssertTrue(app.buttons["category-bursts"].waitForExistence(timeout: 5))
+        app.buttons["category-gifs"].tap()
+        XCTAssertTrue(app.navigationBars["GIFs"].waitForExistence(timeout: 5))
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.buttons["category-bursts"].tap()
+        XCTAssertTrue(app.navigationBars["Bursts"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["select-all"].exists, "Bursts stay review-only.")
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "Bursts review only"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    func testEveryMoreRowOpens() {
+        let app = launch()
+        app.tabBars.buttons["More"].tap()
+        let rows = ["more-activity": "Activity", "more-analyze": "Analyze storage", "more-pro": "TidyAway Pro",
+                    "guide-messages": "Messages attachments", "more-icloud-downloads": "Remove a file download",
+                    "more-large-files": "Analyze selected files", "more-optimize": "Keep smaller copies",
+                    "more-help": "Help & privacy"]
+        for (id, title) in rows {
+            let row = app.buttons[id]
+            reveal(row, in: app)
+            XCTAssertTrue(row.waitForExistence(timeout: 5), "\(id) is missing")
+            row.tap()
+            XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 5), "\(id) should open \(title)")
+            app.navigationBars.buttons.element(boundBy: 0).tap()
+            XCTAssertTrue(app.navigationBars["More"].waitForExistence(timeout: 5))
+        }
+    }
+
+    func testStorageQuestionnaireRecommendsAnOptionUsersCanReview() {
+        let app = launch()
+        app.tabBars.buttons["More"].tap()
+        app.buttons["more-analyze"].tap()
+        XCTAssertTrue(app.navigationBars["Analyze storage"].waitForExistence(timeout: 5))
         let advanced = app.buttons["Advanced analysis"]
         if !advanced.isHittable { app.swipeUp() }
         advanced.tap()
@@ -142,7 +191,6 @@ final class DashboardUITests: XCTestCase {
         app.buttons["See my analysis now"].tap()
         XCTAssertTrue(app.navigationBars["Storage & cost analysis"].waitForExistence(timeout: 5))
         app.buttons["Compare alternatives"].tap()
-
         XCTAssertTrue(app.navigationBars["Compare alternatives"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Suggested for your goal"].exists)
         app.buttons["Optimize iPhone Storage"].tap()
@@ -151,160 +199,38 @@ final class DashboardUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Compare alternatives"].waitForExistence(timeout: 5))
     }
 
-    func testFilesAnalysisCanStartWithoutAnsweringStorageQuestions() {
-        let app = XCUIApplication()
-        app.launchArguments += ["--skip-welcome"]
-        app.launch()
-        app.buttons["Analyze storage & cost"].tap()
-        let files = app.buttons["Analyze selected files"]
-        if !files.isHittable { app.swipeUp() }
-        files.tap()
-        XCTAssertTrue(app.navigationBars["Analyze selected files"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["Choose files to analyze"].exists)
-    }
-
-    func testDuplicateRemovalNeedsSignOffAndSampleDataRemovesNothing() {
-        let app = XCUIApplication()
-        app.launchArguments += ["--skip-welcome"]
-        app.launch()
-        app.buttons["Find duplicates"].tap()
-        let samples = app.buttons["Explore sample results"]
-        reveal(samples, in: app)
-        XCTAssertTrue(samples.waitForExistence(timeout: 5))
-        samples.tap()
-        let review = app.buttons["Review duplicate groups"]
-        reveal(review, in: app)
-        XCTAssertTrue(review.waitForExistence(timeout: 5))
-        review.tap()
-        XCTAssertTrue(app.navigationBars["Exact duplicates"].waitForExistence(timeout: 5))
-        let delete = app.buttons["Delete 1 item from Apple Photos"]
-        reveal(delete, in: app)
-        XCTAssertTrue(delete.waitForExistence(timeout: 5))
-        XCTAssertFalse(delete.isEnabled, "Removal must stay off until the user signs off.")
-        let signOff = app.buttons["I understand and authorize these changes"]
-        reveal(signOff, in: app)
-        signOff.tap()
-        XCTAssertTrue(delete.isEnabled)
-        delete.tap()
-        XCTAssertTrue(app.staticTexts["Sample data. Nothing was removed."].waitForExistence(timeout: 5))
-        XCTAssertFalse(delete.isEnabled, "Each removal needs a fresh sign-off.")
-    }
-
-    func testSampleCategoriesOpenForReview() {
-        let app = XCUIApplication()
-        app.launchArguments += ["--skip-welcome"]
-        app.launch()
-        app.tabBars.buttons["Clean"].tap()
-        let samples = app.buttons["Explore sample results"]
-        reveal(samples, in: app)
-        XCTAssertTrue(samples.waitForExistence(timeout: 5))
-        samples.tap()
-        let screenshots = app.buttons["category-screenshots"]
-        reveal(screenshots, in: app)
-        guard screenshots.waitForExistence(timeout: 5) else {
-            XCTFail("Screenshots category is missing. UI: \(app.debugDescription)")
-            return
-        }
-        XCTAssertTrue(app.buttons["category-bursts"].exists)
-        screenshots.tap()
-        XCTAssertTrue(app.navigationBars["Screenshots"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Boarding pass.png"].exists)
-        XCTAssertFalse(app.staticTexts["Beach.heic"].exists)
-        let attachment = XCTAttachment(screenshot: app.screenshot())
-        attachment.name = "Sample screenshots category"
-        attachment.lifetime = .keepAlways
-        add(attachment)
-    }
-
     func testMessagesAttachmentsGuideOpensWithoutAScan() {
-        let app = XCUIApplication()
-        app.launchArguments += ["--skip-welcome"]
-        app.launch()
-        app.tabBars.buttons["Clean"].tap()
-        let guide = app.buttons["guide-messages"]
-        reveal(guide, in: app)
-        guard guide.waitForExistence(timeout: 5) else {
-            XCTFail("Messages guide is missing. UI: \(app.debugDescription)")
-            return
-        }
-        guide.tap()
+        let app = launch()
+        app.tabBars.buttons["More"].tap()
+        app.buttons["guide-messages"].tap()
         XCTAssertTrue(app.navigationBars["Messages attachments"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Wait for the list to load, then tap Messages."].exists)
     }
 
-    func testProOpensFromHomeAndLedger() {
-        let app = XCUIApplication()
-        app.launchArguments += ["--skip-welcome"]
-        app.launch()
-        XCTAssertTrue(app.navigationBars["TidyAway"].waitForExistence(timeout: 15))
-        let homePro = app.buttons["home-pro"]
-        reveal(homePro, in: app)
-        XCTAssertTrue(homePro.waitForExistence(timeout: 5))
-        homePro.tap()
+    func testProOpensFromMore() {
+        let app = launch()
+        app.tabBars.buttons["More"].tap()
+        app.buttons["more-pro"].tap()
         XCTAssertTrue(app.navigationBars["TidyAway Pro"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["One-time unlock. Never a subscription."].exists)
-        app.tabBars.buttons["Ledger"].tap()
-        let ledgerPro = app.buttons["ledger-pro"]
-        reveal(ledgerPro, in: app)
-        XCTAssertTrue(ledgerPro.waitForExistence(timeout: 5))
-        ledgerPro.tap()
-        XCTAssertTrue(app.navigationBars["TidyAway Pro"].waitForExistence(timeout: 5))
     }
 
-    func testCategoryRemovalNeedsSelectionAndSignOff() {
-        let app = XCUIApplication()
-        app.launchArguments += ["--skip-welcome"]
-        app.launch()
-        app.tabBars.buttons["Clean"].tap()
-        let samples = app.buttons["Explore sample results"]
-        reveal(samples, in: app)
-        XCTAssertTrue(samples.waitForExistence(timeout: 5))
-        samples.tap()
-        let screenshots = app.buttons["category-screenshots"]
-        reveal(screenshots, in: app)
-        XCTAssertTrue(screenshots.waitForExistence(timeout: 5))
-        screenshots.tap()
-        XCTAssertTrue(app.navigationBars["Screenshots"].waitForExistence(timeout: 5))
-        XCTAssertFalse(app.buttons["category-delete"].exists, "Nothing is selected for you.")
-        let pick = app.buttons["select-sample-6"]
-        XCTAssertTrue(pick.waitForExistence(timeout: 5))
-        pick.tap()
-        let delete = app.buttons["category-delete"]
-        reveal(delete, in: app)
-        XCTAssertTrue(delete.waitForExistence(timeout: 5))
-        XCTAssertFalse(delete.isEnabled, "Delete stays off until the sign-off is checked.")
-        let signOff = app.buttons["category-signoff"]
-        reveal(signOff, in: app)
-        signOff.tap()
-        XCTAssertTrue(delete.isEnabled)
-        delete.tap()
-        XCTAssertTrue(app.staticTexts["Sample data. Nothing was removed."].waitForExistence(timeout: 5))
-    }
-
-    func testArchiveTabOpensTheArchiveWorkflow() {
-        let app = XCUIApplication()
-        app.launchArguments += ["--skip-welcome"]
-        app.launch()
+    func testArchiveTabHasMoveOutAndGetBack() {
+        let app = launch()
         app.tabBars.buttons["Archive"].tap()
-        XCTAssertTrue(app.navigationBars["Archive originals"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["Make an archive copy"].exists)
+        XCTAssertTrue(app.staticTexts["Make an archive copy"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["TidyAway only adds copies to your archive. It never deletes or changes anything there, by design."].exists)
         let files = app.buttons["Pick files myself"]
         reveal(files, in: app)
         XCTAssertTrue(files.waitForExistence(timeout: 5))
+        app.buttons["Get back"].tap()
+        XCTAssertTrue(app.staticTexts["Nothing archived yet."].waitForExistence(timeout: 5)
+                      || app.staticTexts["Archived items"].exists)
+        app.buttons["Move out"].tap()
+        XCTAssertTrue(app.staticTexts["Make an archive copy"].waitForExistence(timeout: 5))
     }
 
-    func testArchivedAndLedgerTabsOpen() {
-        let app = XCUIApplication()
-        app.launchArguments += ["--skip-welcome"]
-        app.launch()
-        app.tabBars.buttons["Archived"].tap()
-        XCTAssertTrue(app.navigationBars["Archived"].waitForExistence(timeout: 10))
-        app.tabBars.buttons["Ledger"].tap()
-        XCTAssertTrue(app.navigationBars["Ledger"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.buttons["Storage and cost analysis"].waitForExistence(timeout: 5))
-    }
-
-    func testFirstLaunchWelcomeLeadsToHome() {
+    func testFirstLaunchWelcomeLeadsToFreeUp() {
         let app = XCUIApplication()
         app.launchArguments += ["--reset-welcome"]
         app.launch()
@@ -312,21 +238,31 @@ final class DashboardUITests: XCTestCase {
         XCTAssertTrue(start.waitForExistence(timeout: 15))
         XCTAssertTrue(app.staticTexts["Nothing is removed until you approve it."].exists)
         start.tap()
-        XCTAssertTrue(app.navigationBars["TidyAway"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["free-up-space"].waitForExistence(timeout: 10)
+                      || app.buttons["check-again"].exists)
         XCTAssertTrue(app.tabBars.buttons["Archive"].exists)
+    }
+
+    private func launch() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments += ["--skip-welcome"]
+        app.launch()
+        XCTAssertTrue(app.navigationBars["TidyAway"].waitForExistence(timeout: 15))
+        return app
+    }
+
+    private func launchWithSamples() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments += ["--skip-welcome", "--demo"]
+        app.launch()
+        XCTAssertTrue(app.buttons["row-duplicates"].waitForExistence(timeout: 15), "Sample results should load.")
+        return app
     }
 
     private func reveal(_ element: XCUIElement, in app: XCUIApplication) {
         let list = app.collectionViews.firstMatch
-        for _ in 0..<16 {
-            if element.exists {
-                let frame = element.frame
-                if element.isHittable && frame.minY > 110 && frame.maxY < app.frame.maxY - 80 { return }
-                if frame.minY < 110 {
-                    list.swipeDown(velocity: .slow)
-                    continue
-                }
-            }
+        for _ in 0..<12 {
+            if element.exists && element.isHittable { return }
             list.swipeUp(velocity: .slow)
         }
     }

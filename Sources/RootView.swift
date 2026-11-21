@@ -6,6 +6,7 @@ struct RootView: View {
     @AppStorage("hasSeenWelcome") private var hasSeenWelcome = false
     @State private var forceWelcome = ProcessInfo.processInfo.arguments.contains("--reset-welcome")
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.scenePhase) private var scenePhase
 
     private let accent = Brand.primary
 
@@ -37,30 +38,53 @@ struct RootView: View {
 
     private var tabs: some View {
         TabView {
-            DashboardView(model: model)
-                .tabItem { Label("Home", systemImage: "house") }
-            NavigationStack {
-                PhotoDetailsView(model: model, destination: .duplicates)
-            }
-            .tabItem { Label("Clean", systemImage: "square.on.square") }
-            NavigationStack {
-                PhotoArchiveView(snapshot: model.isDemo ? nil : model.snapshot)
-            }
-            .tabItem { Label("Archive", systemImage: "archivebox") }
-            NavigationStack {
-                ArchivedView()
-            }
-            .tabItem { Label("Archived", systemImage: "square.grid.2x2") }
-            NavigationStack {
-                LedgerView(model: model)
-            }
-            .tabItem { Label("Ledger", systemImage: "checkmark.shield") }
+            FreeUpView(model: model)
+                .tabItem { Label("Free up", systemImage: "sparkles") }
+            ArchiveTabView(model: model)
+                .tabItem { Label("Archive", systemImage: "archivebox") }
+            MoreView(model: model)
+                .tabItem { Label("More", systemImage: "ellipsis.circle") }
+        }
+        .task {
+            if ProcessInfo.processInfo.arguments.contains("--demo") { model.showDemo() }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { model.refreshAuthorization() }
         }
     }
 
     private func finishWelcome() {
         hasSeenWelcome = true
         forceWelcome = false
+    }
+}
+
+/// Archive in one tab: Move out makes verified copies, Get back restores them.
+struct ArchiveTabView: View {
+    @ObservedObject var model: DashboardModel
+    @State private var mode = Mode.moveOut
+
+    enum Mode: String, CaseIterable { case moveOut = "Move out", getBack = "Get back" }
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                switch mode {
+                case .moveOut: PhotoArchiveView(snapshot: model.isDemo ? nil : model.snapshot)
+                case .getBack: ArchivedView()
+                }
+            }
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Picker("Archive", selection: $mode) {
+                        ForEach(Mode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 240)
+                    .accessibilityIdentifier("archive-mode")
+                }
+            }
+        }
     }
 }
 

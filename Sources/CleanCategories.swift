@@ -16,7 +16,7 @@ enum CleanCategory: String, CaseIterable, Identifiable {
         case .sloMo: "Slo-mo videos"
         case .timeLapse: "Time-lapse videos"
         case .panoramas: "Panoramas"
-        case .savedImages: "Maybe saved from chats or the web"
+        case .savedImages: "Saved from chats (a guess)"
         }
     }
 

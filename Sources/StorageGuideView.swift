@@ -85,7 +85,7 @@ struct StorageGuideView: View {
                 quickWins
             }
         }
-        .navigationTitle(showsAdvanced ? analysisTitle : "Analyze storage & cost")
+        .navigationTitle(showsAdvanced ? analysisTitle : "Analyze storage")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $selectedPlan) { plan in
             NavigationStack {
@@ -93,8 +93,6 @@ struct StorageGuideView: View {
                     Text(summary(plan))
                     if plan == .archive {
                         NavigationLink("Choose archive storage") { PhotoArchiveView(snapshot: snapshot) }
-                    } else if plan == .optimize {
-                        NavigationLink("Review actions for this iPhone") { PhotoCopyOptionsView(snapshot: snapshot) }
                     } else {
                         Text(nextStep(plan))
                     }
@@ -126,54 +124,30 @@ struct StorageGuideView: View {
                     Image(systemName: "chart.bar.xaxis")
                         .font(.system(size: 34, weight: .medium))
                         .accessibilityHidden(true)
-                    Text("Make room for more").font(.largeTitle.bold())
+                    Text("Analyze storage").font(.largeTitle.bold())
                         .accessibilityAddTraits(.isHeader)
-                    Text("Get a quick win for your phone space or storage bill.")
+                    Text("See what fills this iPhone, and what your storage costs in a year.")
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(20)
                 .background(powder.gradient, in: RoundedRectangle(cornerRadius: 24))
 
-                Button {
-                    selectedPlan = .optimize
-                } label: {
-                    quickCard(
-                        "Free up phone space",
-                        benefit: "See how iCloud Photos can keep smaller copies on this iPhone.",
-                        icon: "internaldrive",
-                        prominent: true
-                    )
-                }
-                .accessibilityIdentifier("Free up phone space")
-
-                if let snapshot {
-                    let groupCount = snapshot.groups.count
-                    if groupCount > 0 {
-                        NavigationLink {
-                            DuplicateResultsView(snapshot: snapshot)
-                        } label: {
-                            quickCard(
-                                "Review exact matches",
-                                benefit: groupCount == 1
-                                    ? "Your latest scan found one group of matching files."
-                                    : "Your latest scan found \(groupCount.formatted()) groups of matching files.",
-                                icon: "square.on.square"
-                            )
+                if let storage = DeviceStorage.current() {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("This iPhone").font(.headline)
+                        StorageBar(storage: storage)
+                        if let snapshot {
+                            let photos = snapshot.assets.filter { $0.mediaType == 1 && $0.fingerprint != nil }.reduce(Int64(0)) { $0 + $1.bytes }
+                            let videos = snapshot.assets.filter { $0.mediaType == 2 && $0.fingerprint != nil }.reduce(Int64(0)) { $0 + $1.bytes }
+                            Text("Photos \(photos.fileSize) · Videos \(videos.fileSize) on this iPhone, from your last check")
+                                .font(.footnote).foregroundStyle(.secondary)
                         }
                     }
+                    .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(powder, in: RoundedRectangle(cornerRadius: 17))
                 }
-
-                NavigationLink {
-                    PhotoCopyOptionsView(snapshot: snapshot)
-                } label: {
-                    quickCard(
-                        "Decide which copies to keep",
-                        benefit: "Choose how to use iCloud Photos, merge duplicates, or keep an independent original.",
-                        icon: "photo.on.rectangle"
-                    )
-                }
-                .accessibilityIdentifier("Decide which copies to keep")
 
                 Button {
                     showsQuickBill = true
