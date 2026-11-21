@@ -4,6 +4,7 @@ import SwiftUI
 struct CleanCategoriesSection: View {
     /// Nil for scans saved before categories were recorded.
     let summaries: [CleanCategorySummary]?
+    var model: DashboardModel? = nil
 
     var body: some View {
         Section {
@@ -12,7 +13,7 @@ struct CleanCategoriesSection: View {
                     if summary.items.isEmpty {
                         row(summary)
                     } else {
-                        NavigationLink { CleanCategoryReviewView(summary: summary) } label: { row(summary) }
+                        NavigationLink { CleanCategoryReviewView(summary: summary, model: model) } label: { row(summary) }
                             .accessibilityIdentifier("category-\(summary.category.rawValue)")
                     }
                 }
@@ -22,7 +23,7 @@ struct CleanCategoriesSection: View {
         } header: {
             Text("Look through by type")
         } footer: {
-            Text("For review only. TidyAway doesn't remove anything from these lists. Sizes count items read on this iPhone during the scan.")
+            Text("Nothing is selected for you. You can pick items to delete and sign off first; favorites can't be picked. Sizes count items read on this iPhone during the scan.")
         }
     }
 
@@ -98,6 +99,11 @@ struct MessagesAttachmentsGuide: View {
 
 struct CleanCategoryReviewView: View {
     let summary: CleanCategorySummary
+    var model: DashboardModel? = nil
+    @State private var selected: Set<String> = []
+
+    private var canRemove: Bool { model != nil && summary.category.allowsRemoval }
+    private var selectedRecords: [AssetRecord] { summary.items.filter { selected.contains($0.id) } }
 
     var body: some View {
         List {
@@ -119,6 +125,16 @@ struct CleanCategoryReviewView: View {
             Section {
                 ForEach(summary.items) { asset in
                     HStack(alignment: .top, spacing: 12) {
+                        if canRemove {
+                            Button { toggle(asset) } label: {
+                                Image(systemName: selected.contains(asset.id) ? "checkmark.circle.fill" : "circle")
+                                    .font(.title3)
+                            }
+                            .buttonStyle(.borderless)
+                            .disabled(asset.favorite)
+                            .accessibilityLabel(selected.contains(asset.id) ? "Selected \(asset.filename)" : "Select \(asset.filename)")
+                            .accessibilityIdentifier("select-\(asset.id)")
+                        }
                         AssetThumbnail(assetID: asset.id)
                         VStack(alignment: .leading, spacing: 4) {
                             Label(asset.filename, systemImage: asset.favorite ? "heart.fill" : summary.category.systemImage)
@@ -126,16 +142,30 @@ struct CleanCategoryReviewView: View {
                             if summary.category == .bursts, let frames = asset.burstFrames, frames > 1 {
                                 Text("\(frames.formatted()) frames in this burst").font(.caption)
                             }
-                            if asset.favorite { Text("Favorite").font(.caption).foregroundStyle(.secondary) }
+                            if asset.favorite { Text(canRemove ? "Favorite, can't be selected" : "Favorite").font(.caption).foregroundStyle(.secondary) }
                             if let date = asset.createdAt { Text(date.formatted()).font(.caption) }
                         }
                     }
                 }
             } footer: {
-                Text("For review only. To remove something, delete it in Photos, which normally keeps it in Recently Deleted for up to 30 days.")
+                if summary.category == .bursts {
+                    Text("Bursts are review-only here. To keep just the frames you like, open the burst in Photos and tap Select.")
+                } else if !canRemove {
+                    Text("For review only. To remove something, delete it in Photos, which normally keeps it in Recently Deleted for up to 30 days.")
+                }
+            }
+            if let model, canRemove, !selected.isEmpty {
+                Section("Delete selected items") {
+                    CategoryRemovalControls(category: summary.category, records: selectedRecords, model: model)
+                }
             }
         }
         .navigationTitle(summary.category.title)
+    }
+
+    private func toggle(_ asset: AssetRecord) {
+        guard !asset.favorite else { return }
+        if selected.contains(asset.id) { selected.remove(asset.id) } else { selected.insert(asset.id) }
     }
 
     private func sizeText(_ asset: AssetRecord) -> String {

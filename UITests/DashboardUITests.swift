@@ -232,6 +232,36 @@ final class DashboardUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Wait for the list to load, then tap Messages."].exists)
     }
 
+    func testCategoryRemovalNeedsSelectionAndSignOff() {
+        let app = XCUIApplication()
+        app.launchArguments += ["--skip-welcome"]
+        app.launch()
+        app.tabBars.buttons["Clean"].tap()
+        let samples = app.buttons["Explore sample results"]
+        reveal(samples, in: app)
+        XCTAssertTrue(samples.waitForExistence(timeout: 5))
+        samples.tap()
+        let screenshots = app.buttons["category-screenshots"]
+        reveal(screenshots, in: app)
+        XCTAssertTrue(screenshots.waitForExistence(timeout: 5))
+        screenshots.tap()
+        XCTAssertTrue(app.navigationBars["Screenshots"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["category-delete"].exists, "Nothing is selected for you.")
+        let pick = app.buttons["select-sample-6"]
+        XCTAssertTrue(pick.waitForExistence(timeout: 5))
+        pick.tap()
+        let delete = app.buttons["category-delete"]
+        reveal(delete, in: app)
+        XCTAssertTrue(delete.waitForExistence(timeout: 5))
+        XCTAssertFalse(delete.isEnabled, "Delete stays off until the sign-off is checked.")
+        let signOff = app.buttons["category-signoff"]
+        reveal(signOff, in: app)
+        signOff.tap()
+        XCTAssertTrue(delete.isEnabled)
+        delete.tap()
+        XCTAssertTrue(app.staticTexts["Sample data. Nothing was removed."].waitForExistence(timeout: 5))
+    }
+
     func testArchiveTabOpensTheArchiveWorkflow() {
         let app = XCUIApplication()
         app.launchArguments += ["--skip-welcome"]

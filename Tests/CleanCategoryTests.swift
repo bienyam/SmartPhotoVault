@@ -54,6 +54,11 @@ final class CleanCategoryTests: XCTestCase {
         XCTAssertEqual(result.unreadCount, 1)
     }
 
+    func testBurstsStayReviewOnly() {
+        XCTAssertFalse(CleanCategory.bursts.allowsRemoval)
+        XCTAssertTrue(CleanCategory.allCases.filter { $0 != .bursts }.allSatisfy(\.allowsRemoval))
+    }
+
     func testOneAssetCanBelongToSeveralCategories() {
         let live = record("pano", bytes: 1, subtypes: [.photoPanorama, .photoLive])
         XCTAssertTrue(CleanCategory.panoramas.includes(live))
