@@ -212,7 +212,7 @@ struct PhotoDetailsView: View {
                     }
                 }
                 if model.snapshot != nil {
-                    CleanCategoriesSection(summaries: model.categorySummaries)
+                    CleanCategoriesSection(summaries: model.categorySummaries, model: model)
                 }
                 CleanElsewhereSection()
             case .help:
