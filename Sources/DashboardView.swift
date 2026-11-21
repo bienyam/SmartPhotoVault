@@ -164,6 +164,10 @@ struct FreeUpView: View {
             Text(status).font(.footnote).foregroundStyle(.secondary)
         }
         if !model.isScanning {
+            NavigationLink { ScanDetailsView(snapshot: rescue.snapshot, isDemo: model.isDemo) } label: {
+                Label("Scan details", systemImage: "list.bullet.rectangle").font(.subheadline)
+            }
+            .accessibilityIdentifier("scan-details")
             Button(model.isDemo ? "Check my photos instead" : "Check again") { model.startDuplicateScan() }
                 .font(.subheadline)
                 .accessibilityIdentifier("check-again")
@@ -344,6 +348,10 @@ struct MoreView: View {
                         Label("Where your storage goes", systemImage: "internaldrive")
                     }
                     .accessibilityIdentifier("more-explainer")
+                    NavigationLink { CloudDownloadRemovalView() } label: {
+                        Label("Free iCloud Drive downloads", systemImage: "icloud.and.arrow.down")
+                    }
+                    .accessibilityIdentifier("more-icloud-downloads")
                     NavigationLink { OptimizeStorageTip() } label: {
                         Label("Keep smaller copies with iCloud", systemImage: "iphone")
                     }

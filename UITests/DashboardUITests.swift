@@ -166,7 +166,7 @@ final class DashboardUITests: XCTestCase {
         app.tabBars.buttons["More"].tap()
         let rows = ["more-activity": "Activity", "more-pro": "TidyAway Pro",
                     "guide-messages": "Messages attachments", "more-explainer": "Where your storage goes",
-                    "more-optimize": "Keep smaller copies",
+                    "more-optimize": "Keep smaller copies", "more-icloud-downloads": "Remove a file download",
                     "more-help": "Help & privacy"]
         for (id, title) in rows {
             let row = app.buttons[id]
@@ -253,6 +253,20 @@ final class DashboardUITests: XCTestCase {
                      "Home file server", "Another Apple Account"] {
             XCTAssertTrue(app.buttons[name].waitForExistence(timeout: 5), "\(name) must stay available.")
         }
+    }
+
+    /// Regression guard: restored features stay reachable.
+    func testScanDetailsAndUnreadableItemsAreAvailable() {
+        let app = launchWithSamples()
+        let details = app.buttons["scan-details"]
+        reveal(details, in: app)
+        XCTAssertTrue(details.waitForExistence(timeout: 5))
+        details.tap()
+        XCTAssertTrue(app.navigationBars["Scan details"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Items checked"].exists)
+        app.buttons["scan-unreadable"].tap()
+        XCTAssertTrue(app.navigationBars["Couldn't read"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Cloud-only.heic"].exists)
     }
 
     func testFirstLaunchWelcomeLeadsToFreeUp() {
