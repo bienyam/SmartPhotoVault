@@ -299,10 +299,11 @@ final class DashboardUITests: XCTestCase {
     }
 
     private func reveal(_ element: XCUIElement, in app: XCUIApplication) {
-        let list = app.collectionViews.firstMatch
         for _ in 0..<12 {
             if element.exists && element.isHittable { return }
-            list.swipeUp(velocity: .slow)
+            // Lists scroll as collection views; Free up is a plain scroll view.
+            let list = app.collectionViews.firstMatch
+            if list.exists { list.swipeUp(velocity: .slow) } else { app.swipeUp(velocity: .slow) }
         }
     }
 }
