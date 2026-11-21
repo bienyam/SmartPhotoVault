@@ -25,7 +25,6 @@ struct ProUpgradeView: View {
             Section("Added with Pro") {
                 feature("Archive without a limit", icon: "infinity")
                 feature("Choose what to archive by album, place and size", icon: "line.3.horizontal.decrease.circle")
-                feature("Save, compare and share storage plans", icon: "rectangle.split.2x1")
             }
             Section {
                 ProPurchaseControls()

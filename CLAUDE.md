@@ -11,13 +11,24 @@ iPhone app for phone and cloud storage cleanup and archiving. Display name **Tid
 
 ## Simplify redesign (approved by the owner 2026-11-21)
 Plan: `TidyAway_Simplify_Plan.html`. All ★ recommendations approved:
-- Three tabs: **Free up** (launch tab: one "Free up space" button, then Large videos, Duplicates, Screenshots, More types), **Archive** (Move out / Get back), **More** (Activity, Analyze storage, TidyAway Pro, Tips, Help & privacy). One route to each screen, one word per thing ("Duplicates").
+- Three tabs: **Free up** (launch tab: one "Free up space" button, then Large videos, Duplicates, Screenshots, More types), **Archive** (Move out / Get back), **More** (Activity, TidyAway Pro, Tips, Help & privacy). One route to each screen, one word per thing ("Duplicates").
 - Headlines are actions, never instruction pages. Extra detail goes behind an (i) popover.
 - Rescue flow: list sorted by size, Select all, one short sign-off and one Apple confirmation per batch, then a result screen explaining Recently Deleted (3 picture steps; no undocumented `photos-redirect://` link). Never say "freed" until space is actually back.
-- "Analyze storage & cost" becomes "Analyze storage" under More; cost stays one quiet line. The cost wizard is a Pro extra.
-- Free: scan, all cleanup, restore, Activity, first 5 GB of archiving. Pro ($7.99 a month or $39.99 lifetime, Family Sharing on): unlimited archiving, archive-then-remove (once proven), archive filters, multi-file iCloud Drive download removal, storage comparisons, Activity export. Prompt only quietly under More and inline when an archive passes 5 GB.
+- Storage cost analysis is removed entirely (owner, 2026-11-21): no bill calculator, cost wizard or saved comparisons.
+- Free: scan, all cleanup, restore, Activity, first 5 GB of archiving. Pro ($7.99 a month, about $24.99 a year, or $39.99 lifetime, Family Sharing on): see the product vision below. Prompt only quietly under More and inline when an archive passes 5 GB.
 - Archive destinations in order: drive plugged into the iPhone (format/read-only/space checks, NTFS explained, iOS 18 Files Erase → ExFAT), Google Drive via Google sign-in with the `drive.file` scope, then a free "TidyAway Receiver" desktop app (Windows first) paired by a 6-digit code. NAS only via Files "Connect to Server" for now. No storage brand recommendations, one neutral (i) tip.
 - Archive destinations are write-only: TidyAway never deletes or changes anything there.
+
+## Product vision (approved by the owner 2026-11-21)
+Doc: `TidyAway_Vision.html`. Promise: "One scan finds the junk you didn't know you were keeping. One tap clears it, safely." All 7 ★ decisions approved:
+- One scan builds a **storage report**: hero "X GB of junk, room for about N photos", groups by confidence, each with one action. **Sure** (exact copies, old screenshots/recordings, black or accidental frames, burst leftovers) may come pre-selected for one-tap clear with Keep overrides. **Likely** (memes/chat images, receipts/documents, near-identical shots with best kept, blur) and **Your call** (make smaller, old photos to archive) are never pre-selected; review by swipe.
+- Every suggestion says why; favorites and edited photos are always kept. Say "old", never "never viewed" (iOS has no last-viewed date). Finish line: empty Recently Deleted, then show the storage bar update.
+- Free finds everything and lets people clear Sure junk themselves. Pro does the work: one-tap smart clean of Likely groups, Make smaller (opt-in, original archived first), move old photos out, unlimited archive, monthly tidy-up. Charge for labour saved, never for the exit.
+- Pricing adds a yearly plan of about $24.99; never weekly.
+- Cut: Analyze selected files, Advanced analysis and saved comparisons, the bill check, the one-file iCloud Drive tool (now steps in "Where your storage goes"). Archive destinations offered: drive plugged in, Google Drive, iCloud Drive.
+- AI checks run on device on thumbnails (Vision); calibrate thresholds on the owner's library on his iPhone, nothing uploaded. iCloud-only sizes use the undocumented `fileSize` value for now; replace if App Review objects.
+- **Next release: storage setup advisor.** Two or three well-chosen questions about which services the person uses (iCloud, Google Drive, a drive), then a recommended setup (for example archive to Google Drive, full-size in iCloud, smaller copies on the phone) and the shortest path to configure it in the app. Not a monthly-cost calculator.
+- Quality gate: an automated UI crawler (`UITests/CrawlerUITests.swift`) taps every control on every screen with sample data and reports dead buttons, dead ends and tap depth. Run it before each TestFlight build.
 
 ## Rules that must hold
 - Sign-off before any copy, removal or restore: an unchecked acknowledgment and a disabled button. Wording comes from `ACTION_AUTHORIZATION.md` (short line, disclosure v2, full text behind (i)); do not reword it casually. One sign-off may cover a whole batch.

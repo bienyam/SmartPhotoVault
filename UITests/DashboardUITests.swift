@@ -164,9 +164,9 @@ final class DashboardUITests: XCTestCase {
     func testEveryMoreRowOpens() {
         let app = launch()
         app.tabBars.buttons["More"].tap()
-        let rows = ["more-activity": "Activity", "more-analyze": "Analyze storage", "more-pro": "TidyAway Pro",
-                    "guide-messages": "Messages attachments", "more-icloud-downloads": "Remove a file download",
-                    "more-large-files": "Analyze selected files", "more-optimize": "Keep smaller copies",
+        let rows = ["more-activity": "Activity", "more-pro": "TidyAway Pro",
+                    "guide-messages": "Messages attachments", "more-explainer": "Where your storage goes",
+                    "more-optimize": "Keep smaller copies",
                     "more-help": "Help & privacy"]
         for (id, title) in rows {
             let row = app.buttons[id]
@@ -179,19 +179,6 @@ final class DashboardUITests: XCTestCase {
         }
     }
 
-    func testAdvancedAnalysisIsProAndOffersThePurchaseCalmly() {
-        let app = launch()
-        app.tabBars.buttons["More"].tap()
-        app.buttons["more-analyze"].tap()
-        let advanced = app.buttons["Advanced analysis"]
-        if !advanced.isHittable { app.swipeUp() }
-        advanced.tap()
-        XCTAssertTrue(app.navigationBars["TidyAway Pro"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["pro-restore"].waitForExistence(timeout: 15), "Restore is always offered.")
-        app.buttons["Not now"].tap()
-        XCTAssertTrue(app.navigationBars["Analyze storage"].waitForExistence(timeout: 5))
-    }
-
     func testProUnlockedShowsAsUnlocked() {
         let app = XCUIApplication()
         app.launchArguments += ["--skip-welcome", "--pro"]
@@ -199,31 +186,6 @@ final class DashboardUITests: XCTestCase {
         app.tabBars.buttons["More"].tap()
         app.buttons["more-pro"].tap()
         XCTAssertTrue(app.staticTexts["Pro is unlocked."].waitForExistence(timeout: 5))
-    }
-
-    func testStorageQuestionnaireRecommendsAnOptionUsersCanReview() {
-        let app = XCUIApplication()
-        app.launchArguments += ["--skip-welcome", "--pro"]
-        app.launch()
-        XCTAssertTrue(app.navigationBars["TidyAway"].waitForExistence(timeout: 15))
-        app.tabBars.buttons["More"].tap()
-        app.buttons["more-analyze"].tap()
-        XCTAssertTrue(app.navigationBars["Analyze storage"].waitForExistence(timeout: 5))
-        let advanced = app.buttons["Advanced analysis"]
-        if !advanced.isHittable { app.swipeUp() }
-        advanced.tap()
-        XCTAssertTrue(app.navigationBars["Advanced analysis"].waitForExistence(timeout: 5))
-        app.buttons["Free up phone space"].tap()
-        app.buttons["Yes"].tap()
-        app.buttons["See my analysis now"].tap()
-        XCTAssertTrue(app.navigationBars["Storage & cost analysis"].waitForExistence(timeout: 5))
-        app.buttons["Compare alternatives"].tap()
-        XCTAssertTrue(app.navigationBars["Compare alternatives"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Suggested for your goal"].exists)
-        app.buttons["Optimize iPhone Storage"].tap()
-        XCTAssertTrue(app.navigationBars["Optimize iPhone Storage"].waitForExistence(timeout: 5))
-        app.buttons["Done"].tap()
-        XCTAssertTrue(app.navigationBars["Compare alternatives"].waitForExistence(timeout: 5))
     }
 
     func testMessagesAttachmentsGuideOpensWithoutAScan() {

@@ -53,6 +53,9 @@ struct PhotoArchiveView: View {
         case home = "Home file server"
         case other = "Other Files location"
 
+        /// What people actually own: a drive, Google Drive, iCloud Drive. Others stay reachable via Files.
+        static let offered: [Destination] = [.drive, .google, .iCloud]
+
         var detail: String {
             switch self {
             case .drive: "Plug a USB-C drive or memory stick into your iPhone (older iPhones need Apple's camera adapter), then choose it under Locations. ExFAT drives work best."
@@ -187,7 +190,7 @@ struct PhotoArchiveView: View {
         Section("1. Connect an archive folder") {
             Picker("Storage location", selection: $destinationKind) {
                 Text("Choose a destination").tag(nil as Destination?)
-                ForEach(Destination.allCases, id: \.self) { kind in
+                ForEach(Destination.offered, id: \.self) { kind in
                     Label(kind.rawValue, systemImage: kind.icon).tag(Optional(kind))
                 }
             }
