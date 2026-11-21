@@ -77,6 +77,7 @@ jobs:
           -maximum-test-execution-time-allowance 120
           -skip-testing:SmartPhotoVaultUITests/DashboardUITests/testPrepareFullPhotoAccess
           -skip-testing:SmartPhotoVaultTests/VerifiedArchiveTests
+          -skip-testing:SmartPhotoVaultUITests/CrawlerUITests
           -destination "platform=iOS Simulator,id=$DEVICE_ID"
           -resultBundlePath build/TestResults.xcresult
           CODE_SIGNING_ALLOWED=NO
@@ -118,6 +119,55 @@ jobs:
         with:
           name: test-screenshots
           path: build/test-attachments
+          if-no-files-found: ignore
+
+  ui-crawl:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install project generator
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        run: xcodegen generate
+      - name: Select available iPhone simulator
+        run: |
+          DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for devices in d["devices"].values() for x in devices if x["name"].startswith("iPhone")))')
+          echo "DEVICE_ID=$DEVICE_ID" >> "$GITHUB_ENV"
+      - name: Build app and tests
+        run: >-
+          xcodebuild build-for-testing
+          -project SmartPhotoVault.xcodeproj
+          -scheme SmartPhotoVault
+          -derivedDataPath build/DerivedData
+          -destination "platform=iOS Simulator,id=$DEVICE_ID"
+          CODE_SIGNING_ALLOWED=NO
+      - name: Crawl every screen and button
+        timeout-minutes: 30
+        run: >-
+          xcodebuild test-without-building
+          -project SmartPhotoVault.xcodeproj
+          -scheme SmartPhotoVault
+          -derivedDataPath build/DerivedData
+          -parallel-testing-enabled NO
+          -only-testing:SmartPhotoVaultUITests/CrawlerUITests
+          -destination "platform=iOS Simulator,id=$DEVICE_ID"
+          -resultBundlePath build/CrawlResults.xcresult
+          CODE_SIGNING_ALLOWED=NO | tee build/crawl.log
+      - name: Extract crawl report
+        if: always()
+        run: |
+          grep -h '^CRAWL|' build/crawl.log | sort -u > build/ui-crawl-report.txt || true
+          wc -l build/ui-crawl-report.txt || true
+          xcrun xcresulttool export attachments --path build/CrawlResults.xcresult --output-path build/crawl-attachments || true
+      - name: Save crawl report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-crawl-report
+          path: |
+            build/ui-crawl-report.txt
+            build/crawl-attachments
           if-no-files-found: ignore
 
   iphone-package:
