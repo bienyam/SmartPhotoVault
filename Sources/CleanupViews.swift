@@ -35,7 +35,7 @@ struct CleanupListView: View {
 
     private var selectable: [AssetRecord] { items.filter { !$0.favorite } }
     private var selectedRecords: [AssetRecord] { selectable.filter { selected.contains($0.id) } }
-    private var selectedBytes: Int64 { selectedRecords.filter { $0.fingerprint != nil }.reduce(0) { $0 + $1.bytes } }
+    private var selectedBytes: Int64 { selectedRecords.reduce(0) { $0 + $1.displayBytes } }
     private var allSelected: Bool { !selectable.isEmpty && selectedRecords.count == selectable.count }
 
     var body: some View {
@@ -207,7 +207,8 @@ struct AssetRow: View {
                 AssetThumbnail(assetID: asset.id)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(asset.filename).lineLimit(1).foregroundStyle(.primary)
-                    Text(asset.fingerprint == nil ? "Not on this iPhone" : asset.bytes.fileSize)
+                    Text(asset.inICloud ? "\(asset.displayBytes.fileSize) · in iCloud"
+                         : asset.fingerprint == nil ? "Size unknown" : asset.bytes.fileSize)
                         .font(.caption).foregroundStyle(.secondary)
                     if let note {
                         Text(note).font(.caption.weight(.semibold)).foregroundStyle(Brand.safe)

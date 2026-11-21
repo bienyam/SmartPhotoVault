@@ -23,8 +23,8 @@ struct RescueSummary {
     init(snapshot: ScanSnapshot) {
         self.snapshot = snapshot
         videos = snapshot.assets
-            .filter { $0.mediaType == PHAssetMediaType.video.rawValue && $0.fingerprint != nil }
-            .sorted { $0.bytes == $1.bytes ? $0.id < $1.id : $0.bytes > $1.bytes }
+            .filter { $0.mediaType == PHAssetMediaType.video.rawValue && $0.displayBytes > 0 }
+            .sorted { $0.displayBytes == $1.displayBytes ? $0.id < $1.id : $0.displayBytes > $1.displayBytes }
         var groups: [DuplicateGroup] = []
         var plans: [DuplicateRemovalPlan] = []
         for group in snapshot.groups {
@@ -42,12 +42,14 @@ struct RescueSummary {
         otherTypes = summaries.filter { $0.category != .screenshots }
     }
 
-    var videoBytes: Int64 { videos.reduce(0) { $0 + $1.bytes } }
+    var videoBytes: Int64 { videos.reduce(0) { $0 + $1.displayBytes } }
     var duplicateBytes: Int64 { duplicatePlans.reduce(0) { $0 + $1.removeBytes } }
     var duplicateCopies: Int { duplicatePlans.reduce(0) { $0 + $1.removeIDs.count } }
-    var otherBytes: Int64 { otherTypes.filter { $0.category.allowsRemoval }.reduce(0) { $0 + $1.knownBytes } }
+    var otherBytes: Int64 { otherTypes.filter { $0.category.allowsRemoval }.reduce(0) { $0 + $1.displayBytes } }
     /// An upper bound: an item can appear in more than one row.
-    var upToBytes: Int64 { videoBytes + duplicateBytes + screenshots.knownBytes }
+    var upToBytes: Int64 { videoBytes + duplicateBytes + screenshots.displayBytes }
+    /// True when some listed items are kept in iCloud, so removing them frees mostly iCloud space.
+    var includesICloud: Bool { videos.contains(where: \.inICloud) || screenshots.items.contains(where: \.inICloud) }
 }
 
 /// Space on this iPhone, from the system's own volume figures.
