@@ -642,8 +642,7 @@ struct PhotoArchiveView: View {
         }
     }
 
-    /// Prepares each item as a verified local copy, uploads it to Google Drive, and checks Drive's own
-    /// SHA-256 against the original. The local preparation copy is removed straight after.
+    /// Streams each item to Google Drive and checks Drive's own checksum against the original.
     private func beginDriveCopy() {
         guard !busy, archiveConsent, google.connected, !items.isEmpty else { return }
         let selection = items.map { item in
@@ -661,27 +660,20 @@ struct PhotoArchiveView: View {
         Task {
             var records: [ArchivedRecord] = []
             var problems: [String] = []
-            let staging = FileManager.default.temporaryDirectory.appendingPathComponent("TidyAwayUpload-\(UUID().uuidString)")
-            try? FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
-            defer { try? FileManager.default.removeItem(at: staging) }
             do {
                 let folderID = try await GoogleDriveClient.archiveFolder(token: try await account.accessToken())
                 for item in selection {
                     do {
-                        let needed = bytes(for: item) ?? 0
-                        let free = DeviceStorage.current()?.available ?? .max
-                        guard needed < free - 200_000_000 else { throw GoogleDriveError.noSpace }
-                        let receipt = try await Task.detached(priority: .userInitiated) {
-                            try VerifiedArchive.copy(item, to: staging)
+                        // A fresh token per item; each item streams straight from Photos or Files to
+                        // Drive in small pieces, so no full copy needs room on this iPhone.
+                        let token = try await account.accessToken()
+                        let uploaded = try await Task.detached(priority: .userInitiated) {
+                            try GoogleDriveClient.streamUpload(item, folderID: folderID, token: token)
                         }.value
-                        defer { try? FileManager.default.removeItem(at: receipt.url) }
-                        let fileID = try await GoogleDriveClient.upload(receipt.url, name: receipt.url.lastPathComponent,
-                                                                        folderID: folderID, expectedDigest: receipt.fingerprint.digest,
-                                                                        token: try await account.accessToken())
-                        records.append(ArchivedRecord(id: UUID().uuidString, name: receipt.url.lastPathComponent,
-                                                      folderName: "Google Drive", bytes: receipt.fingerprint.bytes,
-                                                      digest: receipt.fingerprint.digest, date: Date(),
-                                                      viaHomeServer: false, folderBookmark: nil, driveFileID: fileID))
+                        records.append(ArchivedRecord(id: UUID().uuidString, name: item.name,
+                                                      folderName: "Google Drive", bytes: uploaded.fingerprint.bytes,
+                                                      digest: uploaded.fingerprint.digest, date: Date(),
+                                                      viaHomeServer: false, folderBookmark: nil, driveFileID: uploaded.fileID))
                     } catch {
                         problems.append("\(item.name) — \(error.localizedDescription)")
                     }
