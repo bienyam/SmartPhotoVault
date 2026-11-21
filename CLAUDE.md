@@ -31,7 +31,7 @@ Brand set by the Sweep app icon (tangerine, photos swept up into a cloud, archiv
 - Swift/SwiftUI, PhotoKit, SQLite (`InventoryStore`), XcodeGen (`project.yml`), iOS 17 target.
 - `.github/workflows/ios.yml`: package checks and simulator tests including UI tests. One simulator step has a 5-minute timeout that sometimes flakes; re-run failed jobs.
 - `.github/workflows/app-store.yml`: screenshots on PRs; `workflow_dispatch` with `upload: true` on main signs and uploads to App Store Connect. Build number is `run_number.run_attempt`.
-- TestFlight: internal group **TidyAway Testers** has automatic distribution for Xcode builds, so every upload reaches testers. The older "Internal iPhone Testing" group is manual and can be deleted.
+- TestFlight: internal group **TidyAway Testers** has automatic distribution for Xcode builds, so every upload reaches testers.
 - The Photos-permission UI tests (`testPrepareFullPhotoAccess`, `testDeniedPhotosAccessShowsSettings`) occasionally time out on the system dialog; re-run before investigating.
 - UI tests launch with `--skip-welcome`; `--demo` uses sample data; `--reset-welcome` shows the welcome screen.
 - Work in small PRs, squash-merge when CI is green.

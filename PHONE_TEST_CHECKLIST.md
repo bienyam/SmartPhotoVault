@@ -2,7 +2,7 @@
 
 Nothing that removes or copies photos has been proven on a real iPhone yet. Run these on the TestFlight build before trusting any of it with real memories. Use throwaway items you create for the test, never real photos.
 
-TestFlight: builds now reach the **TidyAway Testers** group automatically. Install the latest build from the TestFlight app.
+TestFlight: builds now reach the **TidyAway Testers** group automatically. It is the only tester group. Install the latest build from the TestFlight app.
 
 ## Before you start
 1. Take 6 throwaway photos (point at a wall), 2 screenshots, and one 30-second video.
