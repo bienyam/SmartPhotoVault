@@ -1,10 +1,10 @@
 import Photos
 import SwiftUI
 
-/// The project rule: originals are only removed from the iPhone after archiving once copy and
-/// put-back have been proven on a physical iPhone. The owner switches this on after that test.
+/// Removing originals after a verified archive. Switched on by the owner on 2026-11-21, after a
+/// successful Google Drive copy on the owner's iPhone. Switch to false to hide the step again.
 enum RemovalAfterArchive {
-    static let enabled = false
+    static let enabled = true
 }
 
 /// What an archive run just did, for the completion screen and the follow-up removal.

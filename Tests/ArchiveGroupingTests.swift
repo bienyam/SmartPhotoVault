@@ -31,8 +31,8 @@ final class ArchiveGroupingTests: XCTestCase {
         XCTAssertEqual(done.count, 2)
     }
 
-    func testRemovalAfterArchiveStaysOffUntilProvenOnAnIPhone() {
-        XCTAssertFalse(RemovalAfterArchive.enabled, "Project rule: switched on only after a put-back is tested on a device.")
+    func testRemovalAfterArchiveIsSwitchedOnByTheOwner() {
+        XCTAssertTrue(RemovalAfterArchive.enabled, "Switched on by the owner on 2026-11-21.")
     }
 
     func testVideosAreRecognisedForPuttingBackIntoPhotos() {

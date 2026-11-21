@@ -37,6 +37,9 @@ TestFlight: every upload reaches the **TidyAway Testers** group automatically. I
 - [ ] Unplug the drive halfway through a copy: the copy stops with a clear message and nothing half-saved is left.
 - [ ] Get back: the copies are listed. Restore one to a different folder; it opens and matches.
 - [ ] The free archive meter shows how much of the 5 GB is left.
+- [ ] After a copy, the full-screen Archived screen appears. See them in Google Drive opens the TidyAway Archive folder.
+- [ ] Free up space on iPhone: sign off, allow Apple's prompt; only the archived test items go to Recently Deleted and favorites stay.
+- [ ] Get back lists the archive by date; open the date, select an item, put it back to Photos; it appears in Photos and opens.
 
 ## 5. Pro (sandbox account)
 - [ ] More, TidyAway Pro shows Unlock and Restore straight away.

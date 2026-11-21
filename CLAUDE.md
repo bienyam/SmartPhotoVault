@@ -32,7 +32,7 @@ Doc: `TidyAway_Vision.html`. Promise: "One scan finds the junk you didn't know y
 
 ## Rules that must hold
 - Sign-off before any copy, removal or restore: an unchecked acknowledgment and a disabled button. Wording comes from `ACTION_AUTHORIZATION.md` (short line, disclosure v2, full text behind (i)); do not reword it casually. One sign-off may cover a whole batch.
-- Removal after archiving stays switched off until copy and restore are proven on a physical iPhone (see `PHONE_TEST_CHECKLIST.md`).
+- Removal after archiving is switched on (owner, 2026-11-21: `RemovalAfterArchive.enabled`). It is offered only after a verified copy, removes only Photos items (never favorites or Files picks), and keeps the usual sign-off and Apple confirmation. Put-back is still unproven on a device; set the switch to false if a problem shows up.
 - Category removal: nothing pre-selected (Select all is fine, the user taps it), favorites can't be picked, bursts stay review-only.
 - Never remove favorites; always keep one copy of a duplicate group.
 - Activity log records approvals and outcomes without file names.
