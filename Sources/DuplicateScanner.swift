@@ -4,11 +4,27 @@ import Foundation
 
 /// Serial worker bounds resource use; Photos delivers streamed resource bytes.
 actor DuplicateScanner {
+    /// Albums found by the last completed scan (your own, shared and synced), for the Archive album filter.
+    private(set) var lastAlbums: [AlbumInfo] = []
+
     func scan(progress: @escaping @Sendable (Int, Int) async -> Void) async throws -> [AssetRecord] {
         try Task.checkCancellation()
         let assets = PHAsset.fetchAssets(with: nil)
         var records: [AssetRecord] = []
         var burstFrameCounts: [String: Int] = [:]
+        var albums: [AlbumInfo] = []
+        var albumsByAsset: [String: [String]] = [:]
+        lastAlbums = []
+        let collections = PHAssetCollection.fetchAssetCollections(with: .album, subtype: .any, options: nil)
+        for index in 0..<collections.count {
+            try Task.checkCancellation()
+            let collection = collections.object(at: index)
+            albums.append(AlbumInfo(id: collection.localIdentifier, title: collection.localizedTitle ?? "Untitled album"))
+            PHAsset.fetchAssets(in: collection, options: nil).enumerateObjects { asset, _, _ in
+                albumsByAsset[asset.localIdentifier, default: []].append(collection.localIdentifier)
+            }
+        }
+        let sortedAlbums = albums.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
         for index in 0..<assets.count {
             try Task.checkCancellation()
             let asset = assets.object(at: index)
@@ -50,10 +66,14 @@ actor DuplicateScanner {
                                        burstFrames: frames,
                                        pixelWidth: asset.pixelWidth,
                                        pixelHeight: asset.pixelHeight,
-                                       hasLocation: asset.location != nil))
+                                       hasLocation: asset.location != nil,
+                                       albumIDs: albumsByAsset[asset.localIdentifier] ?? [],
+                                       latitude: asset.location.map { PlaceArea.rounded($0.coordinate.latitude) },
+                                       longitude: asset.location.map { PlaceArea.rounded($0.coordinate.longitude) }))
             await progress(index + 1, assets.count)
         }
         try Task.checkCancellation()
+        lastAlbums = sortedAlbums
         return records
     }
 
