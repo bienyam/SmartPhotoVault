@@ -58,6 +58,27 @@ struct DashboardView: View {
                     } label: {
                         action("Analyze storage & cost", icon: "internaldrive")
                     }
+                    NavigationLink {
+                        ProUpgradeView()
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "sparkles").accessibilityHidden(true)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("TidyAway Pro").font(.subheadline.weight(.semibold))
+                                Text("One-time unlock. Never a subscription.")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 8)
+                            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary).accessibilityHidden(true)
+                        }
+                        .foregroundStyle(Color.primary)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .overlay(RoundedRectangle(cornerRadius: 17).stroke(Color.secondary.opacity(0.25), lineWidth: 1))
+                    }
+                    .accessibilityIdentifier("home-pro")
+                    .padding(.top, 8)
                 }
                 .frame(maxWidth: 520)
                 .padding(.horizontal, 20)
