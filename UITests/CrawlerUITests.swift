@@ -25,13 +25,13 @@ final class CrawlerUITests: XCTestCase {
 
     override func setUp() {
         continueAfterFailure = true
-        executionTimeAllowance = 1500
+        executionTimeAllowance = 2400
     }
 
     func testCrawlEveryScreen() {
         let started = Date()
         var queue: [[Step]] = ["Free up", "Archive", "More"].map { [Step(key: "tab:\($0)")] }
-        while !queue.isEmpty, Date().timeIntervalSince(started) < 1200 {
+        while !queue.isEmpty, Date().timeIntervalSince(started) < 2100 {
             let path = queue.removeFirst()
             guard let app = open(path) else { continue }
             let screen = screenKey(app)
@@ -59,6 +59,11 @@ final class CrawlerUITests: XCTestCase {
                 element.tap()
                 _ = app.wait(for: .runningForeground, timeout: 2)
                 usleep(700_000)
+                if dismissSystemPrompt() {
+                    log("SYSTEM_PROMPT", path, key, "opened an iOS permission dialog (dismissed)")
+                    fresh = false
+                    continue
+                }
                 checkHealthy(app, path + [Step(key: key)])
                 let after = signature(app)
                 if after == before {
@@ -72,7 +77,8 @@ final class CrawlerUITests: XCTestCase {
                     if kind == "OPENS" || revealedNew {
                         queue.append(path + [Step(key: key)])
                     }
-                    fresh = false
+                    // Going back is much faster than relaunching; fall back to a relaunch if it doesn't return.
+                    fresh = kind == "OPENS" && goBack(app) && signature(app) == before
                 }
             }
         }
@@ -107,6 +113,27 @@ final class CrawlerUITests: XCTestCase {
     }
 
     private func reopen(_ app: XCUIApplication, _ path: [Step]) -> Bool { open(path) != nil }
+
+    /// Taps the navigation bar's Back button, if there is one.
+    private func goBack(_ app: XCUIApplication) -> Bool {
+        let back = app.navigationBars.buttons.element(boundBy: 0)
+        guard back.exists, back.isHittable, back.frame.minX < 120 else { return false }
+        back.tap()
+        usleep(700_000)
+        return true
+    }
+
+    /// iOS permission dialogs belong to the system, not the app, so they need their own check.
+    private func dismissSystemPrompt() -> Bool {
+        let alert = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.firstMatch
+        guard alert.waitForExistence(timeout: 1) else { return false }
+        for label in ["Don’t Allow", "Don't Allow", "Cancel", "Not Now", "OK"] where alert.buttons[label].exists {
+            alert.buttons[label].tap()
+            return true
+        }
+        alert.buttons.element(boundBy: 0).tap()
+        return true
+    }
 
     private func find(_ key: String, in app: XCUIApplication) -> XCUIElement? {
         if key.hasPrefix("tab:") { return app.tabBars.buttons[String(key.dropFirst(4))] }
