@@ -24,7 +24,7 @@ struct ArchivedView: View {
     @State private var message: String?
     @State private var wifi = ArchiveWiFi()
 
-    private let blue = Color(red: 0.22, green: 0.40, blue: 0.59)
+    private let accent = Brand.primary
 
     var body: some View {
         List {
@@ -70,7 +70,7 @@ struct ArchivedView: View {
                 Section { Text(message).accessibilityAddTraits(.updatesFrequently) }
             }
         }
-        .tint(blue)
+        .tint(accent)
         .navigationTitle("Archived")
         .navigationBarTitleDisplayMode(.inline)
         .fileImporter(isPresented: $showFolders, allowedContentTypes: [.folder]) { result in

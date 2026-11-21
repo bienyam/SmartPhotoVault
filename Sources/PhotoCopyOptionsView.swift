@@ -29,7 +29,7 @@ struct PhotoCopyOptionsView: View {
         }
     }
 
-    private let slate = Color(red: 0.19, green: 0.32, blue: 0.44)
+    private let accent = Brand.primary
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -57,7 +57,7 @@ struct PhotoCopyOptionsView: View {
                         .padding(16)
                         .foregroundStyle(.primary)
                         .background(colorScheme == .dark ? Color(uiColor: .secondarySystemBackground) :
-                            Color(red: 0.88, green: 0.92, blue: 0.96), in: RoundedRectangle(cornerRadius: 17))
+                            Brand.surface, in: RoundedRectangle(cornerRadius: 17))
                     }
                     .buttonStyle(.plain)
                 }
@@ -66,7 +66,7 @@ struct PhotoCopyOptionsView: View {
             .padding(20)
             .frame(maxWidth: .infinity)
         }
-        .background(colorScheme == .dark ? Color(uiColor: .systemBackground) : Color(red: 0.99, green: 0.98, blue: 0.96))
+        .background(colorScheme == .dark ? Color(uiColor: .systemBackground) : Brand.background)
         .navigationTitle("Decide which copies to keep")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -107,7 +107,7 @@ struct PhotoCopyOptionsView: View {
                 }
             }
         }
-        .tint(slate)
+        .tint(accent)
         .navigationTitle(option.rawValue)
         .navigationBarTitleDisplayMode(.inline)
     }

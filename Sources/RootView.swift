@@ -7,7 +7,7 @@ struct RootView: View {
     @State private var forceWelcome = ProcessInfo.processInfo.arguments.contains("--reset-welcome")
     @Environment(\.colorScheme) private var colorScheme
 
-    private let slate = Color(red: 0.19, green: 0.32, blue: 0.44)
+    private let accent = Brand.primary
 
     private var skipWelcome: Bool {
         let arguments = ProcessInfo.processInfo.arguments
@@ -32,7 +32,7 @@ struct RootView: View {
                 tabs
             }
         }
-        .tint(colorScheme == .dark ? Color(red: 0.69, green: 0.82, blue: 0.95) : slate)
+        .tint(colorScheme == .dark ? Brand.primary : accent)
     }
 
     private var tabs: some View {
@@ -69,14 +69,14 @@ struct WelcomeView: View {
     let trySamples: () -> Void
     @Environment(\.colorScheme) private var colorScheme
 
-    private let slate = Color(red: 0.19, green: 0.32, blue: 0.44)
+    private let accent = Brand.primary
 
     private var porcelain: Color {
-        colorScheme == .dark ? Color(uiColor: .systemBackground) : Color(red: 0.99, green: 0.98, blue: 0.96)
+        colorScheme == .dark ? Color(uiColor: .systemBackground) : Brand.background
     }
 
     private var card: Color {
-        colorScheme == .dark ? Color(uiColor: .secondarySystemBackground) : Color(red: 0.88, green: 0.92, blue: 0.96)
+        colorScheme == .dark ? Color(uiColor: .secondarySystemBackground) : Brand.surface
     }
 
     var body: some View {
@@ -84,11 +84,9 @@ struct WelcomeView: View {
             VStack(alignment: .leading, spacing: 18) {
                 Text("TidyAway")
                     .font(.title2.bold())
-                Image("PorcelainHero")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: .infinity, maxHeight: 220)
-                    .accessibilityHidden(true)
+                BrandMark(size: 140)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Out of space? Let's fix it safely.")
                         .font(.largeTitle.bold())
@@ -111,7 +109,7 @@ struct WelcomeView: View {
                             .font(.headline)
                             .frame(maxWidth: .infinity, minHeight: 56)
                             .foregroundStyle(Color.white)
-                            .background(slate, in: RoundedRectangle(cornerRadius: 16))
+                            .background(accent, in: RoundedRectangle(cornerRadius: 16))
                     }
                     Button(action: trySamples) {
                         Text("Try it with sample photos")

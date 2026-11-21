@@ -41,8 +41,8 @@ struct DuplicateRemovalControls: View {
     @State private var outcome: DuplicateRemovalOutcome?
     @Environment(\.colorScheme) private var colorScheme
 
-    private let slate = Color(red: 0.19, green: 0.32, blue: 0.44)
-    private let done = Color(red: 0.08, green: 0.26, blue: 0.16)
+    private let accent = Brand.primary
+    private let done = Brand.safe
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -69,7 +69,7 @@ struct DuplicateRemovalControls: View {
                     }
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(slate)
+                .tint(accent)
                 .disabled(!agreed || working)
                 if working { ProgressView("Checking the copy to keep…") }
             }
@@ -88,13 +88,13 @@ struct DuplicateRemovalControls: View {
         case .removed(let count, let bytes):
             Label("Removed \(count) \(count == 1 ? "item" : "items"), about \(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)). Recoverable in Recently Deleted for up to 30 days.", systemImage: "checkmark.circle.fill")
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(colorScheme == .dark ? Color.green : done)
+                .foregroundStyle(Brand.safe)
         case .cancelled:
             Text("Cancelled. Nothing was removed.").font(.subheadline)
         case .sample:
             Text("Sample data. Nothing was removed.").font(.subheadline)
         case .blocked(let reason):
-            Text(reason).font(.subheadline).foregroundStyle(.orange)
+            Text(reason).font(.subheadline).foregroundStyle(Brand.caution)
         }
     }
 }
