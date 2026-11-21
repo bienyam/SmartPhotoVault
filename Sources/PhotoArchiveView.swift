@@ -510,7 +510,7 @@ struct PhotoArchiveView: View {
             measuredBytes.merge(result.0) { _, new in new }
             checkedPhotos.merge(result.1) { _, new in new }
             if result.0.count < selection.count {
-                message = "Some sizes couldn’t be read. Photos are checked without downloading iCloud originals."
+                message = "Some items are stored in iCloud, so their size shows once they are copied. TidyAway downloads them while copying."
             }
             checkingSizes = false
             busy = false

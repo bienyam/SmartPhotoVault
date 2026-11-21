@@ -36,7 +36,7 @@ struct ArchiveReceipt: Identifiable, Sendable {
 }
 
 enum ArchiveError: LocalizedError {
-    case unsupportedPhoto, missingFile, conflict, verification, sameFolder, unavailable, wifi
+    case unsupportedPhoto, missingFile, conflict, verification, sameFolder, unavailable, wifi, iCloudDownload
 
     var errorDescription: String? {
         switch self {
@@ -46,6 +46,7 @@ enum ArchiveError: LocalizedError {
         case .verification: "The copied bytes did not match the original."
         case .sameFolder: "Choose a different folder to test restoring a copy."
         case .unavailable: "The selected location could not be opened."
+        case .iCloudDownload: "This item is stored in iCloud and couldn't be downloaded. Check your internet connection and try again."
         case .wifi: "Join the same Wi-Fi network as your home server and try again."
         }
     }
@@ -123,7 +124,9 @@ enum VerifiedArchive {
 
         let writer = try ArchiveWriter(url: temporary, wifi: wifi)
         let options = PHAssetResourceRequestOptions()
-        options.isNetworkAccessAllowed = false
+        // With Optimize iPhone Storage on, the original is often only in iCloud. Archiving needs the
+        // full original, so let Photos download it; it streams straight into the archive copy.
+        options.isNetworkAccessAllowed = true
         let completion = DispatchSemaphore(value: 0)
         let manager = PHAssetResourceManager.default()
         let request = manager.requestData(for: resource, options: options) { data in
@@ -132,13 +135,17 @@ enum VerifiedArchive {
             writer.finish(error)
             completion.signal()
         }
-        // Videos can be large and a home server may be slow, so they get far longer than photos.
-        let limit: DispatchTimeInterval = asset.mediaType == .video ? .seconds(3600) : .seconds(120)
+        // Videos can be large, and iCloud downloads or a home server may be slow, so allow plenty of time.
+        let limit: DispatchTimeInterval = asset.mediaType == .video ? .seconds(3600) : .seconds(600)
         if completion.wait(timeout: .now() + limit) == .timedOut {
             writer.finish(ArchiveError.unavailable)
             manager.cancelDataRequest(request)
         }
-        return try writer.result()
+        do {
+            return try writer.result()
+        } catch let error as NSError where error.domain == PHPhotosErrorDomain {
+            throw ArchiveError.iCloudDownload
+        }
     }
 
     private static func copyFile(_ source: URL, to temporary: URL, wifi: ArchiveWiFi?) throws -> ArchiveFingerprint {
