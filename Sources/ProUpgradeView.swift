@@ -10,7 +10,7 @@ struct ProUpgradeView: View {
             Section {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("TidyAway Pro").font(.title2.bold())
-                    Text("One-time unlock. Never a subscription.")
+                    Text("Monthly, or once for life. Your choice.")
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 4)

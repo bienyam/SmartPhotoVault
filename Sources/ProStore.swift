@@ -2,27 +2,35 @@ import StoreKit
 import SwiftUI
 
 /// The one source of truth for TidyAway Pro, shared by every screen.
-/// It listens for purchase updates from launch, so Ask to Buy approvals, purchases on another
-/// device, Family Sharing and refunds are picked up even when the Pro screen isn't open.
+/// Pro comes two ways: a monthly subscription or a one-time lifetime unlock.
+/// It listens for purchase updates from launch, so Ask to Buy approvals, renewals, purchases on
+/// another device, Family Sharing, expiry and refunds are picked up even when the Pro screen isn't open.
 @MainActor
 final class ProStore: ObservableObject {
-    static let productID = "com.bienyam.SmartPhotoVault.storagepro"
+    /// One-time lifetime unlock. Kept from the original product so existing setup still matches.
+    static let lifetimeID = "com.bienyam.SmartPhotoVault.storagepro"
+    static let monthlyID = "com.bienyam.SmartPhotoVault.pro.monthly"
+    static let productIDs: Set<String> = [lifetimeID, monthlyID]
     /// Free archive allowance before Pro is needed.
     nonisolated static let freeArchiveBytes: Int64 = 5_000_000_000
 
-    @Published private(set) var unlocked = false
-    @Published private(set) var product: Product?
+    enum Plan: Equatable { case none, monthly, lifetime }
+
+    @Published private(set) var plan: Plan = .none
+    @Published private(set) var monthly: Product?
+    @Published private(set) var lifetime: Product?
     @Published private(set) var checking = true
     @Published private(set) var busy = false
     @Published var notice: String?
 
+    var unlocked: Bool { plan != .none }
     private var updates: Task<Void, Never>?
 
     init() {
         #if DEBUG
         // UI tests can start with Pro on to exercise the unlocked screens.
         if ProcessInfo.processInfo.arguments.contains("--pro") {
-            unlocked = true
+            plan = .lifetime
             checking = false
             return
         }
@@ -30,7 +38,7 @@ final class ProStore: ObservableObject {
         updates = Task { [weak self] in
             for await update in StoreKit.Transaction.updates {
                 guard case .verified(let transaction) = update,
-                      transaction.productID == ProStore.productID else { continue }
+                      ProStore.productIDs.contains(transaction.productID) else { continue }
                 await self?.refresh()
                 await transaction.finish()
             }
@@ -43,36 +51,38 @@ final class ProStore: ObservableObject {
     func start() async {
         checking = true
         await refresh()
-        if !unlocked { await loadProduct() }
+        await loadProducts()
         checking = false
     }
 
-    /// Unlocked while a verified, unrevoked purchase is among the current entitlements.
+    /// Lifetime wins over monthly. A subscription counts only while it hasn't expired or been revoked.
     func refresh() async {
-        var found = false
+        var found = Plan.none
         for await result in StoreKit.Transaction.currentEntitlements {
-            if case .verified(let transaction) = result, transaction.productID == Self.productID,
-               transaction.revocationDate == nil {
-                found = true
+            guard case .verified(let transaction) = result, transaction.revocationDate == nil else { continue }
+            if transaction.productID == Self.lifetimeID {
+                found = .lifetime
+            } else if transaction.productID == Self.monthlyID, found == .none,
+                      (transaction.expirationDate ?? .distantFuture) > Date() {
+                found = .monthly
             }
         }
-        unlocked = found
+        plan = found
     }
 
-    func loadProduct() async {
+    func loadProducts() async {
         do {
-            product = try await Product.products(for: [Self.productID]).first { $0.type == .nonConsumable }
-            if product == nil { notice = "Pro isn't available right now. Try again in a moment." }
-            else { notice = nil }
+            let products = try await Product.products(for: Self.productIDs)
+            monthly = products.first { $0.id == Self.monthlyID }
+            lifetime = products.first { $0.id == Self.lifetimeID }
+            notice = (monthly == nil && lifetime == nil) ? "Pro isn't available right now. Try again in a moment." : nil
         } catch {
             notice = "Couldn't reach the App Store. Check your connection and try again."
         }
     }
 
-    func purchase() async {
+    func purchase(_ product: Product) async {
         guard !busy else { return }
-        if product == nil { await loadProduct() }
-        guard let product else { return }
         busy = true
         notice = nil
         defer { busy = false }
@@ -80,7 +90,9 @@ final class ProStore: ObservableObject {
             switch try await product.purchase() {
             case .success(.verified(let transaction)):
                 // Unlock from the verified transaction itself; don't wait for entitlements to catch up.
-                unlocked = transaction.revocationDate == nil
+                if transaction.revocationDate == nil {
+                    plan = transaction.productID == Self.lifetimeID ? .lifetime : (plan == .lifetime ? .lifetime : .monthly)
+                }
                 await transaction.finish()
             case .success(.unverified):
                 notice = "The purchase could not be verified."
@@ -124,41 +136,78 @@ enum ArchiveAllowance: Equatable {
     case over(left: Int64)
 }
 
-/// The Pro purchase controls, reused wherever Pro is offered.
+/// The Pro purchase controls, reused wherever Pro is offered: monthly or once, with the
+/// subscription terms Apple requires shown next to the buttons.
 struct ProPurchaseControls: View {
     @EnvironmentObject private var pro: ProStore
+    @Environment(\.openURL) private var openURL
+
+    static let termsURL = URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!
+    static let privacyURL = URL(string: "https://github.com/bienyam/SmartPhotoVault/blob/main/PRIVACY.md")!
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             // Never block on the App Store: the buttons work while the check finishes.
-            if pro.unlocked {
+            switch pro.plan {
+            case .lifetime:
                 Label("Pro is unlocked.", systemImage: "checkmark.seal.fill")
                     .foregroundStyle(Brand.safe)
                     .accessibilityIdentifier("pro-unlocked")
-            } else {
-                Button {
-                    Task { await pro.purchase() }
-                } label: {
-                    Text(pro.product.map { "Unlock Pro for \($0.displayPrice)" } ?? "Unlock Pro")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity, minHeight: 50)
+            case .monthly:
+                Label("Pro is unlocked. Monthly plan.", systemImage: "checkmark.seal.fill")
+                    .foregroundStyle(Brand.safe)
+                    .accessibilityIdentifier("pro-unlocked")
+                Button("Manage subscription") {
+                    Task {
+                        if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
+                            try? await AppStore.showManageSubscriptions(in: scene)
+                        }
+                    }
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(Brand.primary)
-                .disabled(pro.busy)
-                .accessibilityIdentifier("pro-unlock")
-                Text("One-time purchase through Apple. No renewals.")
+                if let lifetime = pro.lifetime {
+                    Button("Switch to lifetime for \(lifetime.displayPrice)") { Task { await pro.purchase(lifetime) } }
+                        .disabled(pro.busy)
+                }
+            case .none:
+                option(title: pro.monthly.map { "\($0.displayPrice) a month" } ?? "Monthly",
+                       detail: "Cancel anytime.", product: pro.monthly, prominent: false, id: "pro-monthly")
+                option(title: pro.lifetime.map { "\($0.displayPrice) once" } ?? "Lifetime",
+                       detail: "Pay once, keep Pro.", product: pro.lifetime, prominent: true, id: "pro-lifetime")
+                Text("The monthly plan renews automatically at \(pro.monthly?.displayPrice ?? "the price shown") a month until you cancel. Cancel at least 24 hours before the end of the month in Settings, your name, Subscriptions. Payment is charged to your Apple Account.")
                     .font(.footnote).foregroundStyle(.secondary)
+                HStack(spacing: 16) {
+                    Button("Terms of Use") { openURL(Self.termsURL) }
+                    Button("Privacy Policy") { openURL(Self.privacyURL) }
+                }
+                .font(.footnote)
                 Button("Restore purchase") { Task { await pro.restore() } }
                     .disabled(pro.busy)
                     .accessibilityIdentifier("pro-restore")
             }
             if let notice = pro.notice {
                 Text(notice).font(.footnote).foregroundStyle(.secondary)
-                if pro.product == nil && !pro.unlocked {
-                    Button("Try again") { Task { await pro.loadProduct() } }
+                if pro.monthly == nil && pro.lifetime == nil && !pro.unlocked {
+                    Button("Try again") { Task { await pro.loadProducts() } }
                 }
             }
         }
+        .buttonStyle(.borderless)
+    }
+
+    private func option(title: String, detail: String, product: Product?, prominent: Bool, id: String) -> some View {
+        Button {
+            if let product { Task { await pro.purchase(product) } } else { Task { await pro.loadProducts() } }
+        } label: {
+            VStack(spacing: 2) {
+                Text(title).font(.headline)
+                Text(detail).font(.caption)
+            }
+            .frame(maxWidth: .infinity, minHeight: 56)
+            .foregroundStyle(prominent ? Color.white : Brand.primary)
+            .background(prominent ? Brand.primary : Brand.surface, in: RoundedRectangle(cornerRadius: 14))
+        }
+        .buttonStyle(.plain)
+        .disabled(pro.busy)
+        .accessibilityIdentifier(id)
     }
 }

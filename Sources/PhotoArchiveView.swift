@@ -400,7 +400,7 @@ struct PhotoArchiveView: View {
                     .accessibilityIdentifier("archive-allowance")
             case .over(let left):
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("This selection is \(formattedBytes(selectedBytes)). \(formattedBytes(left)) of your free 5 GB archive is left. Remove some items, or unlock Pro to archive without a limit. One-time purchase.")
+                    Text("This selection is \(formattedBytes(selectedBytes)). \(formattedBytes(left)) of your free 5 GB archive is left. Remove some items, or unlock Pro to archive without a limit.")
                     Button("See TidyAway Pro") { showPro = true }
                 }
                 .accessibilityIdentifier("archive-allowance")

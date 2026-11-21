@@ -239,7 +239,11 @@ final class DashboardUITests: XCTestCase {
         app.tabBars.buttons["More"].tap()
         app.buttons["more-pro"].tap()
         XCTAssertTrue(app.navigationBars["TidyAway Pro"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["One-time unlock. Never a subscription."].exists)
+        XCTAssertTrue(app.staticTexts["Monthly, or once for life. Your choice."].exists)
+        XCTAssertTrue(app.buttons["pro-monthly"].waitForExistence(timeout: 5), "The monthly option is offered.")
+        XCTAssertTrue(app.buttons["pro-lifetime"].exists, "The lifetime option is offered.")
+        XCTAssertTrue(app.buttons["Terms of Use"].exists, "Subscription terms are linked.")
+        XCTAssertTrue(app.buttons["Privacy Policy"].exists)
         XCTAssertTrue(app.staticTexts["Archive up to 5 GB, with every copy checked"].exists)
         XCTAssertTrue(app.buttons["pro-restore"].waitForExistence(timeout: 15))
     }
