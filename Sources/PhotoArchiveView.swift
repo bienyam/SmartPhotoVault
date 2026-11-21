@@ -122,6 +122,11 @@ struct PhotoArchiveView: View {
                         .accessibilityAddTraits(.isHeader)
                     Text("Copy full-resolution originals or files, then test a restore. Your source items stay where they are.")
                         .foregroundStyle(.secondary)
+                    Label("TidyAway only adds copies to your archive. It never deletes or changes anything there, by design.",
+                          systemImage: "lock.shield")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Brand.safe)
+                        .accessibilityIdentifier("archive-write-only")
                 }
                 .padding(.vertical, 8)
             }

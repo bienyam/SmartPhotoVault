@@ -1,342 +1,324 @@
 import SwiftUI
 import Photos
 
-enum DashboardDestination {
-    case inventory, duplicates, help
-
-    var title: String {
-        switch self {
-        case .inventory: "Apple Photos inventory"
-        case .duplicates: "Find duplicates"
-        case .help: "Help and privacy"
-        }
-    }
-}
-
-struct DashboardView: View {
+/// The launch tab: one button to find space, then the biggest wins, largest first.
+struct FreeUpView: View {
     @ObservedObject var model: DashboardModel
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.openURL) private var openURL
     @Environment(\.colorScheme) private var colorScheme
-
-    private let accent = Brand.primary
+    @State private var storage = DeviceStorage.current()
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Photos & storage")
-                            .font(.largeTitle.bold())
-                            .accessibilityAddTraits(.isHeader)
-                        BrandMark(size: 96)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                        Text("Your photos are safe. Nothing is removed until you confirm it.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 16) {
+                    header
+                    if model.isScanning {
+                        scanning
+                    } else if let rescue = model.rescue {
+                        results(rescue)
+                    } else {
+                        start
                     }
-                    .padding(18)
-                    .background(.linearGradient(
-                        colors: [Brand.heroTop, .clear],
-                        startPoint: .top, endPoint: .bottom
-                    ), in: RoundedRectangle(cornerRadius: 24))
-
-                    NavigationLink {
-                        PhotoDetailsView(model: model, destination: .inventory)
-                    } label: {
-                        action("Check my photos", icon: "photo", prominent: true)
+                    if let error = model.errorMessage {
+                        Text(error).font(.subheadline).foregroundStyle(Brand.caution)
                     }
-                    NavigationLink {
-                        PhotoDetailsView(model: model, destination: .duplicates)
-                    } label: {
-                        action("Find duplicates", icon: "square.on.square")
-                    }
-                    NavigationLink {
-                        StorageGuideView(snapshot: model.isDemo ? nil : model.snapshot)
-                    } label: {
-                        action("Analyze storage & cost", icon: "internaldrive")
-                    }
-                    NavigationLink {
-                        ProUpgradeView()
-                    } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: "sparkles").accessibilityHidden(true)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("TidyAway Pro").font(.subheadline.weight(.semibold))
-                                Text("One-time unlock. Never a subscription.")
-                                    .font(.caption).foregroundStyle(.secondary)
+                    if model.authorization == .denied || model.authorization == .restricted {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("TidyAway needs access to your photos to find space.")
+                            Button("Open Settings") {
+                                if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
                             }
-                            Spacer(minLength: 8)
-                            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary).accessibilityHidden(true)
+                            .buttonStyle(.bordered)
                         }
-                        .foregroundStyle(Color.primary)
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .overlay(RoundedRectangle(cornerRadius: 17).stroke(Color.secondary.opacity(0.25), lineWidth: 1))
                     }
-                    .accessibilityIdentifier("home-pro")
-                    .padding(.top, 8)
                 }
                 .frame(maxWidth: 520)
-                .padding(.horizontal, 20)
-                .padding(.bottom, 24)
+                .padding(20)
                 .frame(maxWidth: .infinity)
             }
             .background(colorScheme == .dark ? Color(uiColor: .systemBackground) : Brand.background)
             .navigationTitle("TidyAway")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink {
-                        PhotoDetailsView(model: model, destination: .help)
-                    } label: {
-                        Image(systemName: "questionmark.circle")
-                    }
-                    .accessibilityLabel("Help and privacy")
-                }
-            }
-            .task {
-                if ProcessInfo.processInfo.arguments.contains("--demo") { model.showDemo() }
-            }
             .onChange(of: scenePhase) { _, phase in
-                if phase == .active { model.refreshAuthorization() }
+                if phase == .active { storage = DeviceStorage.current() }
             }
         }
-        .tint(colorScheme == .dark ? Brand.primary : accent)
     }
 
-    private func action(_ title: String, icon: String, prominent: Bool = false) -> some View {
-        HStack {
-            Label(title, systemImage: icon)
-            Spacer(minLength: 8)
-            Image(systemName: "chevron.right").accessibilityHidden(true)
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Storage full? Get your camera back.")
+                .font(.title.bold())
+                .accessibilityAddTraits(.isHeader)
+            if let storage {
+                StorageBar(storage: storage)
+            }
         }
-        .font(.headline)
-        .foregroundStyle(prominent ? Color.white : Color.primary)
-        .padding(.horizontal, 18)
-        .padding(.vertical, 15)
-        .frame(minHeight: 56)
-        .background(
-            prominent ? accent : (colorScheme == .dark ? Color(uiColor: .secondarySystemBackground) : Brand.surface),
-            in: RoundedRectangle(cornerRadius: 17)
-        )
+    }
+
+    private var start: some View {
+        VStack(spacing: 12) {
+            Button { model.startDuplicateScan() } label: {
+                Label("Free up space", systemImage: "sparkles")
+                    .font(.title3.bold())
+                    .frame(maxWidth: .infinity, minHeight: 64)
+                    .foregroundStyle(Color.white)
+                    .background(Brand.primary, in: RoundedRectangle(cornerRadius: 18))
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("free-up-space")
+            HStack(spacing: 4) {
+                Text("Nothing is removed until you approve it.")
+                    .font(.footnote).foregroundStyle(.secondary)
+                InfoButton(title: "How it works",
+                           text: "TidyAway looks through the photos and videos on this iPhone and lists the biggest things you could remove. It reads them on your iPhone and sends nothing anywhere. You choose what goes, sign off, and Apple asks you to confirm.")
+            }
+            Button("Try it with sample photos") { model.showDemo() }
+                .font(.subheadline)
+                .accessibilityIdentifier("try-samples")
+        }
+    }
+
+    private var scanning: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if model.total > 0 {
+                ProgressView(value: Double(model.completed), total: Double(model.total)) {
+                    Text("Looking through \(model.completed.formatted()) of \(model.total.formatted())")
+                }
+            } else {
+                ProgressView("Looking through your photos…")
+            }
+            Button("Cancel", role: .cancel) { model.cancel() }
+        }
+        .padding(16)
+        .background(Brand.surface, in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    @ViewBuilder
+    private func results(_ rescue: RescueSummary) -> some View {
+        if model.isDemo {
+            Label("Sample photos, not your library", systemImage: "testtube.2")
+                .font(.subheadline.weight(.semibold))
+        }
+        VStack(alignment: .leading, spacing: 4) {
+            Text("You could free up to").font(.subheadline).foregroundStyle(.secondary)
+            Text(rescue.upToBytes.fileSize).font(.system(size: 40, weight: .bold))
+        }
+        VStack(spacing: 0) {
+            NavigationLink {
+                CleanupListView(title: "Large videos",
+                                guidance: "Videos are usually the biggest files on an iPhone. These are the ones on this iPhone, largest first.",
+                                items: rescue.videos, source: "Large videos", allowsRemoval: true, model: model)
+            } label: {
+                row("Large videos", icon: "video", detail: rescue.videos.isEmpty ? "None" : rescue.videoBytes.fileSize)
+            }
+            .accessibilityIdentifier("row-videos")
+            Divider()
+            NavigationLink { DuplicatesListView(model: model) } label: {
+                row("Duplicates", icon: "square.on.square",
+                    detail: rescue.duplicateCopies == 0 ? "None" : rescue.duplicateBytes.fileSize)
+            }
+            .accessibilityIdentifier("row-duplicates")
+            Divider()
+            NavigationLink {
+                CleanupListView(title: "Screenshots", guidance: CleanCategory.screenshots.guidance,
+                                items: rescue.screenshots.items, source: "Screenshots", allowsRemoval: true, model: model)
+            } label: {
+                row("Screenshots", icon: "camera.viewfinder",
+                    detail: rescue.screenshots.items.isEmpty ? "None" : rescue.screenshots.knownBytes.fileSize)
+            }
+            .accessibilityIdentifier("row-screenshots")
+            Divider()
+            NavigationLink { MoreTypesView(types: rescue.otherTypes, model: model) } label: {
+                row("More types", icon: "square.grid.2x2", detail: rescue.otherBytes.fileSize)
+            }
+            .accessibilityIdentifier("row-more")
+        }
+        .buttonStyle(.plain)
+        .background(Brand.surface, in: RoundedRectangle(cornerRadius: 16))
+        if model.libraryChanged {
+            Text("Your photos changed since this check.").font(.footnote).foregroundStyle(.secondary)
+        }
+        if let status = model.duplicateScanStatus, status != "Scan complete." {
+            Text(status).font(.footnote).foregroundStyle(.secondary)
+        }
+        Button(model.isDemo ? "Check my photos instead" : "Check again") { model.startDuplicateScan() }
+            .font(.subheadline)
+            .accessibilityIdentifier("check-again")
+    }
+
+    private func row(_ title: String, icon: String, detail: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon).font(.title3).frame(width: 30).foregroundStyle(Brand.primary)
+                .accessibilityHidden(true)
+            Text(title).font(.headline)
+            Spacer()
+            Text(detail).foregroundStyle(.secondary)
+            Image(systemName: "chevron.right").font(.footnote.bold()).foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+        }
+        .padding(.horizontal, 16)
+        .frame(minHeight: 60)
+        .contentShape(Rectangle())
     }
 }
 
-struct PhotoDetailsView: View {
-    @ObservedObject var model: DashboardModel
-    let destination: DashboardDestination
-    @Environment(\.openURL) private var openURL
-    @Environment(\.colorScheme) private var colorScheme
+/// Used and free space on this iPhone, like the bar in Settings.
+struct StorageBar: View {
+    let storage: DeviceStorage
 
-    private var porcelain: Color {
-        colorScheme == .dark ? Brand.background : Brand.background
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.secondary.opacity(0.2))
+                    Capsule().fill(Brand.primary)
+                        .frame(width: max(8, proxy.size.width * storage.usedFraction))
+                }
+            }
+            .frame(height: 10)
+            Text("\(storage.available.fileSize) free of \(storage.total.fileSize)")
+                .font(.subheadline).foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .combine)
     }
+}
 
-    private var accent: Color { Brand.primary }
+/// GIFs, Live Photos, slo-mo and the rest, each opening its own list.
+struct MoreTypesView: View {
+    let types: [CleanCategorySummary]
+    @ObservedObject var model: DashboardModel
 
     var body: some View {
         List {
-            switch destination {
-            case .inventory:
-                Section("Apple Photos inventory") {
-                    if model.isScanning {
-                        ProgressView("Counting accessible photos and videos…")
-                    } else if let inventory = model.inventory {
-                        LabeledContent("Photos", value: inventory.photos.formatted())
-                        LabeledContent("Videos", value: inventory.videos.formatted())
-                        LabeledContent("Favorites", value: inventory.favorites.formatted())
-                        if let screenshots = inventory.screenshots {
-                            LabeledContent("Screenshots", value: screenshots.formatted())
-                        }
-                    } else {
-                        Text("Scan to count the photos and videos you allow this app to see.")
-                    }
-                    Button(model.inventory == nil ? "Scan Apple Photos" : "Rescan Apple Photos") {
-                        model.startMetadataScan()
-                    }
-                    .disabled(model.isScanning)
-                    if let snapshot = model.snapshot {
-                        NavigationLink("Review videos by size") { VideoSizesView(snapshot: snapshot) }
-                    } else {
-                        NavigationLink("Find large videos") {
-                            PhotoDetailsView(model: model, destination: .duplicates)
-                        }
-                        Text("Video sizes are measured during the full resource scan.")
-                            .font(.footnote).foregroundStyle(.secondary)
-                    }
-                    if model.authorization == .limited {
-                        Text("Limited access: counts cover only your selected items.").foregroundStyle(Brand.caution)
-                    }
-                    if model.authorization == .denied || model.authorization == .restricted {
-                        Text("Photo access is unavailable. You can review access in Settings; device restrictions may prevent changes.")
-                        Button("Open Settings") {
-                            if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
-                        }
+            if types.isEmpty {
+                Text("Check your photos again to sort them by type.")
+            }
+            ForEach(types, id: \.category) { summary in
+                NavigationLink {
+                    CleanupListView(title: summary.category.title, guidance: summary.category.guidance,
+                                    items: summary.items, source: summary.category.title,
+                                    allowsRemoval: summary.category.allowsRemoval, model: model)
+                } label: {
+                    HStack {
+                        Label(summary.category.title, systemImage: summary.category.systemImage)
+                        Spacer()
+                        Text(detail(summary)).foregroundStyle(.secondary)
                     }
                 }
-            case .duplicates:
-                Section {
-                    NavigationLink("Decide which copies to keep") {
-                        PhotoCopyOptionsView(snapshot: model.isDemo ? nil : model.snapshot)
-                    }
-                }
-                Section("Exact duplicate scan") {
-                    if model.isScanning {
-                        if model.total > 0 {
-                            ProgressView(value: Double(model.completed), total: Double(model.total)) {
-                                Text("Checked \(model.completed) of \(model.total) items")
-                            }
-                        } else {
-                            ProgressView("Checking photos available on this iPhone…")
-                        }
-                        Button("Cancel scan", role: .cancel) { model.cancel() }
-                    } else {
-                        Button("Find exact duplicates") { model.startDuplicateScan() }
-                        Text("Scans files already available on this iPhone. Originals that require an iCloud download are left unverified.")
-                            .font(.footnote).foregroundStyle(.secondary)
-                        Button("Explore sample results") { model.showDemo() }
-                    }
-                    if let status = model.duplicateScanStatus { Text(status) }
-                    if let error = model.errorMessage {
-                        Text(error).foregroundStyle(Brand.caution).accessibilityLabel("Error: \(error)")
-                    }
-                    if model.authorization == .denied || model.authorization == .restricted {
-                        Button("Open Settings") {
-                            if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
-                        }
-                    }
-                    if let snapshot = model.snapshot {
-                        if model.isDemo { Label("Sample data — not your photo library", systemImage: "testtube.2") }
-                        Text("Scanned \(snapshot.date.formatted())").font(.footnote)
-                        if snapshot.limitedAccess { Text("Only selected photos are included.").foregroundStyle(Brand.caution) }
-                        LabeledContent("Assets inventoried", value: snapshot.assets.count.formatted())
-                        LabeledContent("Fully hashed at scan time", value: snapshot.verifiedCount.formatted())
-                        LabeledContent("Unverified or unreadable", value: (snapshot.assets.count - snapshot.verifiedCount).formatted())
-                        LabeledContent("Exact duplicate groups", value: snapshot.groups.count.formatted())
-                        LabeledContent("Extra duplicate resource bytes (estimate)", value: ByteCountFormatter.string(fromByteCount: snapshot.candidateBytes, countStyle: .file))
-                        Text("Estimated matching resource bytes, not guaranteed recoverable device space. Review a group to remove its extra copies. Results describe the library at scan time; rescan after library changes.")
-                            .font(.footnote).foregroundStyle(.secondary)
-                        NavigationLink("Review duplicate groups") { DuplicateResultsView(snapshot: snapshot, model: model) }
-                        NavigationLink("Review videos by size") { VideoSizesView(snapshot: snapshot) }
-                        NavigationLink("Review unverified assets") {
-                            List(snapshot.assets.filter { $0.fingerprint == nil }) { asset in
-                                VStack(alignment: .leading) {
-                                    Text(asset.filename)
-                                    Text(asset.issue ?? "No complete resource evidence").font(.footnote).foregroundStyle(.secondary)
-                                }
-                            }.navigationTitle("Unverified assets")
-                        }
-                    }
-                }
-                if model.snapshot != nil {
-                    CleanCategoriesSection(summaries: model.categorySummaries, model: model)
-                }
-                CleanElsewhereSection()
-            case .help:
-                Section("Activity") {
-                    NavigationLink("View local activity log") {
-                        List(model.activity) { entry in
-                            VStack(alignment: .leading) {
-                                Text(entry.message)
-                                Text(entry.date.formatted()).font(.caption).foregroundStyle(.secondary)
-                            }
-                        }.navigationTitle("Activity log")
-                    }
-                }
-                Section("About") {
-                    NavigationLink("Privacy Policy") {
-                        ScrollView {
-                            VStack(alignment: .leading, spacing: 16) {
-                                Text("TidyAway reads the Apple Photos items you authorize. Scanning and exact duplicate matching run on your device.")
-                                Text("The app stores the latest completed inventory and its activity log locally. The inventory can include Photos identifiers, file names, dates, favorite status, resource sizes and hashes, the names of your albums, and an approximate location rounded to about 1 km. The app does not transmit this information to the developer or include advertising or analytics.")
-                                Text("When you choose a place on the Archive tab, the map is loaded from Apple Maps. Your photo locations stay on your iPhone.")
-                                Text("Scans read originals already available on your iPhone. If you approve an archive or restore, the app writes a copy to your chosen Files folder. The source stays in place and the Files provider may sync the copy.")
-                                Text("After a verified archive copy, the app keeps a local list of the file name, folder, size, checksum and date, with a reference to the folder you chose, so the Archived tab can find and restore it.")
-                                Text("If you authorize removing exact duplicates, the app asks Apple Photos to delete the items you approved. Apple shows its own confirmation and normally keeps deleted items in Recently Deleted for up to 30 days. The authorization, item count and outcome are recorded in the local activity log.")
-                                Text("You can change Photos access in Settings. To remove the local inventory and activity log from this device, delete the app.")
-                                Text("Saved storage comparisons stay in the app’s local storage. You can remove them in the app or by deleting the app. If you share a comparison, you choose where the report goes. Apple handles in-app purchases.")
-                                Text("When you select files for size analysis, the app reads their names and reported sizes for that session.")
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding()
-                        }
-                        .navigationTitle("Privacy Policy")
-                    }
-                }
+                .disabled(summary.items.isEmpty)
+                .accessibilityIdentifier("category-\(summary.category.rawValue)")
             }
         }
-        .buttonStyle(.borderless)
-        .scrollContentBackground(.hidden)
-        .background(porcelain)
-        .tint(colorScheme == .dark ? Brand.primary : accent)
-        .navigationTitle(destination.title)
+        .navigationTitle("More types")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func detail(_ summary: CleanCategorySummary) -> String {
+        guard !summary.items.isEmpty else { return "None" }
+        if summary.category == .bursts { return "\(summary.items.count.formatted()) · view only" }
+        return "\(summary.items.count.formatted()) · \(summary.knownBytes.fileSize)"
+    }
+}
+
+/// Everything that isn't cleanup or archiving, one row each.
+struct MoreView: View {
+    @ObservedObject var model: DashboardModel
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    NavigationLink { LedgerView(model: model) } label: {
+                        Label("Activity", systemImage: "checkmark.shield")
+                    }
+                    .accessibilityIdentifier("more-activity")
+                    NavigationLink { StorageGuideView(snapshot: model.isDemo ? nil : model.snapshot) } label: {
+                        Label("Analyze storage", systemImage: "internaldrive")
+                    }
+                    .accessibilityIdentifier("more-analyze")
+                    NavigationLink { ProUpgradeView() } label: {
+                        Label("TidyAway Pro", systemImage: "sparkles")
+                    }
+                    .accessibilityIdentifier("more-pro")
+                }
+                Section("Tips") {
+                    NavigationLink { MessagesAttachmentsGuide() } label: {
+                        Label("Photos and videos in Messages", systemImage: "message")
+                    }
+                    .accessibilityIdentifier("guide-messages")
+                    NavigationLink { CloudDownloadRemovalView() } label: {
+                        Label("Free iCloud Drive downloads", systemImage: "icloud.and.arrow.down")
+                    }
+                    .accessibilityIdentifier("more-icloud-downloads")
+                    NavigationLink { SelectedFilesAnalysisView() } label: {
+                        Label("Find large files", systemImage: "doc.text.magnifyingglass")
+                    }
+                    .accessibilityIdentifier("more-large-files")
+                    NavigationLink { OptimizeStorageTip() } label: {
+                        Label("Keep smaller copies with iCloud", systemImage: "iphone")
+                    }
+                    .accessibilityIdentifier("more-optimize")
+                }
+                Section {
+                    NavigationLink { HelpPrivacyView(model: model) } label: {
+                        Label("Help & privacy", systemImage: "questionmark.circle")
+                    }
+                    .accessibilityIdentifier("more-help")
+                }
+            }
+            .navigationTitle("More")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+}
+
+/// Apple doesn't let apps switch on Optimize Storage, so this is the one setting to change yourself.
+struct OptimizeStorageTip: View {
+    var body: some View {
+        List {
+            Section {
+                Text("If you use iCloud Photos, your iPhone can keep smaller versions of photos and videos and leave the full-size originals in iCloud. It frees space without deleting anything.")
+            }
+            Section("Turn it on") {
+                Text("1. Open Settings and tap your name.")
+                Text("2. Tap iCloud, then Photos.")
+                Text("3. Choose Optimize iPhone Storage.")
+            }
+            Section {
+                Text("You need enough iCloud storage to hold your whole library. Menu names can differ slightly between iOS versions.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle("Keep smaller copies")
         .navigationBarTitleDisplayMode(.inline)
     }
 }
 
-private struct VideoSizesView: View {
-    let snapshot: ScanSnapshot
+struct HelpPrivacyView: View {
+    @ObservedObject var model: DashboardModel
 
     var body: some View {
-        let videos = snapshot.assets.filter { $0.mediaType == PHAssetMediaType.video.rawValue }
-        let readable = videos.filter { $0.fingerprint != nil }.sorted {
-            $0.bytes == $1.bytes ? $0.id < $1.id : $0.bytes > $1.bytes
-        }
         List {
-            Section {
-                if readable.isEmpty { Text("No fully readable videos in this scan.") }
-                ForEach(readable) { video in
-                    LabeledContent(video.filename, value: ByteCountFormatter.string(fromByteCount: video.bytes, countStyle: .file))
-                }
-            } footer: {
-                Text("\(videos.count - readable.count) unverified videos excluded. Sizes reflect resources read during the scan.")
+            Section("How TidyAway works") {
+                Text("Free up finds the biggest things on this iPhone. You pick what goes, sign off, and Apple asks you to confirm. Deleted items wait in Recently Deleted for 30 days; empty it in Photos to get the space back.")
+                Text("Archive copies photos and files to a place you choose and checks every copy. It only adds copies there; it never deletes or changes anything in your archive.")
+            }
+            Section("Privacy") {
+                Text("TidyAway reads the Apple Photos items you authorize. Scanning and exact duplicate matching run on your device.")
+                Text("The app stores the latest completed check and its activity log locally. The check can include Photos identifiers, file names, dates, favorite status, resource sizes and hashes, the names of your albums, and an approximate location rounded to about 1 km. The app does not transmit this information to the developer or include advertising or analytics.")
+                Text("When you choose a place on the Archive tab, the map is loaded from Apple Maps. Your photo locations stay on your iPhone.")
+                Text("Checks read originals already available on your iPhone. If you approve an archive or restore, the app writes a copy to your chosen folder. The source stays in place and the provider may sync the copy.")
+                Text("After a verified archive copy, the app keeps a local list of the file name, folder, size, checksum and date, with a reference to the folder you chose, so you can find and restore it.")
+                Text("If you approve deleting items, the app asks Apple Photos to delete exactly those items. Apple shows its own confirmation and normally keeps deleted items in Recently Deleted for up to 30 days. The approval, item count and outcome are recorded in the local activity log.")
+                Text("You can change Photos access in Settings. To remove the local data and activity log from this device, delete the app.")
+                Text("Saved storage comparisons stay in the app's local storage. If you share a comparison, you choose where the report goes. Apple handles in-app purchases.")
+                Text("When you select files for size analysis, the app reads their names and reported sizes for that session.")
             }
         }
-        .navigationTitle("Videos by size")
+        .navigationTitle("Help & privacy")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
-
-struct DuplicateResultsView: View {
-    let snapshot: ScanSnapshot
-    var model: DashboardModel? = nil
-    var body: some View {
-        List {
-            Section {
-                Text("All resource hashes and resource types must match. Favorites appear first and are always kept. Nothing is deleted until you authorize it for a group and confirm Apple’s own prompt.")
-                    .font(.footnote)
-                Text("Scan from \(snapshot.date.formatted()). Rescan after changing your library.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            if snapshot.groups.isEmpty {
-                Text("No exact duplicates found among fully readable assets. Unverified assets were excluded.")
-            }
-            ForEach(Array(snapshot.groups.enumerated()), id: \.element.id) { index, group in
-                Section("Group \(index + 1) · \(group.assets.count) matching assets") {
-                    ForEach(group.assets) { asset in
-                        HStack(alignment: .top, spacing: 12) {
-                            AssetThumbnail(assetID: asset.id)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Label(asset.filename, systemImage: asset.favorite ? "heart.fill" : "photo")
-                                if asset.favorite { Text("Favorite — preserve").font(.caption).foregroundStyle(Brand.caution) }
-                                Text("\(asset.resources.count) resources · \(ByteCountFormatter.string(fromByteCount: asset.bytes, countStyle: .file))")
-                                    .font(.caption).foregroundStyle(.secondary)
-                                if let date = asset.createdAt { Text(date.formatted()).font(.caption) }
-                            }
-                        }
-                    }
-                    if let model {
-                        if let plan = DuplicateRemovalPlan(group: group) {
-                            DuplicateRemovalControls(plan: plan, model: model)
-                        } else {
-                            Text("The extra copies here are favorites, so TidyAway leaves them alone.")
-                                .font(.footnote).foregroundStyle(.secondary)
-                        }
-                    }
-                }
-            }
-        }.navigationTitle("Exact duplicates")
-    }
-}
-
