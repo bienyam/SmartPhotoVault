@@ -42,12 +42,18 @@ struct RescueSummary {
         otherTypes = summaries.filter { $0.category != .screenshots }
     }
 
-    var videoBytes: Int64 { videos.reduce(0) { $0 + $1.displayBytes } }
+    var videoBytes: Int64 { videos.reduce(0) { $0 + $1.localBytes } }
+    var videoICloudBytes: Int64 { videos.reduce(0) { $0 + $1.iCloudBytes } }
     var duplicateBytes: Int64 { duplicatePlans.reduce(0) { $0 + $1.removeBytes } }
     var duplicateCopies: Int { duplicatePlans.reduce(0) { $0 + $1.removeIDs.count } }
-    var otherBytes: Int64 { otherTypes.filter { $0.category.allowsRemoval }.reduce(0) { $0 + $1.displayBytes } }
+    var otherBytes: Int64 { otherTypes.filter { $0.category.allowsRemoval }.reduce(0) { $0 + $1.localBytes } }
+    /// Phone space only: iCloud-only originals don't free space on this iPhone.
     /// An upper bound: an item can appear in more than one row.
-    var upToBytes: Int64 { videoBytes + duplicateBytes + screenshots.displayBytes }
+    var upToBytes: Int64 { videoBytes + duplicateBytes + screenshots.localBytes }
+    /// Space in iCloud the same rows would free.
+    var iCloudBytes: Int64 { videoICloudBytes + screenshots.items.reduce(0) { $0 + $1.iCloudBytes } }
+    /// Full-size photos and videos stored on this iPhone, from the last check.
+    var libraryLocalBytes: Int64 { snapshot.assets.reduce(0) { $0 + $1.localBytes } }
     /// True when some listed items are kept in iCloud, so removing them frees mostly iCloud space.
     var includesICloud: Bool { videos.contains(where: \.inICloud) || screenshots.items.contains(where: \.inICloud) }
 }

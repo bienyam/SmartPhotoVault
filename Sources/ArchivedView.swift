@@ -1,3 +1,4 @@
+import Photos
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -15,180 +16,286 @@ struct ArchivedRecord: Codable, Identifiable, Equatable {
     var driveFileID: String? = nil
 }
 
-/// Lists verified archive copies and restores one after sign-off.
+/// Archived items grouped by the day they were archived.
+struct ArchiveDay: Identifiable, Equatable {
+    let day: Date
+    let records: [ArchivedRecord]
+    var id: Date { day }
+    var bytes: Int64 { records.reduce(0) { $0 + $1.bytes } }
+    var places: String { Array(Set(records.map(\.folderName))).sorted().joined(separator: ", ") }
+
+    /// Newest day first; files within a day in name order.
+    static func group(_ records: [ArchivedRecord], calendar: Calendar = .current) -> [ArchiveDay] {
+        Dictionary(grouping: records) { calendar.startOfDay(for: $0.date) }
+            .map { ArchiveDay(day: $0.key, records: $0.value.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }) }
+            .sorted { $0.day > $1.day }
+    }
+}
+
+/// Get back: archived items by date. Tap a day to see its files and restore them.
 struct ArchivedView: View {
     @State private var records: [ArchivedRecord] = []
-    @State private var selected: ArchivedRecord?
-    @State private var restoreFolder: URL?
-    @State private var restoreConsent = false
-    @State private var showFolders = false
-    @State private var busy = false
-    @State private var message: String?
-    @State private var wifi = ArchiveWiFi()
-
-    private let accent = Brand.primary
 
     var body: some View {
         List {
             if records.isEmpty {
                 Section {
-                    Text("Nothing archived yet.")
-                        .font(.headline)
-                    Text("Copies you make in the Archive tab appear here, so you can find them and restore one when you need it.")
+                    Text("Nothing archived yet.").font(.headline)
+                    Text("Copies you make with Move out appear here, grouped by date, so you can put any of them back.")
                         .foregroundStyle(.secondary)
                 }
             } else {
                 Section {
-                    Text("These copies were verified when they were made. Choose one to restore a copy of it.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-                Section("Archived items") {
-                    ForEach(records) { record in
-                        Button { select(record) } label: {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(record.name).foregroundStyle(.primary)
-                                    Text("\(record.folderName) · \(ByteCountFormatter.string(fromByteCount: record.bytes, countStyle: .file)) · \(record.date.formatted(date: .abbreviated, time: .omitted))")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                Image(systemName: selected?.id == record.id ? "checkmark.circle.fill" : "arrow.uturn.backward.circle")
-                                    .accessibilityHidden(true)
+                    ForEach(ArchiveDay.group(records)) { day in
+                        NavigationLink {
+                            ArchivedDayView(day: day, reload: reload)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(day.day.formatted(date: .complete, time: .omitted)).font(.headline)
+                                Text("\(day.records.count) \(day.records.count == 1 ? "item" : "items") · \(day.bytes.fileSize) · \(day.places)")
+                                    .font(.caption).foregroundStyle(.secondary)
                             }
+                            .padding(.vertical, 2)
                         }
+                        .accessibilityIdentifier("archive-day")
                     }
+                } header: {
+                    Text("Archived")
+                } footer: {
+                    Text("Every copy was checked when it was made. Tap a date to see its files and put any of them back.")
                 }
-                .disabled(busy)
-            }
-            if let selected {
-                restoreSection(selected)
-            }
-            if busy {
-                Section { ProgressView("Restoring and verifying…") }
-            }
-            if let message {
-                Section { Text(message).accessibilityAddTraits(.updatesFrequently) }
             }
         }
-        .tint(accent)
         .navigationTitle("Archived")
         .navigationBarTitleDisplayMode(.inline)
-        .fileImporter(isPresented: $showFolders, allowedContentTypes: [.folder]) { result in
-            switch result {
-            case .success(let url):
-                restoreFolder = url
-                restoreConsent = false
-            case .failure(let error):
-                message = "Could not open the folder. \(error.localizedDescription)"
-            }
-        }
         .onAppear(perform: reload)
-    }
-
-    private func restoreSection(_ record: ArchivedRecord) -> some View {
-        Section("Restore a copy") {
-            Text(record.name)
-            Button { showFolders = true } label: {
-                Label(restoreFolder.map { "Change folder (\($0.lastPathComponent))" } ?? "Choose where to restore it", systemImage: "folder")
-            }
-            if restoreFolder != nil {
-                Toggle("I authorize creating a copy here. It uses storage and the folder’s provider may sync it. The archive copy stays in place.", isOn: $restoreConsent)
-                Button("Restore and verify") { beginRestore(record) }
-                    .fontWeight(.semibold)
-                    .disabled(!restoreConsent)
-            }
-        }
-        .disabled(busy)
-    }
-
-    /// Downloads the archived copy from Google Drive, checks it against the fingerprint taken when it
-    /// was archived, and saves it as a new file in the chosen folder. Nothing in Drive changes.
-    private func restoreFromDrive(_ record: ArchivedRecord, fileID: String, to folder: URL) {
-        let operation = UUID()
-        do {
-            try InventoryStore.openDefault().log("Authorized archive restore from Google Drive (\(operation)), disclosure v1, 1 items.")
-        } catch {
-            message = "The app could not save your authorization. Try again."
-            return
-        }
-        busy = true
-        message = nil
-        Task {
-            do {
-                let token = try await GoogleDriveAccount.shared.accessToken()
-                let downloaded = try await GoogleDriveClient.download(fileID, token: token)
-                defer { try? FileManager.default.removeItem(at: downloaded.url) }
-                guard downloaded.digest == record.digest.lowercased() else { throw GoogleDriveError.verification }
-                let scoped = folder.startAccessingSecurityScopedResource()
-                defer { if scoped { folder.stopAccessingSecurityScopedResource() } }
-                let destination = folder.appendingPathComponent(record.name)
-                guard !FileManager.default.fileExists(atPath: destination.path) else { throw ArchiveError.conflict }
-                try FileManager.default.copyItem(at: downloaded.url, to: destination)
-                guard try GoogleDriveClient.sha256(of: destination) == record.digest.lowercased() else {
-                    try? FileManager.default.removeItem(at: destination)
-                    throw ArchiveError.verification
-                }
-                message = "Restored and verified \(record.name) in \(folder.lastPathComponent)."
-                try? InventoryStore.openDefault().log("Archive restore \(operation) verified.")
-            } catch {
-                message = "Restore failed. \(error.localizedDescription)"
-                try? InventoryStore.openDefault().log("Archive restore \(operation) failed.")
-            }
-            busy = false
-        }
     }
 
     private func reload() {
         records = (try? InventoryStore.openDefault().archived()) ?? []
     }
+}
 
-    private func select(_ record: ArchivedRecord) {
-        selected = record
-        restoreFolder = nil
-        restoreConsent = false
-        message = nil
+/// The files archived on one day, with restore back into Photos (default) or to a folder in Files.
+struct ArchivedDayView: View {
+    let day: ArchiveDay
+    let reload: () -> Void
+
+    enum Target: String, CaseIterable { case photos = "Photos", folder = "A folder in Files" }
+
+    @State private var selected: Set<String> = []
+    @State private var target = Target.photos
+    @State private var folder: URL?
+    @State private var showFolders = false
+    @State private var consent = false
+    @State private var busy = false
+    @State private var progress = ""
+    @State private var problems: [String] = []
+    @State private var done: (count: Int, target: Target)?
+    @State private var wifi = ArchiveWiFi()
+    @Environment(\.openURL) private var openURL
+
+    private var chosen: [ArchivedRecord] { day.records.filter { selected.contains($0.id) } }
+    private var allSelected: Bool { selected.count == day.records.count }
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(day.records) { record in
+                    Button { toggle(record) } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: selected.contains(record.id) ? "checkmark.circle.fill" : "circle")
+                                .font(.title2)
+                                .foregroundStyle(selected.contains(record.id) ? Brand.primary : Color.secondary)
+                            Image(systemName: Self.isVideo(record.name) ? "video" : "photo")
+                                .foregroundStyle(.secondary).frame(width: 24)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(record.name).foregroundStyle(.primary).lineLimit(1)
+                                Text("\(record.bytes.fileSize) · \(record.folderName) · \(record.date.formatted(date: .omitted, time: .shortened))")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("archived-\(record.id)")
+                }
+            }
+            if !chosen.isEmpty {
+                Section("Put back") {
+                    Picker("Put back to", selection: $target) {
+                        ForEach(Target.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .onChange(of: target) { consent = false }
+                    .accessibilityIdentifier("restore-target")
+                    if target == .folder {
+                        Button { showFolders = true } label: {
+                            Label(folder.map { "Folder: \($0.lastPathComponent)" } ?? "Choose a folder", systemImage: "folder")
+                        }
+                    }
+                    Toggle(consentText, isOn: $consent).accessibilityIdentifier("restore-consent")
+                    Button {
+                        restore()
+                    } label: {
+                        Text(busy ? progress : "Put back \(chosen.count) \(chosen.count == 1 ? "item" : "items")")
+                            .font(.headline).frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Brand.primary)
+                    .disabled(!consent || busy || (target == .folder && folder == nil))
+                    .accessibilityIdentifier("restore-go")
+                }
+            }
+            if !problems.isEmpty {
+                Section("Couldn't put back") {
+                    ForEach(problems, id: \.self) { Text($0).font(.footnote).foregroundStyle(Brand.caution) }
+                }
+            }
+        }
+        .navigationTitle(day.day.formatted(date: .abbreviated, time: .omitted))
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(allSelected ? "Deselect all" : "Select all") {
+                    selected = allSelected ? [] : Set(day.records.map(\.id))
+                    consent = false
+                }
+                .accessibilityIdentifier("select-all")
+            }
+        }
+        .fileImporter(isPresented: $showFolders, allowedContentTypes: [.folder]) { result in
+            if case .success(let url) = result { folder = url; consent = false }
+        }
+        .fullScreenCover(isPresented: Binding(get: { done != nil }, set: { if !$0 { done = nil } })) {
+            if let done {
+                CompletionView(
+                    title: done.target == .photos ? "Back in Photos" : "Put back",
+                    detail: "\(done.count) \(done.count == 1 ? "item is" : "items are") back \(done.target == .photos ? "in your Photos library" : "in \(folder?.lastPathComponent ?? "your folder")"), checked against the archive. The archive copies stay where they are.",
+                    actions: [])
+            }
+        }
     }
 
-    private func beginRestore(_ record: ArchivedRecord) {
-        guard !busy, restoreConsent, let restoreFolder else { return }
-        restoreConsent = false
+    private var consentText: String {
+        target == .photos
+            ? "I authorize adding these items back to Apple Photos. They use space on this iPhone, and the archive copies stay in place."
+            : "I authorize creating copies in this folder. They use storage and the folder's provider may sync them. The archive copies stay in place."
+    }
+
+    private func toggle(_ record: ArchivedRecord) {
+        if selected.contains(record.id) { selected.remove(record.id) } else { selected.insert(record.id) }
+        consent = false
+    }
+
+    static func isVideo(_ name: String) -> Bool {
+        UTType(filenameExtension: (name as NSString).pathExtension)?.conforms(to: .movie) ?? false
+    }
+
+    private func restore() {
+        guard consent, !busy else { return }
+        let records = chosen
+        let target = self.target
+        let folder = self.folder
+        let wifiCheck = wifi
+        consent = false
+        busy = true
+        problems = []
+        let operation = UUID()
+        try? InventoryStore.openDefault().log("Authorized putting back \(records.count) archived item(s) to \(target == .photos ? "Apple Photos" : "a Files folder") (\(operation)), disclosure v1.")
+        Task {
+            var restored = 0
+            if target == .photos, PHPhotoLibrary.authorizationStatus(for: .readWrite) == .notDetermined {
+                _ = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
+            }
+            for (index, record) in records.enumerated() {
+                progress = "Putting back \(index + 1) of \(records.count)…"
+                do {
+                    switch target {
+                    case .photos: try await ArchiveRestore.toPhotos(record, wifi: wifiCheck)
+                    case .folder:
+                        guard let folder else { throw ArchiveError.unavailable }
+                        try await ArchiveRestore.toFolder(record, folder: folder, wifi: wifiCheck)
+                    }
+                    restored += 1
+                } catch {
+                    problems.append("\(record.name) — \(error.localizedDescription)")
+                }
+            }
+            try? InventoryStore.openDefault().log("Put back \(operation) finished: \(restored) of \(records.count) verified.")
+            busy = false
+            selected = []
+            if restored > 0 { done = (restored, target) }
+        }
+    }
+}
+
+/// Puts an archived copy back, always checking it against the fingerprint taken when it was archived.
+enum ArchiveRestore {
+    /// A verified local copy of the archived file, in a temporary folder.
+    static func verifiedCopy(_ record: ArchivedRecord, wifi: ArchiveWiFi) async throws -> URL {
         if let fileID = record.driveFileID {
-            restoreFromDrive(record, fileID: fileID, to: restoreFolder)
-            return
+            let token = try await GoogleDriveAccount.shared.accessToken()
+            let downloaded = try await GoogleDriveClient.download(fileID, token: token)
+            guard downloaded.digest == record.digest.lowercased() else {
+                try? FileManager.default.removeItem(at: downloaded.url)
+                throw GoogleDriveError.verification
+            }
+            let named = downloaded.url.deletingLastPathComponent().appendingPathComponent("\(UUID().uuidString)-\(record.name)")
+            try FileManager.default.moveItem(at: downloaded.url, to: named)
+            return named
         }
         var stale = false
         guard let bookmark = record.folderBookmark,
-              let folder = try? URL(resolvingBookmarkData: bookmark, bookmarkDataIsStale: &stale) else {
-            message = "TidyAway can no longer open that archive folder. Your copy is still in \(record.folderName): open it in Files to find \(record.name)."
-            return
+              let source = try? URL(resolvingBookmarkData: bookmark, bookmarkDataIsStale: &stale) else {
+            throw ArchiveRestoreError.folderGone(record.folderName, record.name)
         }
-        let receipt = ArchiveReceipt(id: record.id, url: folder.appendingPathComponent(record.name), folder: folder,
+        let temporary = FileManager.default.temporaryDirectory.appendingPathComponent("TidyAwayRestore-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
+        let receipt = ArchiveReceipt(id: record.id, url: source.appendingPathComponent(record.name), folder: source,
                                      fingerprint: ArchiveFingerprint(bytes: record.bytes, digest: record.digest))
         let wifiCheck: ArchiveWiFi? = record.viaHomeServer ? wifi : nil
-        let operation = UUID()
-        do {
-            try InventoryStore.openDefault().log("Authorized archive restore (\(operation)), disclosure v1, 1 items.")
-        } catch {
-            message = "The app could not save your authorization. Try again."
-            return
+        return try await Task.detached(priority: .userInitiated) {
+            try VerifiedArchive.restore(receipt, to: temporary, wifi: wifiCheck)
+        }.value
+    }
+
+    /// Adds the archived original back to Apple Photos as a new item.
+    static func toPhotos(_ record: ArchivedRecord, wifi: ArchiveWiFi) async throws {
+        let file = try await verifiedCopy(record, wifi: wifi)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let video = ArchivedDayView.isVideo(record.name)
+        try await PHPhotoLibrary.shared().performChanges {
+            let request = PHAssetCreationRequest.forAsset()
+            let options = PHAssetResourceCreationOptions()
+            options.originalFilename = record.name
+            request.addResource(with: video ? .video : .photo, fileURL: file, options: options)
         }
-        busy = true
-        message = nil
-        Task {
-            let result = await Task.detached(priority: .userInitiated) {
-                Result { try VerifiedArchive.restore(receipt, to: restoreFolder, wifi: wifiCheck) }
-            }.value
-            switch result {
-            case .success(let url):
-                message = "Restored and verified \(url.lastPathComponent) in \(restoreFolder.lastPathComponent)."
-                try? InventoryStore.openDefault().log("Archive restore \(operation) verified.")
-            case .failure(let error):
-                message = "Restore failed. \(error.localizedDescription)"
-                try? InventoryStore.openDefault().log("Archive restore \(operation) failed.")
-            }
-            busy = false
+    }
+
+    /// Saves the archived original as a new file in a chosen folder, never overwriting.
+    static func toFolder(_ record: ArchivedRecord, folder: URL, wifi: ArchiveWiFi) async throws {
+        let file = try await verifiedCopy(record, wifi: wifi)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let scoped = folder.startAccessingSecurityScopedResource()
+        defer { if scoped { folder.stopAccessingSecurityScopedResource() } }
+        let destination = folder.appendingPathComponent(record.name)
+        guard !FileManager.default.fileExists(atPath: destination.path) else { throw ArchiveError.conflict }
+        try FileManager.default.copyItem(at: file, to: destination)
+        guard try GoogleDriveClient.sha256(of: destination) == record.digest.lowercased() else {
+            try? FileManager.default.removeItem(at: destination)
+            throw ArchiveError.verification
+        }
+    }
+}
+
+enum ArchiveRestoreError: LocalizedError {
+    case folderGone(String, String)
+    var errorDescription: String? {
+        switch self {
+        case let .folderGone(folder, name):
+            "TidyAway can no longer open that archive folder. Your copy is still in \(folder): open it in Files to find \(name)."
         }
     }
 }

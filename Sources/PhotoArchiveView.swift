@@ -118,8 +118,18 @@ struct PhotoArchiveView: View {
 
     private let accent = Brand.primary
 
-    init(snapshot: ScanSnapshot?, selectedFiles: [URL] = []) {
+    /// Needed to remove originals from Photos after a verified archive.
+    var model: DashboardModel?
+    /// Switches the Archive tab to Get back.
+    var showArchived: (() -> Void)?
+    @State private var completion: ArchiveCompletion?
+    @State private var removal: ArchiveCompletion?
+    @Environment(\.openURL) private var openURL
+
+    init(snapshot: ScanSnapshot?, selectedFiles: [URL] = [], model: DashboardModel? = nil, showArchived: (() -> Void)? = nil) {
         self.snapshot = snapshot
+        self.model = model
+        self.showArchived = showArchived
         _items = State(initialValue: selectedFiles.map {
             ArchiveItem(id: $0.absoluteString, name: $0.lastPathComponent, source: .file($0))
         })
@@ -161,6 +171,17 @@ struct PhotoArchiveView: View {
         .navigationTitle("Archive originals")
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(busy)
+        .fullScreenCover(item: $completion) { done in
+            CompletionView(title: "Archived",
+                           detail: "\(done.count) \(done.count == 1 ? "item" : "items") · \(done.bytes.fileSize) copied to \(done.place) and checked against the originals.",
+                           note: completionNote(done),
+                           actions: completionActions(done))
+        }
+        .sheet(item: $removal) { done in
+            if let model {
+                NavigationStack { ArchivedRemovalView(done: done, model: model) }
+            }
+        }
         .sheet(isPresented: $showPro) {
             NavigationStack {
                 ProUpgradeView()
@@ -660,8 +681,11 @@ struct PhotoArchiveView: View {
         Task {
             var records: [ArchivedRecord] = []
             var problems: [String] = []
+            var copiedItems: [ArchiveItem] = []
+            var driveFolder: String?
             do {
                 let folderID = try await GoogleDriveClient.archiveFolder(token: try await account.accessToken())
+                driveFolder = folderID
                 for item in selection {
                     do {
                         // A fresh token per item; each item streams straight from Photos or Files to
@@ -674,6 +698,7 @@ struct PhotoArchiveView: View {
                                                       folderName: "Google Drive", bytes: uploaded.fingerprint.bytes,
                                                       digest: uploaded.fingerprint.digest, date: Date(),
                                                       viaHomeServer: false, folderBookmark: nil, driveFileID: uploaded.fileID))
+                        copiedItems.append(item)
                     } catch {
                         problems.append("\(item.name) — \(error.localizedDescription)")
                     }
@@ -686,7 +711,11 @@ struct PhotoArchiveView: View {
             let copiedNames = Set(records.map(\.name))
             failures = problems
             items.removeAll { copiedNames.contains($0.name) }
-            message = records.isEmpty ? nil : "Copied and verified \(records.count) of \(selection.count) in Google Drive. Find them under Get back."
+            message = nil
+            if !records.isEmpty {
+                completion = ArchiveCompletion(items: copiedItems, bytes: records.reduce(0) { $0 + $1.bytes },
+                                               place: "Google Drive", driveFolderID: driveFolder)
+            }
             recordOutcome("Archive copy to Google Drive \(operation) completed. Verified \(records.count) of \(selection.count) items.")
             busy = false
         }
@@ -745,6 +774,11 @@ struct PhotoArchiveView: View {
                 checkedPhotos[id] = nil
             }
             recordOutcome("Archive copy \(operation) completed. Verified \(copied.count) of \(selection.count) items.")
+            if !copied.isEmpty {
+                completion = ArchiveCompletion(items: selection.filter { copied.contains($0.id) },
+                                               bytes: result.0.reduce(0) { $0 + $1.fingerprint.bytes },
+                                               place: destination.lastPathComponent, driveFolderID: nil)
+            }
             busy = false
         }
     }
@@ -799,6 +833,35 @@ struct PhotoArchiveView: View {
     private var tooBigForDrive: [ArchiveItem] {
         guard folderCheck?.isFAT32 == true else { return [] }
         return items.filter { (bytes(for: $0) ?? 0) > FolderCheck.fat32FileLimit }
+    }
+
+    private func completionNote(_ done: ArchiveCompletion) -> String? {
+        guard !done.photoIDs.isEmpty else { return nil }
+        if RemovalAfterArchive.enabled {
+            return "They're still on your iPhone too. Remove them to free \(done.bytes.fileSize) here."
+        }
+        return "They're still on your iPhone too. Removing originals after archiving turns on once putting an item back has been tested on this iPhone."
+    }
+
+    private func completionActions(_ done: ArchiveCompletion) -> [CompletionAction] {
+        var actions: [CompletionAction] = []
+        if !done.photoIDs.isEmpty, RemovalAfterArchive.enabled, model != nil {
+            actions.append(CompletionAction(title: "Free up \(done.bytes.fileSize) on iPhone", icon: "iphone.and.arrow.forward",
+                                            prominent: true, identifier: "completion-remove") {
+                completion = nil
+                removal = done
+            })
+        }
+        if let folder = done.driveFolderID, let url = URL(string: "https://drive.google.com/drive/folders/\(folder)") {
+            actions.append(CompletionAction(title: "See them in Google Drive", icon: "arrow.up.forward.app",
+                                            prominent: actions.isEmpty, identifier: "completion-drive") { openURL(url) })
+        }
+        actions.append(CompletionAction(title: RemovalAfterArchive.enabled ? "See them in Get back" : "Test it: put one back",
+                                        icon: "arrow.uturn.backward.circle", identifier: "completion-getback") {
+            completion = nil
+            showArchived?()
+        })
+        return actions
     }
 
     /// Everything archived so far counts toward the free 5 GB.
