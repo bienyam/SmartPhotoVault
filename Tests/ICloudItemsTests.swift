@@ -21,7 +21,11 @@ final class ICloudItemsTests: XCTestCase {
         let rescue = RescueSummary(snapshot: snapshot)
         XCTAssertEqual(rescue.videos.map(\.id), ["cloud-big", "local", "cloud-small"],
                        "iCloud-only videos are listed by their reported size; ones with no size are left out.")
-        XCTAssertEqual(rescue.videoBytes, 1_300)
+        XCTAssertEqual(rescue.videoBytes, 300, "Only originals on this iPhone count as phone space.")
+        XCTAssertEqual(rescue.videoICloudBytes, 1_000)
+        XCTAssertEqual(rescue.upToBytes, 300, "The headline never counts iCloud-only originals.")
+        XCTAssertEqual(rescue.iCloudBytes, 1_000)
+        XCTAssertEqual(rescue.libraryLocalBytes, 300)
         XCTAssertTrue(rescue.includesICloud)
         XCTAssertTrue(rescue.videos[0].inICloud)
         XCTAssertFalse(rescue.videos[1].inICloud)

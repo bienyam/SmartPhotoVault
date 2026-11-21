@@ -70,7 +70,8 @@ struct ArchiveTabView: View {
         NavigationStack {
             Group {
                 switch mode {
-                case .moveOut: PhotoArchiveView(snapshot: model.isDemo ? nil : model.snapshot)
+                case .moveOut: PhotoArchiveView(snapshot: model.isDemo ? nil : model.snapshot, model: model,
+                                               showArchived: { mode = .getBack })
                 case .getBack: ArchivedView()
                 }
             }

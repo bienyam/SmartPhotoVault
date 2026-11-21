@@ -53,7 +53,8 @@ struct FreeUpView: View {
             Text("Storage full? Get your camera back.")
                 .font(.title.bold())
                 .accessibilityAddTraits(.isHeader)
-            if let storage {
+            // Once there are results, the fuller breakdown below replaces this simple bar.
+            if let storage, model.rescue == nil {
                 StorageBar(storage: storage)
             }
         }
@@ -105,9 +106,15 @@ struct FreeUpView: View {
             Label("Sample photos, not your library", systemImage: "testtube.2")
                 .font(.subheadline.weight(.semibold))
         }
+        if let storage {
+            PhoneBreakdown(storage: storage, photosBytes: rescue.libraryLocalBytes, isDemo: model.isDemo)
+        }
         VStack(alignment: .leading, spacing: 4) {
             Text("You could free up to").font(.subheadline).foregroundStyle(.secondary)
             Text(rescue.upToBytes.fileSize).font(.system(size: 40, weight: .bold))
+                .accessibilityIdentifier("hero-bytes")
+            Text(rescue.iCloudBytes > 0 ? "on this iPhone, plus \(rescue.iCloudBytes.fileSize) in iCloud" : "on this iPhone")
+                .font(.subheadline).foregroundStyle(.secondary)
         }
         VStack(spacing: 0) {
             NavigationLink {
@@ -115,7 +122,7 @@ struct FreeUpView: View {
                                 guidance: "Videos are usually the biggest files on an iPhone. These are the ones on this iPhone, largest first.",
                                 items: rescue.videos, source: "Large videos", allowsRemoval: true, model: model)
             } label: {
-                row("Large videos", icon: "video", detail: rescue.videos.isEmpty ? "None" : rescue.videoBytes.fileSize)
+                row("Large videos", icon: "video", detail: rescue.videos.isEmpty ? "None" : split(rescue.videoBytes, rescue.videoICloudBytes))
             }
             .accessibilityIdentifier("row-videos")
             Divider()
@@ -130,7 +137,7 @@ struct FreeUpView: View {
                                 items: rescue.screenshots.items, source: "Screenshots", allowsRemoval: true, model: model)
             } label: {
                 row("Screenshots", icon: "camera.viewfinder",
-                    detail: rescue.screenshots.items.isEmpty ? "None" : rescue.screenshots.displayBytes.fileSize)
+                    detail: rescue.screenshots.items.isEmpty ? "None" : split(rescue.screenshots.localBytes, rescue.screenshots.iCloudBytes))
             }
             .accessibilityIdentifier("row-screenshots")
             Divider()
@@ -163,6 +170,13 @@ struct FreeUpView: View {
         }
     }
 
+    /// "1.2 GB", "In iCloud · 4 GB" or "1.2 GB + 4 GB in iCloud": phone space first, never mixed.
+    private func split(_ local: Int64, _ iCloud: Int64) -> String {
+        if iCloud == 0 { return local.fileSize }
+        if local == 0 { return "In iCloud · \(iCloud.fileSize)" }
+        return "\(local.fileSize) + \(iCloud.fileSize) in iCloud"
+    }
+
     private func row(_ title: String, icon: String, detail: String) -> some View {
         HStack(spacing: 12) {
             Image(systemName: icon).font(.title3).frame(width: 30).foregroundStyle(Brand.primary)
@@ -176,6 +190,73 @@ struct FreeUpView: View {
         .padding(.horizontal, 16)
         .frame(minHeight: 60)
         .contentShape(Rectangle())
+    }
+}
+
+/// What's using this iPhone. iOS doesn't let apps read the Settings breakdown (apps, System Data),
+/// so this shows what TidyAway can measure: photos and videos on the phone, free space, and the rest.
+struct PhoneBreakdown: View {
+    let storage: DeviceStorage
+    let photosBytes: Int64
+    let isDemo: Bool
+
+    private var photos: Int64 { isDemo ? 0 : min(photosBytes, storage.used) }
+    private var rest: Int64 { max(0, storage.used - photos) }
+    private var mostlyNotPhotos: Bool { !isDemo && storage.used > 0 && Double(photos) / Double(storage.used) < 0.4 }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("What's using your iPhone").font(.headline)
+            GeometryReader { proxy in
+                HStack(spacing: 2) {
+                    Rectangle().fill(Brand.primary)
+                        .frame(width: proxy.size.width * fraction(photos))
+                    Rectangle().fill(Color.gray.opacity(0.7))
+                        .frame(width: proxy.size.width * fraction(rest))
+                    Rectangle().fill(Color.secondary.opacity(0.2))
+                }
+                .clipShape(Capsule())
+            }
+            .frame(height: 12)
+            legend(Brand.primary, "Photos & videos", isDemo ? "—" : photos.fileSize)
+            legend(Color.gray.opacity(0.7), "Apps, System Data & other", isDemo ? "—" : rest.fileSize)
+            legend(Color.secondary.opacity(0.2), "Free", storage.available.fileSize)
+            if mostlyNotPhotos {
+                NavigationLink { StorageExplainer() } label: {
+                    HStack {
+                        Text("Most of your space isn't photos. See how to trim apps and System Data")
+                            .font(.subheadline.weight(.semibold)).multilineTextAlignment(.leading)
+                        Spacer(minLength: 4)
+                        Image(systemName: "chevron.right").font(.footnote.bold())
+                    }
+                    .foregroundStyle(Brand.primary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("breakdown-explainer")
+            }
+            HStack(spacing: 4) {
+                Text("Per-app sizes are in Settings, General, iPhone Storage.").font(.caption).foregroundStyle(.secondary)
+                InfoButton(title: "Why not per app?",
+                           text: "Apple keeps the per-app and System Data figures inside Settings, and doesn't let any app read them. TidyAway measures your photos and videos itself and works out the rest from your iPhone's used space.")
+            }
+        }
+        .padding(16)
+        .background(Brand.surface, in: RoundedRectangle(cornerRadius: 16))
+        .accessibilityIdentifier("phone-breakdown")
+    }
+
+    private func fraction(_ bytes: Int64) -> CGFloat {
+        storage.total > 0 ? CGFloat(Double(bytes) / Double(storage.total)) : 0
+    }
+
+    private func legend(_ color: Color, _ title: String, _ value: String) -> some View {
+        HStack(spacing: 8) {
+            Circle().fill(color).frame(width: 10, height: 10)
+            Text(title).font(.subheadline)
+            Spacer()
+            Text(value).font(.subheadline).foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -233,7 +314,7 @@ struct MoreTypesView: View {
     private func detail(_ summary: CleanCategorySummary) -> String {
         guard !summary.items.isEmpty else { return "None" }
         if summary.category == .bursts { return "\(summary.items.count.formatted()) · view only" }
-        return "\(summary.items.count.formatted()) · \(summary.displayBytes.fileSize)"
+        return "\(summary.items.count.formatted()) · \(summary.localBytes > 0 ? summary.localBytes.fileSize : "in iCloud")"
     }
 }
 
@@ -285,6 +366,13 @@ struct MoreView: View {
 struct StorageExplainer: View {
     var body: some View {
         List {
+            Section("Apps: usually the biggest win") {
+                Text("1. Open Settings, then General, then iPhone Storage. Apps are listed largest first.")
+                Text("2. Tap a big app you rarely use and choose Offload App. It frees the app but keeps its documents and data; tap its icon later to reinstall.")
+                Text("3. To do this automatically, turn on Offload Unused Apps on that same screen (or in Settings, App Store).")
+                Text("Delete App removes its data too, so only use it for apps you don't need anymore.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
             Section("System Data") {
                 Text("Caches, logs and temporary files that iOS manages. It grows and shrinks on its own; apps can't clear it.")
                 Text("Restarting your iPhone often shrinks it. If it stays very large, updating iOS usually helps.")

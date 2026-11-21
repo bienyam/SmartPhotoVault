@@ -42,6 +42,10 @@ struct AssetRecord: Codable, Identifiable {
     var inICloud: Bool { fingerprint == nil && cloudBytes != nil }
     /// Best known size: read on this iPhone, or reported by Photos for iCloud originals.
     var displayBytes: Int64 { fingerprint != nil ? bytes : (cloudBytes ?? 0) }
+    /// Space the full original takes on this iPhone. Zero when it lives only in iCloud.
+    var localBytes: Int64 { fingerprint != nil ? bytes : 0 }
+    /// Size of an original kept only in iCloud; deleting it frees iCloud space, not phone space.
+    var iCloudBytes: Int64 { inICloud ? (cloudBytes ?? 0) : 0 }
 }
 
 struct DuplicateGroup: Identifiable {

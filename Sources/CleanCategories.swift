@@ -104,6 +104,9 @@ struct CleanCategorySummary {
     var knownBytes: Int64 { items.filter { $0.fingerprint != nil }.reduce(0) { $0 + $1.bytes } }
     /// Read on this iPhone plus sizes Photos reports for originals kept in iCloud.
     var displayBytes: Int64 { items.reduce(0) { $0 + $1.displayBytes } }
+    /// Phone space only.
+    var localBytes: Int64 { items.reduce(0) { $0 + $1.localBytes } }
+    var iCloudBytes: Int64 { items.reduce(0) { $0 + $1.iCloudBytes } }
     var unreadCount: Int { items.filter { $0.fingerprint == nil }.count }
     /// Bursts only: every frame Photos keeps, including the hidden ones.
     var burstFrames: Int { items.reduce(0) { $0 + max($1.burstFrames ?? 1, 1) } }
