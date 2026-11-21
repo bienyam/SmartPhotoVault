@@ -52,6 +52,9 @@ actor DuplicateScanner {
                 if resources.isEmpty { issue = "No accessible resources." }
             } catch is CancellationError { throw CancellationError() }
             catch { issue = error.localizedDescription }
+            // With Optimize iPhone Storage on, originals often live only in iCloud and can't be read
+            // without downloading. Record their size so they still show up, marked "in iCloud".
+            let cloudBytes = issue == nil ? nil : Self.reportedSize(of: resources)
             var frames: Int?
             if let burst = asset.burstIdentifier {
                 if let known = burstFrameCounts[burst] {
@@ -82,7 +85,8 @@ actor DuplicateScanner {
                                        hasLocation: asset.location != nil,
                                        albumIDs: albumsByAsset[asset.localIdentifier] ?? [],
                                        latitude: asset.location.map { PlaceArea.rounded($0.coordinate.latitude) },
-                                       longitude: asset.location.map { PlaceArea.rounded($0.coordinate.longitude) }))
+                                       longitude: asset.location.map { PlaceArea.rounded($0.coordinate.longitude) },
+                                       cloudBytes: cloudBytes))
             await progress(index + 1, assets.count)
             if let partial, Date().timeIntervalSince(lastPartial) > 1.5 {
                 lastPartial = Date()
@@ -92,6 +96,19 @@ actor DuplicateScanner {
         try Task.checkCancellation()
         lastAlbums = sortedAlbums
         return records
+    }
+
+    /// The size Photos reports for an item's original files, without reading or downloading them.
+    /// PhotoKit has no public size property, so this reads the `fileSize` value Photos keeps on each
+    /// resource, checking first that it exists. Nil if Photos doesn't report one.
+    static func reportedSize(of resources: [PHAssetResource]) -> Int64? {
+        var total: Int64 = 0
+        for resource in resources {
+            guard resource.responds(to: NSSelectorFromString("fileSize")),
+                  let size = (resource.value(forKey: "fileSize") as? NSNumber)?.int64Value, size > 0 else { continue }
+            total += size
+        }
+        return total > 0 ? total : nil
     }
 
     /// Videos before photos; longer videos first; then photos by pixel count. A cheap stand-in for

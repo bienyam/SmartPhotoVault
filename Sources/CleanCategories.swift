@@ -102,6 +102,8 @@ struct CleanCategorySummary {
     let items: [AssetRecord]
     /// Bytes of items read in full during the scan. An estimate, not guaranteed recoverable space.
     var knownBytes: Int64 { items.filter { $0.fingerprint != nil }.reduce(0) { $0 + $1.bytes } }
+    /// Read on this iPhone plus sizes Photos reports for originals kept in iCloud.
+    var displayBytes: Int64 { items.reduce(0) { $0 + $1.displayBytes } }
     var unreadCount: Int { items.filter { $0.fingerprint == nil }.count }
     /// Bursts only: every frame Photos keeps, including the hidden ones.
     var burstFrames: Int { items.reduce(0) { $0 + max($1.burstFrames ?? 1, 1) } }
@@ -125,8 +127,8 @@ extension ScanSnapshot {
             return true
         }
         let items = matching.sorted { lhs, rhs in
-            let left = lhs.fingerprint == nil ? -1 : lhs.bytes
-            let right = rhs.fingerprint == nil ? -1 : rhs.bytes
+            let left = lhs.fingerprint == nil && lhs.cloudBytes == nil ? -1 : lhs.displayBytes
+            let right = rhs.fingerprint == nil && rhs.cloudBytes == nil ? -1 : rhs.displayBytes
             return left == right ? lhs.id < rhs.id : left > right
         }
         return CleanCategorySummary(category: category, items: items)

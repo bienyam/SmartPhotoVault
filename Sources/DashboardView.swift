@@ -130,7 +130,7 @@ struct FreeUpView: View {
                                 items: rescue.screenshots.items, source: "Screenshots", allowsRemoval: true, model: model)
             } label: {
                 row("Screenshots", icon: "camera.viewfinder",
-                    detail: rescue.screenshots.items.isEmpty ? "None" : rescue.screenshots.knownBytes.fileSize)
+                    detail: rescue.screenshots.items.isEmpty ? "None" : rescue.screenshots.displayBytes.fileSize)
             }
             .accessibilityIdentifier("row-screenshots")
             Divider()
@@ -141,6 +141,15 @@ struct FreeUpView: View {
         }
         .buttonStyle(.plain)
         .background(Brand.surface, in: RoundedRectangle(cornerRadius: 16))
+        if rescue.includesICloud {
+            HStack(alignment: .top, spacing: 4) {
+                Text("Some items are kept in iCloud, with a small copy on this iPhone.")
+                    .font(.footnote).foregroundStyle(.secondary)
+                InfoButton(title: "Items in iCloud",
+                           text: "Optimize iPhone Storage is on, so the full-size originals of these items are in iCloud and your iPhone keeps smaller copies. Deleting them frees their full size in iCloud and the smaller copy on this iPhone. Duplicates can only be confirmed for items whose originals are on this iPhone.")
+            }
+            .accessibilityIdentifier("icloud-note")
+        }
         if model.libraryChanged {
             Text("Your photos changed since this check.").font(.footnote).foregroundStyle(.secondary)
         }
@@ -224,7 +233,7 @@ struct MoreTypesView: View {
     private func detail(_ summary: CleanCategorySummary) -> String {
         guard !summary.items.isEmpty else { return "None" }
         if summary.category == .bursts { return "\(summary.items.count.formatted()) · view only" }
-        return "\(summary.items.count.formatted()) · \(summary.knownBytes.fileSize)"
+        return "\(summary.items.count.formatted()) · \(summary.displayBytes.fileSize)"
     }
 }
 

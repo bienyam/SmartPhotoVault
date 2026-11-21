@@ -150,9 +150,9 @@ struct StorageGuideView: View {
                         Text("This iPhone").font(.headline)
                         StorageBar(storage: storage)
                         if let snapshot {
-                            let photos = snapshot.assets.filter { $0.mediaType == 1 && $0.fingerprint != nil }.reduce(Int64(0)) { $0 + $1.bytes }
-                            let videos = snapshot.assets.filter { $0.mediaType == 2 && $0.fingerprint != nil }.reduce(Int64(0)) { $0 + $1.bytes }
-                            Text("Photos \(photos.fileSize) · Videos \(videos.fileSize) on this iPhone, from your last check")
+                            let photos = snapshot.assets.filter { $0.mediaType == 1 }.reduce(Int64(0)) { $0 + $1.displayBytes }
+                            let videos = snapshot.assets.filter { $0.mediaType == 2 }.reduce(Int64(0)) { $0 + $1.displayBytes }
+                            Text("Photos \(photos.fileSize) · Videos \(videos.fileSize) in your library, from your last check")
                                 .font(.footnote).foregroundStyle(.secondary)
                         }
                     }

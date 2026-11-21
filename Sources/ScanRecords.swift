@@ -29,12 +29,19 @@ struct AssetRecord: Codable, Identifiable {
     /// Rounded to two decimal places (about 1 km) and kept on this iPhone.
     var latitude: Double? = nil
     var longitude: Double? = nil
+    /// Size Photos reports for originals that live only in iCloud (Optimize iPhone Storage).
+    /// Nil when the item was read on this iPhone, or Photos reported no size.
+    var cloudBytes: Int64? = nil
 
     var fingerprint: String? {
         guard issue == nil, !resources.isEmpty else { return nil }
         return "\(mediaType)|" + resources.map(\.key).sorted().joined(separator: "|")
     }
     var bytes: Int64 { resources.reduce(0) { $0 + $1.bytes } }
+    /// True when the full-size original is in iCloud rather than on this iPhone.
+    var inICloud: Bool { fingerprint == nil && cloudBytes != nil }
+    /// Best known size: read on this iPhone, or reported by Photos for iCloud originals.
+    var displayBytes: Int64 { fingerprint != nil ? bytes : (cloudBytes ?? 0) }
 }
 
 struct DuplicateGroup: Identifiable {
