@@ -76,7 +76,7 @@ final class DashboardModel: ObservableObject {
                 self.inventory = nil
                 if self.ownChangePending {
                     self.ownChangePending = false
-                    self.duplicateScanStatus = "Duplicates removed. Scan again to refresh the results."
+                    self.duplicateScanStatus = "Items removed. Scan again to refresh the results."
                     return
                 }
                 self.duplicateScanStatus = nil
@@ -145,6 +145,42 @@ final class DashboardModel: ObservableObject {
         }
     }
 
+    /// Deletes items the user picked one by one from a Clean category, after they signed off.
+    /// These are not duplicates, so every item is re-checked first: still present, still not a favorite.
+    /// Apple Photos then shows its own confirmation, and deleted items go to Recently Deleted.
+    func removeItems(_ ids: [String], bytes: Int64, from category: String) async -> DuplicateRemovalOutcome {
+        if isDemo { return .sample }
+        guard !isScanning else { return .blocked("Wait for the scan to finish, then try again.") }
+        guard !ids.isEmpty else { return .blocked("Select at least one item.") }
+        let operation = String(UUID().uuidString.prefix(8))
+        let count = ids.count
+        try? store?.log("Authorized deleting \(count) item(s) from \(category) in Apple Photos. Operation \(operation).")
+        defer { activity = (try? store?.activity()) ?? [] }
+        let targets = PHAsset.fetchAssets(withLocalIdentifiers: ids, options: nil)
+        var includesFavorite = false
+        targets.enumerateObjects { asset, _, _ in if asset.isFavorite { includesFavorite = true } }
+        guard targets.count == count, !includesFavorite else {
+            try? store?.log("Operation \(operation) blocked. Nothing was removed.")
+            return .blocked("An item changed since the scan, so nothing was removed. Scan again.")
+        }
+        do {
+            ownChangePending = true
+            try await PHPhotoLibrary.shared().performChanges {
+                PHAssetChangeRequest.deleteAssets(targets)
+            }
+            try? store?.log("Operation \(operation) finished: \(count) item(s) moved to Recently Deleted.")
+            return .removed(count: count, bytes: bytes)
+        } catch {
+            ownChangePending = false
+            if (error as NSError).code == 3072 {
+                try? store?.log("Operation \(operation) cancelled at Apple's confirmation. Nothing was removed.")
+                return .cancelled
+            }
+            try? store?.log("Operation \(operation) failed. Nothing was removed.")
+            return .blocked("Apple Photos did not remove the items: \(error.localizedDescription)")
+        }
+    }
+
     func startMetadataScan() {
         guard !isScanning else { return }
         isScanning = true
@@ -183,7 +219,8 @@ final class DashboardModel: ObservableObject {
             guard current == authorization else {
                 throw NSError(domain: "PhotoAccess", code: 1, userInfo: [NSLocalizedDescriptionKey: "Photo access changed during the scan. Please scan again."])
             }
-            let result = ScanSnapshot(date: Date(), limitedAccess: authorization == .limited, includedCloudDownloads: false, assets: records)
+            let result = ScanSnapshot(date: Date(), limitedAccess: authorization == .limited, includedCloudDownloads: false, assets: records,
+                                      albums: await scanner.lastAlbums)
             snapshot = result
             inventory = counts(for: records)
             duplicateScanStatus = "Scan complete."

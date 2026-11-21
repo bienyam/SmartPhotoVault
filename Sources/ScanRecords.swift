@@ -24,6 +24,11 @@ struct AssetRecord: Codable, Identifiable {
     var pixelWidth: Int? = nil
     var pixelHeight: Int? = nil
     var hasLocation: Bool? = nil
+    // Added for Archive filters. Nil in scans saved before these were recorded.
+    var albumIDs: [String]? = nil
+    /// Rounded to two decimal places (about 1 km) and kept on this iPhone.
+    var latitude: Double? = nil
+    var longitude: Double? = nil
 
     var fingerprint: String? {
         guard issue == nil, !resources.isEmpty else { return nil }
@@ -44,6 +49,10 @@ struct ScanSnapshot: Codable {
     let limitedAccess: Bool
     let includedCloudDownloads: Bool
     let assets: [AssetRecord]
+    /// Your own albums at scan time. Nil in scans saved before albums were recorded.
+    var albums: [AlbumInfo]? = nil
+    /// True when this scan can filter by album and place; older scans need a rescan.
+    var recordsArchiveFilters: Bool { albums != nil }
     var groups: [DuplicateGroup] {
         let complete = assets.filter { $0.fingerprint != nil }
         return Dictionary(grouping: complete, by: { $0.fingerprint! })
@@ -57,6 +66,26 @@ struct ScanSnapshot: Codable {
     }
     var verifiedCount: Int { assets.filter { $0.fingerprint != nil }.count }
     var candidateBytes: Int64 { groups.reduce(0) { $0 + $1.extraBytes } }
+}
+
+struct AlbumInfo: Codable, Identifiable, Hashable {
+    let id: String
+    let title: String
+}
+
+/// A rectangle on the map chosen for the Archive place filter.
+struct PlaceArea: Equatable {
+    let minLatitude: Double
+    let maxLatitude: Double
+    let minLongitude: Double
+    let maxLongitude: Double
+
+    func contains(_ record: AssetRecord) -> Bool {
+        guard let latitude = record.latitude, let longitude = record.longitude else { return false }
+        return (minLatitude...maxLatitude).contains(latitude) && (minLongitude...maxLongitude).contains(longitude)
+    }
+
+    static func rounded(_ value: Double) -> Double { (value * 100).rounded() / 100 }
 }
 
 struct ActivityEntry: Identifiable {

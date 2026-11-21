@@ -12,6 +12,14 @@ Before approval, show the exact action, selected items, source and destination a
 
 Button **Delete [count] items from Apple Photos**. Use accurate provider-specific effects and recovery periods for any other provider.
 
+### Delete reviewed items from Apple Photos (Clean categories)
+
+Used when someone deletes items they picked one by one from a Clean category (screenshots, GIFs, Live Photos, slo-mo, time-lapse, panoramas, or the "Maybe saved from chats or the web" guess). Nothing is pre-selected, favorites can't be selected, and bursts stay review-only.
+
+> I authorize TidyAway to delete [count] items I selected from [category] in Apple Photos. These items are not duplicates: unless I archived them elsewhere, Apple Photos holds the only copy. If iCloud Photos is on, they will also be deleted from iCloud Photos and synced devices. Apple normally keeps deleted items in Recently Deleted for up to 30 days unless they're permanently deleted sooner; after that they can't be recovered.
+
+Button **Delete [count] items from Apple Photos**.
+
 ### Copy to cloud storage
 
 > I authorize copying [count] items, including [files and metadata], to [provider and account]. The transfer will use approximately [size] and may cost [amount or pricing basis]. Existing copies stay where they are.
