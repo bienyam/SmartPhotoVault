@@ -11,6 +11,8 @@ struct ArchivedRecord: Codable, Identifiable, Equatable {
     let date: Date
     let viaHomeServer: Bool
     let folderBookmark: Data?
+    /// Set when the copy is in Google Drive rather than a Files folder.
+    var driveFileID: String? = nil
 }
 
 /// Lists verified archive copies and restores one after sign-off.
@@ -101,6 +103,43 @@ struct ArchivedView: View {
         .disabled(busy)
     }
 
+    /// Downloads the archived copy from Google Drive, checks it against the fingerprint taken when it
+    /// was archived, and saves it as a new file in the chosen folder. Nothing in Drive changes.
+    private func restoreFromDrive(_ record: ArchivedRecord, fileID: String, to folder: URL) {
+        let operation = UUID()
+        do {
+            try InventoryStore.openDefault().log("Authorized archive restore from Google Drive (\(operation)), disclosure v1, 1 items.")
+        } catch {
+            message = "The app could not save your authorization. Try again."
+            return
+        }
+        busy = true
+        message = nil
+        Task {
+            do {
+                let token = try await GoogleDriveAccount.shared.accessToken()
+                let downloaded = try await GoogleDriveClient.download(fileID, token: token)
+                defer { try? FileManager.default.removeItem(at: downloaded.url) }
+                guard downloaded.digest == record.digest.lowercased() else { throw GoogleDriveError.verification }
+                let scoped = folder.startAccessingSecurityScopedResource()
+                defer { if scoped { folder.stopAccessingSecurityScopedResource() } }
+                let destination = folder.appendingPathComponent(record.name)
+                guard !FileManager.default.fileExists(atPath: destination.path) else { throw ArchiveError.conflict }
+                try FileManager.default.copyItem(at: downloaded.url, to: destination)
+                guard try GoogleDriveClient.sha256(of: destination) == record.digest.lowercased() else {
+                    try? FileManager.default.removeItem(at: destination)
+                    throw ArchiveError.verification
+                }
+                message = "Restored and verified \(record.name) in \(folder.lastPathComponent)."
+                try? InventoryStore.openDefault().log("Archive restore \(operation) verified.")
+            } catch {
+                message = "Restore failed. \(error.localizedDescription)"
+                try? InventoryStore.openDefault().log("Archive restore \(operation) failed.")
+            }
+            busy = false
+        }
+    }
+
     private func reload() {
         records = (try? InventoryStore.openDefault().archived()) ?? []
     }
@@ -115,6 +154,10 @@ struct ArchivedView: View {
     private func beginRestore(_ record: ArchivedRecord) {
         guard !busy, restoreConsent, let restoreFolder else { return }
         restoreConsent = false
+        if let fileID = record.driveFileID {
+            restoreFromDrive(record, fileID: fileID, to: restoreFolder)
+            return
+        }
         var stale = false
         guard let bookmark = record.folderBookmark,
               let folder = try? URL(resolvingBookmarkData: bookmark, bookmarkDataIsStale: &stale) else {

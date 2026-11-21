@@ -58,7 +58,7 @@ struct PhotoArchiveView: View {
             case .drive: "Plug a USB-C drive or memory stick into your iPhone (older iPhones need Apple's camera adapter), then choose it under Locations. ExFAT drives work best."
             case .iCloud: "Choose a folder from iCloud Drive in Files."
             case .shared: "Choose a folder the other Apple Account has shared with you with permission to make changes."
-            case .google: "Choose Google Drive under Locations in Files. Install and sign in to Google Drive if it’s missing."
+            case .google: "Sign in with Google. TidyAway can only see and add the files it puts in a \"TidyAway Archive\" folder."
             case .home: "In Files, connect to your server from Browse → More → Connect to Server, then choose its shared folder. Stay on the same Wi-Fi as your server for copying, verification and restore. This workflow has no background sync."
             case .other: "Choose a folder from another provider in Files, an attached drive, or On My iPhone."
             }
@@ -108,6 +108,7 @@ struct PhotoArchiveView: View {
     @State private var failures: [String] = []
     @State private var archivedBytes: Int64 = 0
     @State private var folderCheck: FolderCheck?
+    @ObservedObject private var google = GoogleDriveAccount.shared
     @State private var checkingFolder = false
     @State private var showPro = false
     @EnvironmentObject private var pro: ProStore
@@ -190,6 +191,7 @@ struct PhotoArchiveView: View {
                     Label(kind.rawValue, systemImage: kind.icon).tag(Optional(kind))
                 }
             }
+            .accessibilityIdentifier("storage-location")
             .onChange(of: destinationKind) {
                 destination = nil
                 availableGB = ""
@@ -204,9 +206,13 @@ struct PhotoArchiveView: View {
                                    text: "Any drive you already have can work. No drive yet? A portable USB-C SSD formatted as ExFAT works best. Spinning hard drives may need their own power supply to run from an iPhone.")
                     }
                 }
+                if destinationKind == .google {
+                    googleConnection
+                } else {
                 Button { openPicker(.archive) } label: {
                     Label(destination.map { "Change folder (\($0.lastPathComponent))" } ?? "Choose archive folder in Files",
                           systemImage: "folder.badge.plus")
+                }
                 }
                 if checkingFolder {
                     ProgressView("Checking this folder…")
@@ -234,6 +240,32 @@ struct PhotoArchiveView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var googleConnection: some View {
+        if let email = google.email {
+            Label("Connected as \(email)", systemImage: "checkmark.circle")
+                .foregroundStyle(Brand.safe)
+                .accessibilityIdentifier("google-connected")
+            Text("Copies go to the \"\(GoogleDriveConfig.folderName)\" folder in your Google Drive.")
+                .font(.footnote).foregroundStyle(.secondary)
+            Button("Disconnect Google Drive", role: .destructive) { Task { await google.disconnect() } }
+                .font(.footnote)
+        } else {
+            Button {
+                Task { await google.connect() }
+            } label: {
+                Label(google.busy ? "Waiting for Google…" : "Connect Google Drive", systemImage: "person.badge.key")
+            }
+            .disabled(google.busy)
+            .accessibilityIdentifier("google-connect")
+            Text("Google asks you to allow access. TidyAway can never see, change or delete your other Drive files.")
+                .font(.footnote).foregroundStyle(.secondary)
+        }
+        if let message = google.message {
+            Text(message).font(.footnote).foregroundStyle(Brand.caution)
         }
     }
 
@@ -405,7 +437,14 @@ struct PhotoArchiveView: View {
                 }
                 .accessibilityIdentifier("archive-allowance")
             }
-            if let destination {
+            if destinationKind == .google, let email = google.email {
+                LabeledContent("Archive", value: "Google Drive")
+                Toggle("I authorize copying these items to Google Drive (\(email)), in the TidyAway Archive folder. Source items stay where they are and this step frees no space.", isOn: $archiveConsent)
+                    .accessibilityIdentifier("google-consent")
+                Button("Copy and verify", action: beginDriveCopy)
+                    .fontWeight(.semibold)
+                    .disabled(!archiveConsent || { if case .over = allowance { return true } else { return false } }())
+            } else if let destination {
                 LabeledContent("Archive folder", value: destination.lastPathComponent)
                 Toggle("I authorize copying these items to this folder. Files providers may download selected files and sync these copies. Source items stay where they are and this step frees no space.", isOn: $archiveConsent)
                 Button("Copy and verify", action: beginCopy)
@@ -418,7 +457,7 @@ struct PhotoArchiveView: View {
                         .font(.footnote).foregroundStyle(Brand.caution)
                 }
             } else {
-                Text("Choose an archive folder above to continue.")
+                Text(destinationKind == .google ? "Connect Google Drive above to continue." : "Choose an archive folder above to continue.")
             }
         }
     }
@@ -597,6 +636,64 @@ struct PhotoArchiveView: View {
             archiveConsent = false
         } else {
             add(item)
+        }
+    }
+
+    /// Prepares each item as a verified local copy, uploads it to Google Drive, and checks Drive's own
+    /// SHA-256 against the original. The local preparation copy is removed straight after.
+    private func beginDriveCopy() {
+        guard !busy, archiveConsent, google.connected, !items.isEmpty else { return }
+        let selection = items.map { item in
+            if case let .photo(id, nil) = item.source, let measured = checkedPhotos[item.id] {
+                return ArchiveItem(id: item.id, name: item.name, source: .photo(id, expected: measured))
+            }
+            return item
+        }
+        archiveConsent = false
+        guard let operation = authorize("archive copy to Google Drive", count: selection.count) else { return }
+        busy = true
+        message = nil
+        restoreTarget = nil
+        let account = google
+        Task {
+            var records: [ArchivedRecord] = []
+            var problems: [String] = []
+            let staging = FileManager.default.temporaryDirectory.appendingPathComponent("TidyAwayUpload-\(UUID().uuidString)")
+            try? FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: staging) }
+            do {
+                let folderID = try await GoogleDriveClient.archiveFolder(token: try await account.accessToken())
+                for item in selection {
+                    do {
+                        let needed = bytes(for: item) ?? 0
+                        let free = DeviceStorage.current()?.available ?? .max
+                        guard needed < free - 200_000_000 else { throw GoogleDriveError.noSpace }
+                        let receipt = try await Task.detached(priority: .userInitiated) {
+                            try VerifiedArchive.copy(item, to: staging)
+                        }.value
+                        defer { try? FileManager.default.removeItem(at: receipt.url) }
+                        let fileID = try await GoogleDriveClient.upload(receipt.url, name: receipt.url.lastPathComponent,
+                                                                        folderID: folderID, expectedDigest: receipt.fingerprint.digest,
+                                                                        token: try await account.accessToken())
+                        records.append(ArchivedRecord(id: UUID().uuidString, name: receipt.url.lastPathComponent,
+                                                      folderName: "Google Drive", bytes: receipt.fingerprint.bytes,
+                                                      digest: receipt.fingerprint.digest, date: Date(),
+                                                      viaHomeServer: false, folderBookmark: nil, driveFileID: fileID))
+                    } catch {
+                        problems.append("\(item.name) — \(error.localizedDescription)")
+                    }
+                }
+            } catch {
+                problems.append(error.localizedDescription)
+            }
+            try? InventoryStore.openDefault().saveArchived(records)
+            refreshArchivedBytes()
+            let copiedNames = Set(records.map(\.name))
+            failures = problems
+            items.removeAll { copiedNames.contains($0.name) }
+            message = records.isEmpty ? nil : "Copied and verified \(records.count) of \(selection.count) in Google Drive. Find them under Get back."
+            recordOutcome("Archive copy to Google Drive \(operation) completed. Verified \(records.count) of \(selection.count) items.")
+            busy = false
         }
     }
 

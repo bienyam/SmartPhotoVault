@@ -61,7 +61,7 @@ Scans saved before #21 or #25 show "Scan again" for categories or album/place fi
 ## Next
 1. Owner runs `PHONE_TEST_CHECKLIST.md` on a physical iPhone with throwaway items, including a USB-C drive and the Pro sandbox purchase.
 2. Owner: add a bank account and W-9 in App Store Connect so the Paid Apps Agreement goes active (needed even for sandbox purchases). Both Pro products exist; each needs a review screenshot and goes to review with the first app version.
-3. Google Drive sign-in connection (`drive.file` scope): needs the owner to create a Google Cloud OAuth client for iOS first.
+3. Google Drive connection built (Google Cloud project `tidyaway`, iOS OAuth client for com.bienyam.SmartPhotoVault, `drive.file` scope, consent screen in Testing with the owner as the only test user). Before public launch: publish the consent screen (needs a privacy policy URL and app home page on the Branding page) and verify with Google. Uploads stage a verified local copy first, so a nearly full iPhone may not fit a large video: stream uploads later.
 4. TidyAway Receiver desktop app (Windows first): prototype after phone testing.
 5. Fix whatever phone testing finds; only then consider removal after archiving. Promo stays parked.
 

@@ -263,6 +263,22 @@ final class DashboardUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Make an archive copy"].waitForExistence(timeout: 5))
     }
 
+    func testGoogleDriveAsksToConnectInsteadOfShowingFolders() {
+        let app = launch()
+        app.tabBars.buttons["Archive"].tap()
+        let picker = app.buttons["storage-location"]
+        reveal(picker, in: app)
+        XCTAssertTrue(picker.waitForExistence(timeout: 10))
+        picker.tap()
+        let google = app.buttons["Google Drive"]
+        XCTAssertTrue(google.waitForExistence(timeout: 5))
+        google.tap()
+        let connect = app.buttons["google-connect"]
+        reveal(connect, in: app)
+        XCTAssertTrue(connect.waitForExistence(timeout: 5), "Google Drive offers a sign-in, not a folder list.")
+        XCTAssertFalse(app.buttons["Choose archive folder in Files"].exists)
+    }
+
     func testFirstLaunchWelcomeLeadsToFreeUp() {
         let app = XCUIApplication()
         app.launchArguments += ["--reset-welcome"]
