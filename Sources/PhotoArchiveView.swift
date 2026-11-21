@@ -53,8 +53,9 @@ struct PhotoArchiveView: View {
         case home = "Home file server"
         case other = "Other Files location"
 
-        /// What people actually own: a drive, Google Drive, iCloud Drive. Others stay reachable via Files.
-        static let offered: [Destination] = [.drive, .google, .iCloud]
+        /// Every destination stays available (owner rule: never drop an existing feature unasked).
+        /// A plugged-in drive is listed first because most people own one.
+        static let offered: [Destination] = [.drive, .google, .iCloud, .other, .home, .shared]
 
         var detail: String {
             switch self {

@@ -241,6 +241,20 @@ final class DashboardUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Choose archive folder in Files"].exists)
     }
 
+    /// Regression guard: every archive destination that has shipped stays available.
+    func testEveryArchiveDestinationIsStillOffered() {
+        let app = launch()
+        app.tabBars.buttons["Archive"].tap()
+        let picker = app.buttons["storage-location"]
+        reveal(picker, in: app)
+        XCTAssertTrue(picker.waitForExistence(timeout: 10))
+        picker.tap()
+        for name in ["Drive plugged into this iPhone", "Google Drive", "iCloud Drive", "Other Files location",
+                     "Home file server", "Another Apple Account"] {
+            XCTAssertTrue(app.buttons[name].waitForExistence(timeout: 5), "\(name) must stay available.")
+        }
+    }
+
     func testFirstLaunchWelcomeLeadsToFreeUp() {
         let app = XCUIApplication()
         app.launchArguments += ["--reset-welcome"]
