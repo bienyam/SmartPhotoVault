@@ -54,6 +54,21 @@ final class DuplicateSafetyTests: XCTestCase {
         XCTAssertEqual(plan.removeIDs, ["sample-2"])
         XCTAssertEqual(plan.deleteLabel, "Delete 1 item from Apple Photos")
     }
+    func testRemovingDeletedItemsKeepsTheRestOfTheScan() {
+        let original = DemoLibrary.snapshot
+        let updated = original.removing(["sample-2", "sample-6"])
+        XCTAssertEqual(updated.assets.count, original.assets.count - 2)
+        XCTAssertTrue(updated.groups.isEmpty, "With the extra copy gone, the duplicate group disappears.")
+        XCTAssertTrue(updated.assets.contains { $0.id == "sample-1" }, "The kept copy stays.")
+        XCTAssertTrue(updated.summary(for: .screenshots).items.isEmpty)
+        XCTAssertEqual(updated.date, original.date)
+    }
+    func testRemovalMessageNeverClaimsSpaceIsFreedYet() {
+        let message = DuplicateRemovalOutcome.removedMessage(count: 2, bytes: 2_000_000)
+        XCTAssertTrue(message.hasPrefix("Moved 2 items to Recently Deleted."))
+        XCTAssertTrue(message.contains("Empty it in Photos to free about"))
+        XCTAssertFalse(message.contains("Removed"))
+    }
     func testSyntheticLibraryHasOneDuplicateGroupAndOneUnreadableAsset() {
         let result = DemoLibrary.snapshot
         XCTAssertEqual(result.assets.count, 12)

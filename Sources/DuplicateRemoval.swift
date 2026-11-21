@@ -30,6 +30,13 @@ enum DuplicateRemovalOutcome: Equatable {
     case cancelled
     case sample
     case blocked(String)
+
+    /// Space only comes back once Recently Deleted is emptied, so never say "freed" here.
+    static func removedMessage(count: Int, bytes: Int64) -> String {
+        let items = count == 1 ? "1 item" : "\(count.formatted()) items"
+        let size = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+        return "Moved \(items) to Recently Deleted. Empty it in Photos to free about \(size)."
+    }
 }
 
 /// Sign-off and removal controls for one duplicate group.
@@ -86,7 +93,7 @@ struct DuplicateRemovalControls: View {
     private func result(_ outcome: DuplicateRemovalOutcome) -> some View {
         switch outcome {
         case .removed(let count, let bytes):
-            Label("Removed \(count) \(count == 1 ? "item" : "items"), about \(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)). Recoverable in Recently Deleted for up to 30 days.", systemImage: "checkmark.circle.fill")
+            Label(DuplicateRemovalOutcome.removedMessage(count: count, bytes: bytes), systemImage: "checkmark.circle.fill")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(Brand.safe)
         case .cancelled:
