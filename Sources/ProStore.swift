@@ -8,7 +8,7 @@ import SwiftUI
 final class ProStore: ObservableObject {
     static let productID = "com.bienyam.SmartPhotoVault.storagepro"
     /// Free archive allowance before Pro is needed.
-    static let freeArchiveBytes: Int64 = 5_000_000_000
+    nonisolated static let freeArchiveBytes: Int64 = 5_000_000_000
 
     @Published private(set) var unlocked = false
     @Published private(set) var product: Product?
@@ -111,7 +111,7 @@ final class ProStore: ObservableObject {
     }
 
     /// How much of the free archive allowance a selection would use, and whether it fits.
-    static func archiveAllowance(used: Int64, selection: Int64, unlocked: Bool) -> ArchiveAllowance {
+    nonisolated static func archiveAllowance(used: Int64, selection: Int64, unlocked: Bool) -> ArchiveAllowance {
         if unlocked { return .unlimited }
         let left = max(0, freeArchiveBytes - used)
         return selection <= left ? .fits(left: left) : .over(left: left)
