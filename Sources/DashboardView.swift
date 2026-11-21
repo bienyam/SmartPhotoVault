@@ -249,10 +249,6 @@ struct MoreView: View {
                         Label("Activity", systemImage: "checkmark.shield")
                     }
                     .accessibilityIdentifier("more-activity")
-                    NavigationLink { StorageGuideView(snapshot: model.isDemo ? nil : model.snapshot) } label: {
-                        Label("Analyze storage", systemImage: "internaldrive")
-                    }
-                    .accessibilityIdentifier("more-analyze")
                     NavigationLink { ProUpgradeView() } label: {
                         Label("TidyAway Pro", systemImage: "sparkles")
                     }
@@ -263,14 +259,10 @@ struct MoreView: View {
                         Label("Photos and videos in Messages", systemImage: "message")
                     }
                     .accessibilityIdentifier("guide-messages")
-                    NavigationLink { CloudDownloadRemovalView() } label: {
-                        Label("Free iCloud Drive downloads", systemImage: "icloud.and.arrow.down")
+                    NavigationLink { StorageExplainer() } label: {
+                        Label("Where your storage goes", systemImage: "internaldrive")
                     }
-                    .accessibilityIdentifier("more-icloud-downloads")
-                    NavigationLink { SelectedFilesAnalysisView() } label: {
-                        Label("Find large files", systemImage: "doc.text.magnifyingglass")
-                    }
-                    .accessibilityIdentifier("more-large-files")
+                    .accessibilityIdentifier("more-explainer")
                     NavigationLink { OptimizeStorageTip() } label: {
                         Label("Keep smaller copies with iCloud", systemImage: "iphone")
                     }
@@ -286,6 +278,30 @@ struct MoreView: View {
             .navigationTitle("More")
             .navigationBarTitleDisplayMode(.inline)
         }
+    }
+}
+
+/// Storage TidyAway can't clear itself, explained plainly with the steps to clear it yourself.
+struct StorageExplainer: View {
+    var body: some View {
+        List {
+            Section("System Data") {
+                Text("Caches, logs and temporary files that iOS manages. It grows and shrinks on its own; apps can't clear it.")
+                Text("Restarting your iPhone often shrinks it. If it stays very large, updating iOS usually helps.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            Section("Recently Deleted") {
+                Text("Photos you delete wait here for 30 days and still use space. Open Photos, scroll to Utilities, tap Recently Deleted, then Select and Delete All.")
+            }
+            Section("Files downloaded from iCloud Drive") {
+                Text("Files you open from iCloud Drive stay downloaded. In the Files app, touch and hold a file or folder, then tap Remove Download. It stays in iCloud.")
+            }
+            Section("Apps") {
+                Text("In Settings, General, iPhone Storage, choose an app and tap Offload App. Its documents stay, and it reinstalls when you tap it.")
+            }
+        }
+        .navigationTitle("Where your storage goes")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
@@ -329,8 +345,7 @@ struct HelpPrivacyView: View {
                 Text("After a verified archive copy, the app keeps a local list of the file name, folder, size, checksum and date, with a reference to the folder you chose, so you can find and restore it.")
                 Text("If you approve deleting items, the app asks Apple Photos to delete exactly those items. Apple shows its own confirmation and normally keeps deleted items in Recently Deleted for up to 30 days. The approval, item count and outcome are recorded in the local activity log.")
                 Text("You can change Photos access in Settings. To remove the local data and activity log from this device, delete the app.")
-                Text("Saved storage comparisons stay in the app's local storage. If you share a comparison, you choose where the report goes. Apple handles in-app purchases.")
-                Text("When you select files for size analysis, the app reads their names and reported sizes for that session.")
+                Text("Apple handles in-app purchases.")
             }
         }
         .navigationTitle("Help & privacy")
