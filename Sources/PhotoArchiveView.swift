@@ -147,6 +147,11 @@ struct PhotoArchiveView: View {
         .sheet(isPresented: $showPlacePicker) {
             if let snapshot { PlacePickerSheet(place: $place, snapshot: snapshot) }
         }
+        .onChange(of: snapshot?.date) {
+            // A new scan can drop albums or places, so start the album and place choices fresh.
+            albumID = nil
+            place = nil
+        }
         .fileImporter(isPresented: $showFiles,
                       allowedContentTypes: picker == .files ? [.data] : [.folder],
                       allowsMultipleSelection: picker == .files,
@@ -479,7 +484,7 @@ struct PhotoArchiveView: View {
             }
             add(ArchiveItem(id: id, name: resource.originalFilename, source: .photo(id, expected: nil)))
         }
-        message = skipped == 0 ? nil : "\(skipped.formatted()) selected photos were unavailable with current Photos access or had an unsupported format. Run a local scan to check Photos access."
+        message = skipped == 0 ? nil : "\(skipped.formatted()) selected items were unavailable with current Photos access or had an unsupported format. Run a local scan to check Photos access."
         photoSelection = []
     }
 

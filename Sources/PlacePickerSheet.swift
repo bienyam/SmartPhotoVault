@@ -5,20 +5,28 @@ import SwiftUI
 /// only the map itself is loaded from Apple Maps.
 struct PlacePickerSheet: View {
     @Binding var place: PlaceArea?
-    let snapshot: ScanSnapshot
     @Environment(\.dismiss) private var dismiss
     @State private var position: MapCameraPosition = .automatic
     @State private var region: MKCoordinateRegion?
+    private let spots: [CLLocationCoordinate2D]
 
-    /// One dot per rounded spot (about 1 km), capped so the map stays quick.
-    private var spots: [CLLocationCoordinate2D] {
+    init(place: Binding<PlaceArea?>, snapshot: ScanSnapshot) {
+        _place = place
+        spots = Self.spots(in: snapshot)
+    }
+
+    /// Worked out once per sheet. Dots are grouped on a 0.1° grid (about 10 km) before the cap,
+    /// so every region with photos still shows up.
+    static func spots(in snapshot: ScanSnapshot, limit: Int = 500) -> [CLLocationCoordinate2D] {
         var seen = Set<String>()
         var result: [CLLocationCoordinate2D] = []
         for record in snapshot.assets {
             guard let latitude = record.latitude, let longitude = record.longitude else { continue }
-            guard seen.insert("\(latitude),\(longitude)").inserted else { continue }
-            result.append(CLLocationCoordinate2D(latitude: latitude, longitude: longitude))
-            if result.count == 500 { break }
+            let cellLat = (latitude * 10).rounded() / 10
+            let cellLon = (longitude * 10).rounded() / 10
+            guard seen.insert("\(cellLat),\(cellLon)").inserted else { continue }
+            result.append(CLLocationCoordinate2D(latitude: cellLat, longitude: cellLon))
+            if result.count == limit { break }
         }
         return result
     }
