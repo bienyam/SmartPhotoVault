@@ -46,6 +46,7 @@ struct PhotoArchiveView: View {
     }
 
     private enum Destination: String, CaseIterable {
+        case drive = "Drive plugged into this iPhone"
         case iCloud = "iCloud Drive"
         case shared = "Another Apple Account"
         case google = "Google Drive"
@@ -54,6 +55,7 @@ struct PhotoArchiveView: View {
 
         var detail: String {
             switch self {
+            case .drive: "Plug a USB-C drive or memory stick into your iPhone (older iPhones need Apple's camera adapter), then choose it under Locations. ExFAT drives work best."
             case .iCloud: "Choose a folder from iCloud Drive in Files."
             case .shared: "Choose a folder the other Apple Account has shared with you with permission to make changes."
             case .google: "Choose Google Drive under Locations in Files. Install and sign in to Google Drive if it’s missing."
@@ -64,6 +66,7 @@ struct PhotoArchiveView: View {
 
         var icon: String {
             switch self {
+            case .drive: "externaldrive.connected.to.line.below"
             case .iCloud, .shared: "icloud"
             case .google: "externaldrive"
             case .home: "server.rack"
@@ -104,6 +107,8 @@ struct PhotoArchiveView: View {
     @State private var homeReceipts: Set<String> = []
     @State private var failures: [String] = []
     @State private var archivedBytes: Int64 = 0
+    @State private var folderCheck: FolderCheck?
+    @State private var checkingFolder = false
     @State private var showPro = false
     @EnvironmentObject private var pro: ProStore
 
@@ -189,14 +194,39 @@ struct PhotoArchiveView: View {
                 destination = nil
                 availableGB = ""
                 archiveConsent = false
+                folderCheck = nil
             }
             if let destinationKind {
-                Text(destinationKind.detail).font(.footnote).foregroundStyle(.secondary)
+                HStack(alignment: .top, spacing: 4) {
+                    Text(destinationKind.detail).font(.footnote).foregroundStyle(.secondary)
+                    if destinationKind == .drive {
+                        InfoButton(title: "Which drive?",
+                                   text: "Any drive you already have can work. No drive yet? A portable USB-C SSD formatted as ExFAT works best. Spinning hard drives may need their own power supply to run from an iPhone.")
+                    }
+                }
                 Button { openPicker(.archive) } label: {
                     Label(destination.map { "Change folder (\($0.lastPathComponent))" } ?? "Choose archive folder in Files",
                           systemImage: "folder.badge.plus")
                 }
-                if destination != nil {
+                if checkingFolder {
+                    ProgressView("Checking this folder…")
+                } else if let folderCheck {
+                    if let problem = folderCheck.problem {
+                        Label(problem, systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(Brand.caution)
+                            .accessibilityIdentifier("folder-problem")
+                    } else {
+                        Label(folderCheck.available.map { "Ready. \(formattedBytes($0)) free here." } ?? "Ready to save here.",
+                              systemImage: "checkmark.circle")
+                            .foregroundStyle(Brand.safe)
+                            .accessibilityIdentifier("folder-ready")
+                        if folderCheck.isFAT32 {
+                            Text("This drive uses FAT32, which can't hold a single file over 4 GB. Long videos need an ExFAT drive.")
+                                .font(.footnote).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                if destination != nil, folderCheck?.available == nil {
                     TextField("Available space shown by provider (GB, optional)", text: $availableGB)
                         .keyboardType(.decimalPad)
                         .onChange(of: availableGB) { archiveConsent = false }
@@ -381,7 +411,12 @@ struct PhotoArchiveView: View {
                 Button("Copy and verify", action: beginCopy)
                     .fontWeight(.semibold)
                     .disabled(!archiveConsent || comparison.fits == false || (!availableGB.isEmpty && availableBytes == nil)
-                              || { if case .over = allowance { return true } else { return false } }())
+                              || { if case .over = allowance { return true } else { return false } }()
+                              || folderCheck?.problem != nil || checkingFolder || !tooBigForDrive.isEmpty)
+                if !tooBigForDrive.isEmpty {
+                    Text("\(tooBigForDrive.count) selected \(tooBigForDrive.count == 1 ? "item is" : "items are") over 4 GB, too big for this FAT32 drive. Remove \(tooBigForDrive.count == 1 ? "it" : "them") or use an ExFAT drive.")
+                        .font(.footnote).foregroundStyle(Brand.caution)
+                }
             } else {
                 Text("Choose an archive folder above to continue.")
             }
@@ -506,6 +541,7 @@ struct PhotoArchiveView: View {
                 destination = urls.first
                 availableGB = ""
                 archiveConsent = false
+                if let folder = urls.first { checkFolder(folder) }
             case .restore:
                 restoreFolder = urls.first
                 restoreConsent = false
@@ -566,7 +602,8 @@ struct PhotoArchiveView: View {
 
     private func beginCopy() {
         guard !busy, archiveConsent, let destination, !items.isEmpty,
-              availableGB.isEmpty || availableBytes != nil else { return }
+              availableGB.isEmpty || availableBytes != nil,
+              folderCheck?.problem == nil, tooBigForDrive.isEmpty else { return }
         let selectedBytes = items.compactMap { bytes(for: $0) }.reduce(Int64(0), +)
         guard ArchiveCapacity(selected: selectedBytes, available: availableBytes).fits != false else { return }
         let home = destinationKind == .home
@@ -645,6 +682,31 @@ struct PhotoArchiveView: View {
             }
             busy = false
         }
+    }
+
+    /// Checks the chosen folder right away: format, read-only, free space, and a test write.
+    private func checkFolder(_ folder: URL) {
+        folderCheck = nil
+        checkingFolder = true
+        Task {
+            let result = await Task.detached(priority: .userInitiated) { FolderCheck.run(on: folder) }.value
+            guard destination == folder else { return }
+            folderCheck = result
+            checkingFolder = false
+            if let available = result.available, availableGB.isEmpty {
+                let formatter = NumberFormatter()
+                formatter.locale = locale
+                formatter.numberStyle = .decimal
+                formatter.maximumFractionDigits = 1
+                availableGB = formatter.string(from: NSNumber(value: Double(available) / 1_000_000_000)) ?? ""
+            }
+        }
+    }
+
+    /// Items too big for a FAT32 drive.
+    private var tooBigForDrive: [ArchiveItem] {
+        guard folderCheck?.isFAT32 == true else { return [] }
+        return items.filter { (bytes(for: $0) ?? 0) > FolderCheck.fat32FileLimit }
     }
 
     /// Everything archived so far counts toward the free 5 GB.
