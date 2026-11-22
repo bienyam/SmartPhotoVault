@@ -144,6 +144,8 @@ jobs:
           CODE_SIGNING_ALLOWED=NO
       - name: Crawl every screen and button
         timeout-minutes: 45
+        # bash turns on pipefail; without it the pipe into tee hid a failed crawl behind a green check.
+        shell: bash
         run: >-
           xcodebuild test-without-building
           -project SmartPhotoVault.xcodeproj
