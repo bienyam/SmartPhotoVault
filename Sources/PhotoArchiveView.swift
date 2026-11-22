@@ -507,6 +507,8 @@ struct PhotoArchiveView: View {
 
     private var destinationScreen: some View {
         List { destinationSection }
+            .scrollContentBackground(.hidden)
+            .background(Brand.background)
             .navigationTitle("Copy to")
             .navigationBarTitleDisplayMode(.inline)
             .disabled(busy)
@@ -827,6 +829,8 @@ struct PhotoArchiveView: View {
                 .accessibilityIdentifier("copy-review")
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(Brand.background)
         .disabled(busy)
         .navigationTitle("Copy")
         .navigationBarTitleDisplayMode(.inline)
