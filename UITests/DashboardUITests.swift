@@ -91,6 +91,7 @@ final class DashboardUITests: XCTestCase {
 
     func testSampleDuplicateReview() {
         let app = launchWithSamples()
+        reveal(app.buttons["row-duplicates"], in: app)
         app.buttons["row-duplicates"].tap()
         XCTAssertTrue(app.navigationBars["Duplicates"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.descendants(matching: .any)["kept-sample-1"].exists, "The copy to keep is listed, not selectable.")
@@ -105,6 +106,7 @@ final class DashboardUITests: XCTestCase {
 
     func testDuplicateRemovalNeedsSelectionAndSignOff() {
         let app = launchWithSamples()
+        reveal(app.buttons["row-duplicates"], in: app)
         app.buttons["row-duplicates"].tap()
         XCTAssertTrue(app.navigationBars["Duplicates"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["delete-selected"].exists, "Nothing is selected for you.")
@@ -121,6 +123,7 @@ final class DashboardUITests: XCTestCase {
 
     func testCategoryRemovalNeedsSelectionAndSignOff() {
         let app = launchWithSamples()
+        reveal(app.buttons["row-screenshots"], in: app)
         app.buttons["row-screenshots"].tap()
         XCTAssertTrue(app.navigationBars["Screenshots"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["delete-selected"].exists, "Nothing is selected for you.")
@@ -141,12 +144,15 @@ final class DashboardUITests: XCTestCase {
         let app = launchWithSamples()
         let rows = ["row-videos": "Large videos", "row-duplicates": "Duplicates",
                     "row-screenshots": "Screenshots", "row-more": "More types"]
-        for (id, title) in rows {
+        let order = ["row-duplicates", "row-videos", "row-screenshots", "row-more"]
+        for (id, title) in rows.sorted(by: { order.firstIndex(of: $0.key)! < order.firstIndex(of: $1.key)! }) {
+            reveal(app.buttons[id], in: app)
             app.buttons[id].tap()
             XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 5), "\(id) should open \(title)")
             app.navigationBars.buttons.element(boundBy: 0).tap()
             XCTAssertTrue(app.buttons[id].waitForExistence(timeout: 5))
         }
+        reveal(app.buttons["row-more"], in: app)
         app.buttons["row-more"].tap()
         XCTAssertTrue(app.buttons["category-bursts"].waitForExistence(timeout: 5))
         app.buttons["category-gifs"].tap()
@@ -168,7 +174,7 @@ final class DashboardUITests: XCTestCase {
                     "guide-messages": "Messages attachments", "more-explainer": "Where your storage goes",
                     "more-optimize": "Keep smaller copies", "more-icloud-downloads": "Remove a file download",
                     "more-help": "Help & privacy"]
-        for (id, title) in rows {
+        for (id, title) in rows.sorted(by: { order.firstIndex(of: $0.key)! < order.firstIndex(of: $1.key)! }) {
             let row = app.buttons[id]
             reveal(row, in: app)
             XCTAssertTrue(row.waitForExistence(timeout: 5), "\(id) is missing")
@@ -454,7 +460,10 @@ final class DashboardUITests: XCTestCase {
 
     private func reveal(_ element: XCUIElement, in app: XCUIApplication) {
         for _ in 0..<12 {
-            if element.exists && element.isHittable { return }
+            // The landing page's bottom button floats over the list; what is under it isn't really reachable.
+            let bar = app.buttons["review-next"]
+            let clear = !bar.exists || element.identifier == "review-next" || (element.exists && element.frame.maxY < bar.frame.minY - 8)
+            if element.exists && element.isHittable && clear { return }
             // Lists scroll as collection views; Free up is a plain scroll view.
             let list = app.collectionViews.firstMatch
             if list.exists { list.swipeUp(velocity: .slow) } else { app.swipeUp(velocity: .slow) }

@@ -217,7 +217,9 @@ struct FreeUpView: View {
         }
         .find("row-duplicates")
         FindTag(kind: .look)
-        LazyVGrid(columns: typeSize.isAccessibilitySize ? [GridItem(.flexible())] : [GridItem(.flexible(), spacing: 10), GridItem(.flexible())], spacing: 10) {
+        // Not a lazy grid: every find exists from the start, also for VoiceOver.
+        let pair = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 10)) : AnyLayout(HStackLayout(spacing: 10))
+        pair {
             NavigationLink { videosList(rescue) } label: {
                 ArchiveCard(title: "Large videos",
                             detail: rescue.videos.isEmpty ? "None" : split(rescue.videoBytes, rescue.videoICloudBytes),
