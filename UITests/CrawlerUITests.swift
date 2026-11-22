@@ -19,7 +19,7 @@ final class CrawlerUITests: XCTestCase {
         "Terms of Use", "Privacy Policy", "Open Settings", "google-connect", "Disconnect Google Drive",
         "pro-monthly", "pro-lifetime", "pro-restore", "Restore purchase", "Manage subscription", "Try again",
         "Pick photos or videos myself", "Pick files myself", "Choose archive folder in Files",
-        "Choose where to restore it", "Change folder", "delete-selected", "free-up-space", "check-again",
+        "Choose where to restore it", "Change folder", "archive-scan", "archive-copy", "archive-stop", "delete-selected", "free-up-space", "check-again",
         "Check my photos instead", "Stop", "Allow Access to Photos", "See TidyAway Pro", "Switch to lifetime"
     ]
 

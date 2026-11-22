@@ -56,29 +56,49 @@ struct RootView: View {
 /// Archive in one tab: Move out makes verified copies, Get back restores them.
 struct ArchiveTabView: View {
     @ObservedObject var model: DashboardModel
-    @State private var mode = Mode.moveOut
+    @State private var mode = ArchiveMode.moveOut
+    @State private var path = NavigationPath()
+    @State private var locked = false
+    @State private var readyBytes: Int64 = 0
+    @State private var safeCount = 0
+    @State private var compact = false
 
-    enum Mode: String, CaseIterable { case moveOut = "Move out", getBack = "Get back" }
+    private var snapshot: ScanSnapshot? {
+        if ProcessInfo.processInfo.arguments.contains("--demo-archive") { return DemoLibrary.archiveSnapshot }
+        return model.isDemo ? nil : model.snapshot
+    }
 
     var body: some View {
-        NavigationStack {
-            Group {
-                switch mode {
-                case .moveOut: PhotoArchiveView(snapshot: model.isDemo ? nil : model.snapshot, model: model,
-                                               showArchived: { mode = .getBack })
-                case .getBack: ArchivedView()
+        NavigationStack(path: $path) {
+            VStack(spacing: 0) {
+                ArchiveKeys(mode: $mode, compact: compact, locked: locked,
+                            moveOutNote: readyBytes > 0 ? "\(readyBytes.fileSize) in groups" : "Copy off this iPhone",
+                            getBackNote: safeCount > 0 ? "\(safeCount.formatted()) archived" : "Nothing yet")
+                ZStack {
+                    // Kept alive while Get back is showing, so a selection or a running copy is never lost.
+                    PhotoArchiveView(snapshot: snapshot, model: model, showArchived: { mode = .getBack },
+                                     path: $path, locked: $locked, readyBytes: $readyBytes)
+                        .opacity(mode == .moveOut ? 1 : 0)
+                        .allowsHitTesting(mode == .moveOut)
+                        .accessibilityHidden(mode != .moveOut)
+                    if mode == .getBack { ArchivedView() }
+                }
+                .onPreferenceChange(ArchiveScroll.self) { offset in
+                    // Two thresholds, so the buttons don't flip back and forth.
+                    if offset < -60 { compact = true } else if offset > -4 { compact = false }
                 }
             }
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    Picker("Archive", selection: $mode) {
-                        ForEach(Mode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 240)
-                    .accessibilityIdentifier("archive-mode")
-                }
-            }
+            .background(Brand.background)
+            .navigationTitle("Archive")
+            .navigationBarTitleDisplayMode(.inline)
         }
+        .onAppear(perform: count)
+        .onChange(of: mode) {
+            compact = false
+            count()
+        }
+        .onChange(of: locked) { count() }
     }
+
+    private func count() { safeCount = (try? InventoryStore.openDefault().archivedCount()) ?? 0 }
 }
