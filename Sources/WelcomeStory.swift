@@ -3,7 +3,7 @@ import SwiftUI
 /// First launch: a three-beat photo story that ends on the welcome promises and Get started.
 /// Beat 1 shows the moment the phone is full, beat 2 shows TidyAway finding what isn't needed,
 /// beat 3 is the payoff with every welcome element. Skip always lands on beat 3.
-/// Photos: Adobe Stock 535605807, 254326092, 109692836 (licensed, see mockups/welcome-assets/LICENSES.txt).
+/// Photos: Adobe Stock 379533224, 254326092, 109692836 (licensed, see mockups/welcome-assets/LICENSES.txt).
 struct WelcomeStoryView: View {
     let start: () -> Void
 
@@ -80,7 +80,8 @@ private struct MomentBeat: View {
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            StoryPhoto(name: "WelcomeMoment", animate: animate)
+            // Covers the upper part only, which keeps the whole phone and hand in the frame.
+            StoryPhoto(name: "WelcomeMoment", animate: animate, heightFraction: 0.76)
             BottomShade()
             VStack {
                 StorageBanner()
@@ -90,8 +91,8 @@ private struct MomentBeat: View {
                 Spacer()
             }
             StoryCopy(kicker: "The moment",
-                      headline: "Storage full? Again?",
-                      lead: "Right when it matters most.")
+                      headline: "Everyone's ready.\nYour phone isn't.",
+                      lead: "Storage full, right when it matters most.")
                 .padding(.bottom, 92)
         }
         .onAppear {
@@ -306,12 +307,13 @@ private struct StoryPhoto: View {
 
 private struct BottomShade: View {
     var body: some View {
-        // Darker at the very top too, so the white status bar and Skip read on the pale wall.
-        LinearGradient(stops: [.init(color: .black.opacity(0.45), location: 0),
-                               .init(color: .black.opacity(0.12), location: 0.16),
-                               .init(color: .clear, location: 0.35),
-                               .init(color: .black.opacity(0.72), location: 0.72),
-                               .init(color: .black.opacity(0.92), location: 1)],
+        // Darker at the very top so the status bar and Skip read; fully dark where the photo ends.
+        LinearGradient(stops: [.init(color: .black.opacity(0.40), location: 0),
+                               .init(color: .black.opacity(0.10), location: 0.12),
+                               .init(color: .clear, location: 0.28),
+                               .init(color: .black.opacity(0.10), location: 0.46),
+                               .init(color: .black.opacity(0.85), location: 0.69),
+                               .init(color: .black, location: 0.755)],
                        startPoint: .top, endPoint: .bottom)
             .ignoresSafeArea()
     }
