@@ -6,6 +6,10 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+# A new push to a pull request replaces its older run instead of queueing behind it.
+concurrency:
+  group: ios-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   package-checks:
     runs-on: ubuntu-latest
@@ -26,6 +30,8 @@ jobs:
         run: |
           DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for devices in d["devices"].values() for x in devices if x["name"].startswith("iPhone")))')
           echo "DEVICE_ID=$DEVICE_ID" >> "$GITHUB_ENV"
+          # Starts while the app builds. Left to the test command, a cold start took nearly 8 minutes.
+          xcrun simctl boot "$DEVICE_ID" || true
       - name: Build app and tests
         run: >-
           xcodebuild build-for-testing
@@ -122,8 +128,10 @@ jobs:
           if-no-files-found: ignore
 
   ui-crawl:
+    # The pull request already crawled exactly what lands on main.
+    if: github.event_name != 'push'
     runs-on: macos-15
-    timeout-minutes: 60
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Install project generator
@@ -134,6 +142,8 @@ jobs:
         run: |
           DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for devices in d["devices"].values() for x in devices if x["name"].startswith("iPhone")))')
           echo "DEVICE_ID=$DEVICE_ID" >> "$GITHUB_ENV"
+          # Starts while the app builds. Left to the test command, a cold start took nearly 8 minutes.
+          xcrun simctl boot "$DEVICE_ID" || true
       - name: Build app and tests
         run: >-
           xcodebuild build-for-testing
@@ -142,8 +152,10 @@ jobs:
           -derivedDataPath build/DerivedData
           -destination "platform=iOS Simulator,id=$DEVICE_ID"
           CODE_SIGNING_ALLOWED=NO
+      - name: Wait for the simulator
+        run: xcrun simctl bootstatus "$DEVICE_ID" -b
       - name: Crawl every screen and button
-        timeout-minutes: 45
+        timeout-minutes: 30
         # bash turns on pipefail; without it the pipe into tee hid a failed crawl behind a green check.
         shell: bash
         run: >-

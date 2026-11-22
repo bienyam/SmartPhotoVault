@@ -1,12 +1,13 @@
 import XCTest
 
-/// Taps every control on every screen it can reach (sample photos, so nothing real changes) and
+/// Taps every control on every screen it can reach (sample items, so nothing real changes) and
 /// reports what each tap did. Findings are printed as `CRAWL|…` lines and attached as a report:
 /// - NO_EFFECT: the tap changed nothing visible (a dead button, or one that needs real data)
 /// - UNREACHABLE: listed but never became tappable
 /// - LEAF: a screen with nothing to tap except going back (fine for help pages, a dead end otherwise)
 /// - DEPTH: how many taps from launch each screen takes
-/// It fails only if the app crashes or shows an error screen.
+/// - SAME_KIND: a screen built like one already explored; opening it is checked, its inside isn't repeated
+/// It fails if the app crashes, or if it can't finish, so a partial crawl never passes for a full one.
 final class CrawlerUITests: XCTestCase {
     private struct Step: Hashable { let key: String }
     private var report: [String] = []
@@ -23,17 +24,24 @@ final class CrawlerUITests: XCTestCase {
         "Check my photos instead", "Stop", "Allow Access to Photos", "See TidyAway Pro", "Switch to lifetime"
     ]
 
+    /// Finishing takes a fraction of this; running out means coverage is incomplete.
+    private let budget: TimeInterval = 1_200
+    private var app = XCUIApplication()
+    private var rootSignatures: [String: String] = [:]
+    private var kinds: Set<String> = []
+    private var relaunches = 0
+
     override func setUp() {
         continueAfterFailure = true
-        executionTimeAllowance = 2400
+        executionTimeAllowance = 1_800
     }
 
     func testCrawlEveryScreen() {
         let started = Date()
         var queue: [[Step]] = ["Free up", "Archive", "More"].map { [Step(key: "tab:\($0)")] }
-        while !queue.isEmpty, Date().timeIntervalSince(started) < 2100 {
+        while !queue.isEmpty, Date().timeIntervalSince(started) < budget {
             let path = queue.removeFirst()
-            guard let app = open(path) else { continue }
+            guard open(path) else { continue }
             let screen = screenKey(app)
             let controls = candidates(app)
             // A screen with a menu or sheet open has different controls, so it counts as its own state.
@@ -43,45 +51,49 @@ final class CrawlerUITests: XCTestCase {
                 log("DEPTH", path, "", "\(path.count) taps → \(screen)")
             }
             if controls.isEmpty { log("LEAF", path, "", screen) }
-            var fresh = true
-            for key in controls.prefix(30) {
+            let shape = Set(controls.map(Self.kind)).sorted().joined(separator: ",")
+            if controls.count >= 3, !kinds.insert(shape).inserted {
+                log("SAME_KIND", path, "", screen)
+                continue
+            }
+            var tapped: [String: Int] = [:]
+            for key in controls {
                 if skip.contains(where: { key.contains($0) }) {
                     log("SKIPPED", path, key, "leaves the app, buys, signs in, scans or deletes")
                     continue
                 }
-                if !fresh { guard reopen(app, path) else { break } }
+                // Rows of one kind behave alike: two of each are enough.
+                tapped[Self.kind(key), default: 0] += 1
+                if tapped[Self.kind(key)]! > 2 { continue }
                 let before = signature(app)
                 guard let element = find(key, in: app), reveal(element, in: app) else {
                     log("UNREACHABLE", path, key, "listed but not tappable")
-                    fresh = true
+                    guard signature(app) == before || open(path) else { break }
                     continue
                 }
                 element.tap()
-                _ = app.wait(for: .runningForeground, timeout: 2)
-                usleep(700_000)
+                let after = settle(changedFrom: before)
                 if dismissSystemPrompt() {
                     log("SYSTEM_PROMPT", path, key, "opened an iOS permission dialog (dismissed)")
-                    fresh = false
+                    guard open(path) else { break }
                     continue
                 }
                 checkHealthy(app, path + [Step(key: key)])
-                let after = signature(app)
                 if after == before {
                     log("NO_EFFECT", path, key, "nothing changed on \(screen)")
-                    fresh = true
-                } else {
-                    let title = navTitle(app)
-                    let kind = title != navTitleFrom(before) ? "OPENS" : "CHANGES"
-                    log(kind, path, key, title.isEmpty ? "sheet, popover or state change" : title)
-                    let revealedNew = !Set(candidates(app)).subtracting(controls).isEmpty
-                    if kind == "OPENS" || revealedNew {
-                        queue.append(path + [Step(key: key)])
-                    }
-                    // Going back is much faster than relaunching; fall back to a relaunch if it doesn't return.
-                    fresh = kind == "OPENS" && goBack(app) && signature(app) == before
+                    continue
                 }
+                let title = navTitle(app)
+                let kind = title != navTitleFrom(before) ? "OPENS" : "CHANGES"
+                log(kind, path, key, title.isEmpty ? "sheet, popover or state change" : title)
+                let revealedNew = !Set(candidates(app).map(Self.kind)).subtracting(controls.map(Self.kind)).isEmpty
+                if path.count < 6, kind == "OPENS" || revealedNew {
+                    queue.append(path + [Step(key: key)])
+                }
+                guard undo(key, to: before) || open(path) else { break }
             }
         }
+        let seconds = Int(Date().timeIntervalSince(started))
         let counts = Dictionary(grouping: report, by: { $0.split(separator: "|").dropFirst().first.map(String.init) ?? "" })
             .map { "\($0.key)=\($0.value.count)" }.sorted().joined(separator: " ")
         report.insert("CRAWL|TOTALS|\(counts)", at: 0)
@@ -90,43 +102,104 @@ final class CrawlerUITests: XCTestCase {
         attachment.name = "ui-crawl-report"
         attachment.lifetime = .keepAlways
         add(attachment)
-        print("CRAWL|SUMMARY|screens=\(visited.count)|lines=\(report.count)|seconds=\(Int(Date().timeIntervalSince(started)))")
+        print("CRAWL|SUMMARY|complete=\(queue.isEmpty)|left=\(queue.count)|screens=\(visited.count)|lines=\(report.count)|relaunches=\(relaunches)|seconds=\(seconds)")
+        XCTAssertTrue(queue.isEmpty, "Ran out of time with \(queue.count) screens left, so coverage is incomplete.")
+    }
+
+    /// The same key with numbers and sample names taken out, so rows of one kind compare equal.
+    private static func kind(_ key: String) -> String {
+        key.replacingOccurrences(of: "[0-9]+", with: "#", options: .regularExpression)
     }
 
     // MARK: - Navigation
 
-    private func open(_ path: [Step]) -> XCUIApplication? {
-        let app = XCUIApplication()
-        app.terminate()
-        app.launchArguments = ["--skip-welcome", "--demo"]
-        app.launch()
-        guard app.tabBars.firstMatch.waitForExistence(timeout: 15) else { return nil }
-        for (index, step) in path.enumerated() {
-            guard let element = find(step.key, in: app), reveal(element, in: app) else {
-                log("PATH_BROKEN", Array(path.prefix(index)), step.key, "could not replay")
-                return nil
-            }
-            element.tap()
-            usleep(900_000)
+    /// Waits only as long as the screen is still changing.
+    @discardableResult
+    private func settle(changedFrom before: String? = nil, timeout: TimeInterval = 1.2) -> String {
+        let deadline = Date().addingTimeInterval(timeout)
+        var last = signature(app)
+        while Date() < deadline {
+            usleep(80_000)
+            let now = signature(app)
+            if now == last, before == nil || now != before { return now }
+            last = now
         }
-        return app
+        return last
     }
 
-    private func reopen(_ app: XCUIApplication, _ path: [Step]) -> Bool { open(path) != nil }
+    /// Undoes one tap the way a person would. Much faster than starting the app again.
+    private func undo(_ key: String, to before: String) -> Bool {
+        func back() -> Bool { settle(timeout: 0.6) == before }
+        if signature(app) == before { return true }
+        if goBack(app), back() { return true }
+        for name in ["Done", "Not now", "Cancel", "Close"] {
+            let button = app.buttons[name].firstMatch
+            if canTap(button, in: app) {
+                button.tap()
+                if back() { return true }
+            }
+        }
+        // A popover closes when its outside is tapped; a switch or selection flips back.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.07)).tap()
+        if back() { return true }
+        if let element = find(key, in: app), canTap(element, in: app) {
+            element.tap()
+            if back() { return true }
+        }
+        return false
+    }
+
+    /// Gets to a path: from the tab's own first screen when the app is there, otherwise by starting again.
+    private func open(_ path: [Step]) -> Bool {
+        guard let first = path.first else { return false }
+        if app.state == .runningForeground, let root = rootSignatures[first.key] {
+            let tab = app.tabBars.buttons[String(first.key.dropFirst(4))]
+            if canTap(tab, in: app) {
+                tab.tap()
+                settle(timeout: 0.5)
+                if signature(app) != root, canTap(tab, in: app) { tab.tap() }
+                if settle(timeout: 0.6) == root, replay(path.dropFirst(), from: path) { return true }
+            }
+        }
+        relaunches += 1
+        app.terminate()
+        app = XCUIApplication()
+        app.launchArguments = ["--skip-welcome", "--demo", "--demo-archive", "--pro", "--ui-fast"]
+        app.launch()
+        guard app.tabBars.firstMatch.waitForExistence(timeout: 20) else {
+            XCTFail("The app did not start.")
+            return false
+        }
+        guard replay(path.prefix(1), from: path) else { return false }
+        rootSignatures[first.key] = settle(timeout: 2)
+        return replay(path.dropFirst(), from: path)
+    }
+
+    private func replay(_ steps: ArraySlice<Step>, from path: [Step]) -> Bool {
+        for step in steps {
+            let before = signature(app)
+            guard let element = find(step.key, in: app), reveal(element, in: app) else {
+                log("PATH_BROKEN", path, step.key, "could not replay")
+                return false
+            }
+            element.tap()
+            settle(changedFrom: step.key.hasPrefix("tab:") ? nil : before)
+        }
+        return true
+    }
 
     /// Taps the navigation bar's Back button, if there is one.
     private func goBack(_ app: XCUIApplication) -> Bool {
         let back = app.navigationBars.buttons.element(boundBy: 0)
-        guard back.exists, back.isHittable, back.frame.minX < 120 else { return false }
+        guard canTap(back, in: app), back.frame.minX < 120 else { return false }
         back.tap()
-        usleep(700_000)
         return true
     }
 
     /// iOS permission dialogs belong to the system, not the app, so they need their own check.
     private func dismissSystemPrompt() -> Bool {
         let alert = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.firstMatch
-        guard alert.waitForExistence(timeout: 1) else { return false }
+        guard alert.exists else { return false }
         for label in ["Don’t Allow", "Don't Allow", "Cancel", "Not Now", "OK"] where alert.buttons[label].exists {
             alert.buttons[label].tap()
             return true
@@ -152,7 +225,7 @@ final class CrawlerUITests: XCTestCase {
     private func reveal(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
         for _ in 0..<6 {
             if canTap(element, in: app) { return true }
-            app.swipeUp(velocity: .slow)
+            app.swipeUp(velocity: .fast)
         }
         return canTap(element, in: app)
     }
