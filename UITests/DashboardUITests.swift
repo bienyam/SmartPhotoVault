@@ -282,6 +282,24 @@ final class DashboardUITests: XCTestCase {
         XCTAssertTrue(app.tabBars.buttons["Archive"].exists)
     }
 
+    func testWelcomeStorySkipLandsOnEveryWelcomeElement() {
+        let app = XCUIApplication()
+        app.launchArguments += ["--reset-welcome"]
+        app.launch()
+        let skip = app.buttons["welcome-skip"]
+        XCTAssertTrue(skip.waitForExistence(timeout: 10), "The story should open with a Skip button.")
+        skip.tap()
+        XCTAssertTrue(app.buttons["Get started"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Try it with sample photos"].exists)
+        XCTAssertTrue(app.staticTexts["Out of space? Let's fix it safely."].exists)
+        XCTAssertTrue(app.staticTexts["The check runs on your iPhone. Your photos stay put."].exists)
+        XCTAssertTrue(app.staticTexts["Nothing is removed until you approve it."].exists)
+        XCTAssertTrue(app.staticTexts["Every change is logged and can be traced."].exists)
+        XCTAssertFalse(app.buttons["welcome-skip"].exists, "Skip goes away on the last screen.")
+        app.buttons["Try it with sample photos"].tap()
+        XCTAssertTrue(app.buttons["row-duplicates"].waitForExistence(timeout: 15), "Samples should load.")
+    }
+
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments += ["--skip-welcome"]
