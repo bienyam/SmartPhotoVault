@@ -679,8 +679,10 @@ struct PhotoArchiveView: View {
         message = nil
         restoreTarget = nil
         let account = google
+        UIApplication.shared.isIdleTimerDisabled = true
         Task {
             var records: [ArchivedRecord] = []
+            var copies: [String: ArchivedRecord] = [:]
             var problems: [String] = []
             var copiedItems: [ArchiveItem] = []
             var driveFolder: String?
@@ -695,11 +697,14 @@ struct PhotoArchiveView: View {
                         let uploaded = try await Task.detached(priority: .userInitiated) {
                             try GoogleDriveClient.streamUpload(item, folderID: folderID, token: token)
                         }.value
-                        records.append(ArchivedRecord(id: UUID().uuidString, name: item.name,
-                                                      folderName: "Google Drive", bytes: uploaded.fingerprint.bytes,
-                                                      digest: uploaded.fingerprint.digest, date: Date(),
-                                                      viaHomeServer: false, folderBookmark: nil, driveFileID: uploaded.fileID))
+                        let record = ArchivedRecord(id: UUID().uuidString, name: item.name,
+                                                    folderName: "Google Drive", bytes: uploaded.fingerprint.bytes,
+                                                    digest: uploaded.fingerprint.digest, date: Date(),
+                                                    viaHomeServer: false, folderBookmark: nil, driveFileID: uploaded.fileID)
+                        records.append(record)
                         copiedItems.append(item)
+                        // Saved as each item finishes, so an interrupted run keeps what it already copied.
+                        if Self.save(record) { copies[item.id] = record } else { problems.append(Self.notSaved(item)) }
                     } catch {
                         problems.append("\(item.name) — \(error.localizedDescription)")
                     }
@@ -707,17 +712,17 @@ struct PhotoArchiveView: View {
             } catch {
                 problems.append(error.localizedDescription)
             }
-            try? InventoryStore.openDefault().saveArchived(records)
             refreshArchivedBytes()
-            let copiedNames = Set(records.map(\.name))
+            let copiedIDs = Set(copiedItems.map(\.id))
             failures = problems
-            items.removeAll { copiedNames.contains($0.name) }
+            items.removeAll { copiedIDs.contains($0.id) }
             message = nil
             if !records.isEmpty {
                 completion = ArchiveCompletion(items: copiedItems, bytes: records.reduce(0) { $0 + $1.bytes },
-                                               place: "Google Drive", driveFolderID: driveFolder)
+                                               place: "Google Drive", driveFolderID: driveFolder, copies: copies)
             }
             recordOutcome("Archive copy to Google Drive \(operation) completed. Verified \(records.count) of \(selection.count) items.")
+            UIApplication.shared.isIdleTimerDisabled = false
             busy = false
         }
     }
@@ -741,34 +746,37 @@ struct PhotoArchiveView: View {
         busy = true
         message = nil
         restoreTarget = nil
+        UIApplication.shared.isIdleTimerDisabled = true
         Task {
-            let result = await Task.detached(priority: .userInitiated) {
-                var successes: [ArchiveReceipt] = []
-                var failures: [String] = []
-                for item in selection {
-                    do {
-                        successes.append(try VerifiedArchive.copy(item, to: destination, wifi: home ? wifiCheck : nil))
-                    }
-                    catch { failures.append("\(item.name) — \(error.localizedDescription)") }
-                }
-                return (successes, failures)
-            }.value
-            let copied = Set(result.0.map(\.id))
-            receipts.removeAll { copied.contains($0.id) }
-            receipts.append(contentsOf: result.0)
+            var successes: [ArchiveReceipt] = []
+            var problems: [String] = []
+            var copies: [String: ArchivedRecord] = [:]
             let bookmark = Self.bookmark(for: destination)
-            let archivedAt = Date()
-            try? InventoryStore.openDefault().saveArchived(result.0.map { receipt in
-                ArchivedRecord(id: UUID().uuidString, name: receipt.url.lastPathComponent,
-                               folderName: destination.lastPathComponent, bytes: receipt.fingerprint.bytes,
-                               digest: receipt.fingerprint.digest, date: archivedAt,
-                               viaHomeServer: home, folderBookmark: bookmark)
-            })
+            for item in selection {
+                let result = await Task.detached(priority: .userInitiated) {
+                    Result { try VerifiedArchive.copy(item, to: destination, wifi: home ? wifiCheck : nil) }
+                }.value
+                switch result {
+                case let .success(receipt):
+                    successes.append(receipt)
+                    let record = ArchivedRecord(id: UUID().uuidString, name: receipt.url.lastPathComponent,
+                                                folderName: destination.lastPathComponent, bytes: receipt.fingerprint.bytes,
+                                                digest: receipt.fingerprint.digest, date: Date(),
+                                                viaHomeServer: home, folderBookmark: bookmark)
+                    // Saved as each item finishes, so an interrupted run keeps what it already copied.
+                    if Self.save(record) { copies[item.id] = record } else { problems.append(Self.notSaved(item)) }
+                case let .failure(error):
+                    problems.append("\(item.name) — \(error.localizedDescription)")
+                }
+            }
+            let copied = Set(successes.map(\.id))
+            receipts.removeAll { copied.contains($0.id) }
+            receipts.append(contentsOf: successes)
             refreshArchivedBytes()
             homeReceipts.subtract(copied)
             if home { homeReceipts.formUnion(copied) }
             restored.subtract(copied)
-            failures = result.1
+            failures = problems
             items.removeAll { copied.contains($0.id) }
             for id in copied {
                 measuredBytes[id] = nil
@@ -777,9 +785,10 @@ struct PhotoArchiveView: View {
             recordOutcome("Archive copy \(operation) completed. Verified \(copied.count) of \(selection.count) items.")
             if !copied.isEmpty {
                 completion = ArchiveCompletion(items: selection.filter { copied.contains($0.id) },
-                                               bytes: result.0.reduce(0) { $0 + $1.fingerprint.bytes },
-                                               place: destination.lastPathComponent, driveFolderID: nil)
+                                               bytes: successes.reduce(0) { $0 + $1.fingerprint.bytes },
+                                               place: destination.lastPathComponent, driveFolderID: nil, copies: copies)
             }
+            UIApplication.shared.isIdleTimerDisabled = false
             busy = false
         }
     }
@@ -839,15 +848,18 @@ struct PhotoArchiveView: View {
     private func completionNote(_ done: ArchiveCompletion) -> String? {
         guard !done.photoIDs.isEmpty else { return nil }
         if RemovalAfterArchive.enabled {
-            return "They're still on your iPhone too. Remove them to free \(done.bytes.fileSize) here."
+            let removable = done.removable
+            guard !removable.isEmpty else { return "They're still on your iPhone too. Favorites stay." }
+            return "They're still on your iPhone too. Every copy is checked again before anything is removed: up to \(done.bytes(of: removable).fileSize)."
         }
         return "They're still on your iPhone too. Removing originals after archiving turns on once putting an item back has been tested on this iPhone."
     }
 
     private func completionActions(_ done: ArchiveCompletion) -> [CompletionAction] {
         var actions: [CompletionAction] = []
-        if !done.photoIDs.isEmpty, RemovalAfterArchive.enabled, model != nil {
-            actions.append(CompletionAction(title: "Free up \(done.bytes.fileSize) on iPhone", icon: "iphone.and.arrow.forward",
+        let removable = done.removable
+        if !removable.isEmpty, RemovalAfterArchive.enabled, model != nil {
+            actions.append(CompletionAction(title: "Free up \(done.bytes(of: removable).fileSize) on iPhone", icon: "iphone.and.arrow.forward",
                                             prominent: true, identifier: "completion-remove") {
                 completion = nil
                 removal = done
@@ -867,7 +879,15 @@ struct PhotoArchiveView: View {
 
     /// Everything archived so far counts toward the free 5 GB.
     private func refreshArchivedBytes() {
-        archivedBytes = ((try? InventoryStore.openDefault().archived()) ?? []).reduce(0) { $0 + $1.bytes }
+        archivedBytes = (try? InventoryStore.openDefault().archivedBytes()) ?? 0
+    }
+
+    private static func save(_ record: ArchivedRecord) -> Bool {
+        (try? InventoryStore.openDefault().saveArchived([record])) != nil
+    }
+
+    private static func notSaved(_ item: ArchiveItem) -> String {
+        "\(item.name) — Copied, but it couldn't be added to Get back, so its original stays on this iPhone."
     }
 
     /// Lets the Archived tab reopen the folder later without asking the user to pick it again.

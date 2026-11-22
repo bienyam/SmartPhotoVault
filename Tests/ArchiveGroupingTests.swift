@@ -31,6 +31,15 @@ final class ArchiveGroupingTests: XCTestCase {
         XCTAssertEqual(done.count, 2)
     }
 
+    func testDeleteSizeCountsOnlyTheGivenItemsWithSavedCopies() {
+        let photo = ArchiveItem(id: "1", name: "a.heic", source: .photo("photo-1", expected: nil))
+        let other = ArchiveItem(id: "2", name: "a.heic", source: .photo("photo-2", expected: nil))
+        let done = ArchiveCompletion(items: [photo, other], bytes: 100, place: "Drive", driveFolderID: nil,
+                                     copies: ["1": record("a.heic", Date(), bytes: 40)])
+        XCTAssertEqual(done.bytes(of: [photo]), 40)
+        XCTAssertEqual(done.bytes(of: [photo, other]), 40, "No saved copy, so it isn't counted, even with the same name.")
+    }
+
     func testRemovalAfterArchiveIsSwitchedOnByTheOwner() {
         XCTAssertTrue(RemovalAfterArchive.enabled, "Switched on by the owner on 2026-11-21.")
     }
