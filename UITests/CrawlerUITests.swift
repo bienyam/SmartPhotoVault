@@ -20,7 +20,9 @@ final class CrawlerUITests: XCTestCase {
         "Terms of Use", "Privacy Policy", "Open Settings", "google-connect", "Disconnect Google Drive",
         "pro-monthly", "pro-lifetime", "pro-restore", "Restore purchase", "Manage subscription", "Try again",
         "Pick photos or videos myself", "Pick files myself", "Choose archive folder in Files",
-        "Choose where to restore it", "Change folder", "archive-scan", "archive-copy", "archive-stop", "delete-selected", "free-up-space", "check-again",
+        "Choose where to restore it", "Change folder", "archive-scan", "archive-copy", "archive-stop",
+        // These open Apple's own file window, which belongs to another process and covers the app.
+        "Choose an iCloud Drive file", "Choose a different drive or folder", "Choose a folder", "delete-selected", "free-up-space", "check-again",
         "Check my photos instead", "Stop", "Allow Access to Photos", "See TidyAway Pro", "Switch to lifetime"
     ]
 
@@ -59,6 +61,7 @@ final class CrawlerUITests: XCTestCase {
             }
             var pending = controls
             var index = 0
+            var restarts = 0
             while index < pending.count, Date().timeIntervalSince(started) < budget {
                 let key = pending[index]
                 index += 1
@@ -72,12 +75,26 @@ final class CrawlerUITests: XCTestCase {
                 tapped[kindOnScreen, default: 0] += 1
                 let before = signature(app)
                 guard let element = find(key, in: app), reveal(element, in: app) else {
-                    // Something chosen earlier on this screen may have put it away; that isn't a dead button.
-                    if controls.contains(key), index <= controls.count { log("UNREACHABLE", path, key, "listed but not tappable") }
-                    if place(signature(app)) != place(before), !open(path) { break }
+                    if restarts < 3, controls.contains(key) {
+                        // Something chosen earlier on this screen put it away. Start the screen again and go on from here.
+                        restarts += 1
+                        index -= 1
+                        tapped[kindOnScreen, default: 1] -= 1
+                        guard open(path, fresh: true) else { break }
+                        if find(key, in: app) == nil {
+                            log("UNREACHABLE", path, key, "listed but not found")
+                            index += 1
+                        }
+                    } else if controls.contains(key) {
+                        log("UNREACHABLE", path, key, "listed but not tappable")
+                    }
                     continue
                 }
-                element.tap()
+                guard tap(element) else {
+                    log("UNREACHABLE", path, key, "covered by something else")
+                    guard open(path, fresh: true) else { break }
+                    continue
+                }
                 let after = settle(changedFrom: before)
                 if dismissSystemPrompt() {
                     log("SYSTEM_PROMPT", path, key, "opened an iOS permission dialog (dismissed)")
@@ -90,7 +107,8 @@ final class CrawlerUITests: XCTestCase {
                     continue
                 }
                 let title = navTitleFrom(after)
-                let opens = title != navTitleFrom(before)
+                // No title at all means something on top, such as a popover.
+                let opens = !title.isEmpty && title != navTitleFrom(before)
                 log(opens ? "OPENS" : "CHANGES", path, key, title.isEmpty ? "sheet, popover or state change" : title)
                 let found = candidates(app)
                 let covered = place(after) != place(before) || !(find(key, in: app).map { canTap($0, in: app) } ?? false)
@@ -155,27 +173,29 @@ final class CrawlerUITests: XCTestCase {
             app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.07)).tap()
             return back()
         }
-        if !opened, outside() { return true }
+        if opened {
+            if goBack(app), back() { return true }
+        } else if outside() {
+            return true
+        }
         for name in ["Done", "Not now", "Cancel", "Close"] {
             let button = app.buttons[name].firstMatch
             if canTap(button, in: app) {
-                button.tap()
-                if back() { return true }
+                if tap(button), back() { return true }
             }
         }
-        if goBack(app), back() { return true }
         return false
     }
 
     /// Gets to a path: from the tab's own first screen when the app is there, otherwise by starting again.
-    private func open(_ path: [Step]) -> Bool {
+    private func open(_ path: [Step], fresh: Bool = false) -> Bool {
         guard let first = path.first else { return false }
-        if app.state == .runningForeground, let root = rootSignatures[first.key] {
+        if !fresh, app.state == .runningForeground, let root = rootSignatures[first.key] {
             let tab = app.tabBars.buttons[String(first.key.dropFirst(4))]
             if canTap(tab, in: app) {
-                tab.tap()
-                if place(settle(timeout: 0.5)) != place(root), canTap(tab, in: app) { tab.tap() }
-                if place(settle(timeout: 0.6)) == place(root), replay(path.dropFirst(), from: path, quiet: true) { return true }
+                var reached = tap(tab)
+                if reached, place(settle(timeout: 0.5)) != place(root), canTap(tab, in: app) { reached = tap(tab) }
+                if reached, place(settle(timeout: 0.6)) == place(root), replay(path.dropFirst(), from: path, quiet: true) { return true }
             }
         }
         relaunches += 1
@@ -199,7 +219,7 @@ final class CrawlerUITests: XCTestCase {
                 if !quiet { log("PATH_BROKEN", path, step.key, "could not replay") }
                 return false
             }
-            element.tap()
+            guard tap(element) else { return false }
             settle(changedFrom: step.key.hasPrefix("tab:") ? nil : before)
         }
         return true
@@ -209,8 +229,20 @@ final class CrawlerUITests: XCTestCase {
     private func goBack(_ app: XCUIApplication) -> Bool {
         let back = app.navigationBars.buttons.element(boundBy: 0)
         guard canTap(back, in: app), back.frame.minX < 120 else { return false }
-        back.tap()
-        return true
+        return tap(back)
+    }
+
+    /// A tap that something else covers is reported as false instead of ending the crawl.
+    private func tap(_ element: XCUIElement) -> Bool {
+        var failed = false
+        let options = XCTExpectedFailure.Options()
+        options.isStrict = false
+        options.issueMatcher = { _ in
+            failed = true
+            return true
+        }
+        XCTExpectFailure("Something covered the element.", options: options) { element.tap() }
+        return !failed
     }
 
     /// iOS permission dialogs belong to the system, not the app, so they need their own check.
