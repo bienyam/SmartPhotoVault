@@ -6,7 +6,6 @@ import SwiftUI
 /// Photos: Adobe Stock 379533224, 254326092, 109692836 (licensed, see mockups/welcome-assets/LICENSES.txt).
 struct WelcomeStoryView: View {
     let start: () -> Void
-    let trySamples: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
@@ -23,7 +22,7 @@ struct WelcomeStoryView: View {
                 switch beat {
                 case 0: MomentBeat(animate: !reduceMotion).id(0)
                 case 1: ScanBeat(animate: !reduceMotion).id(1)
-                default: PayoffBeat(animate: !reduceMotion, start: start, trySamples: trySamples).id(2)
+                default: PayoffBeat(animate: !reduceMotion, start: start).id(2)
                 }
             }
             .transition(.opacity)
@@ -199,7 +198,6 @@ private struct ScanBeat: View {
 private struct PayoffBeat: View {
     let animate: Bool
     let start: () -> Void
-    let trySamples: () -> Void
     @State private var glow = false
 
     var body: some View {
@@ -238,12 +236,6 @@ private struct PayoffBeat: View {
                                 .foregroundStyle(Color.white)
                                 .background(Brand.primary, in: RoundedRectangle(cornerRadius: 16))
                                 .shadow(color: Brand.primary.opacity(glow ? 0.85 : 0.45), radius: glow ? 20 : 12, y: 8)
-                        }
-                        Button(action: trySamples) {
-                            Text("Try it with sample photos")
-                                .font(.subheadline.weight(.semibold))
-                                .frame(maxWidth: .infinity, minHeight: 48)
-                                .foregroundStyle(Color(red: 1, green: 0.84, blue: 0.74))
                         }
                         Text("TidyAway asks for Photos access only when you start a scan, and it only reads at that stage.")
                             .font(.footnote)
