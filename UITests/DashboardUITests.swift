@@ -288,16 +288,38 @@ final class DashboardUITests: XCTestCase {
         app.launch()
         let skip = app.buttons["welcome-skip"]
         XCTAssertTrue(skip.waitForExistence(timeout: 10), "The story should open with a Skip button.")
+        keepScreenshot(of: app, named: "Welcome moment")
         skip.tap()
         XCTAssertTrue(app.buttons["Get started"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["Try it with sample photos"].exists)
+        XCTAssertFalse(app.buttons["Try it with sample photos"].exists, "Samples are not offered to people.")
         XCTAssertTrue(app.staticTexts["Out of space? Let's fix it safely."].exists)
         XCTAssertTrue(app.staticTexts["The check runs on your iPhone. Your photos stay put."].exists)
         XCTAssertTrue(app.staticTexts["Nothing is removed until you approve it."].exists)
         XCTAssertTrue(app.staticTexts["Every change is logged and can be traced."].exists)
         XCTAssertFalse(app.buttons["welcome-skip"].exists, "Skip goes away on the last screen.")
-        app.buttons["Try it with sample photos"].tap()
-        XCTAssertTrue(app.buttons["row-duplicates"].waitForExistence(timeout: 15), "Samples should load.")
+        keepScreenshot(of: app, named: "Welcome payoff")
+        app.buttons["Get started"].tap()
+        XCTAssertTrue(app.buttons["free-up-space"].waitForExistence(timeout: 10)
+                      || app.buttons["check-again"].exists)
+        XCTAssertFalse(app.buttons["try-samples"].exists)
+    }
+
+    func testWelcomeStoryTapMovesOnAndEndsOnGetStarted() {
+        let app = XCUIApplication()
+        app.launchArguments += ["--reset-welcome"]
+        app.launch()
+        XCTAssertTrue(app.buttons["welcome-skip"].waitForExistence(timeout: 10))
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        usleep(1_500_000)
+        keepScreenshot(of: app, named: "Welcome scan")
+        XCTAssertTrue(app.buttons["Get started"].waitForExistence(timeout: 15), "The story should end by itself.")
+    }
+
+    private func keepScreenshot(of app: XCUIApplication, named name: String) {
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     private func launch() -> XCUIApplication {

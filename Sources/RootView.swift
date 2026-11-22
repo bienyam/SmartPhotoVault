@@ -22,13 +22,7 @@ struct RootView: View {
     var body: some View {
         Group {
             if showWelcome {
-                WelcomeStoryView(
-                    start: { finishWelcome() },
-                    trySamples: {
-                        model.showDemo()
-                        finishWelcome()
-                    }
-                )
+                WelcomeStoryView(start: { finishWelcome() })
             } else {
                 tabs
             }

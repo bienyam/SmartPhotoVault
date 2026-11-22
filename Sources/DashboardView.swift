@@ -77,9 +77,6 @@ struct FreeUpView: View {
                 InfoButton(title: "How it works",
                            text: "TidyAway looks through the photos and videos on this iPhone and lists the biggest things you could remove. It reads them on your iPhone and sends nothing anywhere. You choose what goes, sign off, and Apple asks you to confirm.")
             }
-            Button("Try it with sample photos") { model.showDemo() }
-                .font(.subheadline)
-                .accessibilityIdentifier("try-samples")
         }
     }
 
