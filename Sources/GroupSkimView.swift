@@ -41,6 +41,12 @@ struct SkimPart: Identifiable {
     }
 }
 
+/// The last picture fully on screen right now.
+private struct SkimVisible: PreferenceKey {
+    static let defaultValue = 0
+    static func reduce(value: inout Int, nextValue: () -> Int) { value = max(value, nextValue()) }
+}
+
 /// Look through a whole group quickly. Everything starts selected, because archiving only copies;
 /// tap one, or a whole part, to leave it out.
 struct GroupSkimView: View {
@@ -48,6 +54,7 @@ struct GroupSkimView: View {
     let next: ([AssetRecord]) -> Void
     @State private var leftOut: Set<String> = []
     @State private var seen = 0
+    @State private var visible = 0
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 3), count: 4)
     private let parts: [SkimPart]
@@ -101,6 +108,12 @@ struct GroupSkimView: View {
             }
         }
         .background(Brand.background)
+        .onPreferenceChange(SkimVisible.self) { visible = $0 }
+        .task(id: visible) {
+            // Rows prepared ahead of scrolling pass through the screen for an instant; only what stays counts.
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            if !Task.isCancelled, visible > seen { seen = visible }
+        }
         .navigationTitle(group.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -175,11 +188,8 @@ struct GroupSkimView: View {
             if position % 4 == 0 || position == positions.count {
                 GeometryReader { geo in
                     let frame = geo.frame(in: .global)
-                    // Pictures prepared ahead of scrolling have no place on screen yet, so they don't count.
                     let shown = frame.height > 1 && frame.minY > 60 && frame.maxY < UIScreen.main.bounds.height - 150
-                    Color.clear.onChange(of: shown, initial: true) { _, shown in
-                        if shown, position > seen { seen = position }
-                    }
+                    Color.clear.preference(key: SkimVisible.self, value: shown ? position : 0)
                 }
             }
         }

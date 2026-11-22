@@ -32,6 +32,8 @@ final class CrawlerUITests: XCTestCase {
     private var rootSignatures: [String: String] = [:]
     private var shapes: Set<String> = []
     private var tapped: [String: Int] = [:]
+    /// Controls already tapped, by screen, however the screen was reached.
+    private var done: Set<String> = []
     private var relaunches = 0
 
     override func setUp() {
@@ -71,7 +73,7 @@ final class CrawlerUITests: XCTestCase {
                 }
                 // Rows of one kind behave alike: two of each on a screen are enough.
                 let kindOnScreen = screen + "|" + Self.kind(key)
-                if tapped[kindOnScreen, default: 0] >= 2 { continue }
+                if tapped[kindOnScreen, default: 0] >= 2 || !done.insert(screen + "|" + key).inserted { continue }
                 tapped[kindOnScreen, default: 0] += 1
                 let before = signature(app)
                 guard let element = find(key, in: app), reveal(element, in: app) else {
@@ -80,6 +82,7 @@ final class CrawlerUITests: XCTestCase {
                         restarts += 1
                         index -= 1
                         tapped[kindOnScreen, default: 1] -= 1
+                        done.remove(screen + "|" + key)
                         guard open(path, fresh: true) else { break }
                         if find(key, in: app) == nil {
                             log("UNREACHABLE", path, key, "listed but not found")
@@ -115,7 +118,9 @@ final class CrawlerUITests: XCTestCase {
                 if opens || covered {
                     // Somewhere else, or a menu or sheet on top: look at it later, and go back now.
                     let revealed = !Set(found.map(Self.kind)).subtracting(controls.map(Self.kind)).isEmpty
-                    if path.count < 6, opens || revealed { queue.append(path + [Step(key: key)]) }
+                    // A menu or popover has no title of its own: opening it is the check, so it isn't explored again and again.
+                    let overlay = title == navTitleFrom(before) && place(after) != place(before) && revealed
+                    if path.count < 6, opens || overlay { queue.append(path + [Step(key: key)]) }
                     guard undo(key, to: before, opened: opens) || open(path) else { break }
                 } else {
                     // A choice on the same screen. Nothing needs undoing; anything it revealed is tapped here too.
