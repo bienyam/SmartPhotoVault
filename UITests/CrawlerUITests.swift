@@ -151,10 +151,25 @@ final class CrawlerUITests: XCTestCase {
 
     private func reveal(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
         for _ in 0..<6 {
-            if element.exists && element.isHittable { return true }
+            if canTap(element, in: app) { return true }
             app.swipeUp(velocity: .slow)
         }
-        return element.exists && element.isHittable
+        return canTap(element, in: app)
+    }
+
+    /// Asking a closing menu's item whether it can be tapped raises a test error of its own ("activation
+    /// point invalid"), which ended the whole crawl. That one question may fail; crashes still fail the test.
+    private func canTap(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
+        guard element.exists else { return false }
+        var hittable = false
+        let options = XCTExpectedFailure.Options()
+        options.isStrict = false
+        XCTExpectFailure("The element moved away while it was being read.", options: options) {
+            let frame = element.frame
+            guard !frame.isEmpty, !frame.isInfinite, app.frame.intersects(frame) else { return }
+            hittable = element.isHittable
+        }
+        return hittable
     }
 
     // MARK: - Reading the screen
