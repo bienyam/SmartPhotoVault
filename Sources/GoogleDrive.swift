@@ -291,6 +291,25 @@ enum GoogleDriveClient {
         return folder.id
     }
 
+    /// What Drive says about a stored file.
+    struct StoredFile: Decodable {
+        let id: String
+        let size: String?
+        let sha256Checksum: String?
+        let md5Checksum: String?
+        let trashed: Bool?
+    }
+
+    static func storedFile(_ fileID: String, token: String) async throws -> StoredFile {
+        var request = URLRequest(url: URL(string: "https://www.googleapis.com/drive/v3/files/\(fileID)?fields=id,size,sha256Checksum,md5Checksum,trashed")!)
+        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        do {
+            return try await send(request, token: token)
+        } catch GoogleDriveError.server(404) {
+            throw ArchiveProofError.copyMissing
+        }
+    }
+
     /// Downloads an archived file to a temporary location and hashes it.
     static func download(_ fileID: String, token: String) async throws -> (url: URL, digest: String) {
         var request = URLRequest(url: URL(string: "https://www.googleapis.com/drive/v3/files/\(fileID)?alt=media")!)

@@ -118,6 +118,90 @@ enum VerifiedArchive {
         return resource
     }
 
+    /// Reads a whole archive copy back from where it is stored and compares it with the fingerprint taken
+    /// when it was archived. Anything missing, different or not yet uploaded throws.
+    /// `offDevice` is only ever false in tests, which have no second volume to write to.
+    static func checkCopy(named name: String, in folder: URL, expected: ArchiveFingerprint,
+                          wifi: ArchiveWiFi?, offDevice: Bool = true) throws -> CopyStamp {
+        try wifi?.requireConnection()
+        return try scoped(folder) {
+            try coordinateRead(folder.appendingPathComponent(name)) { url in
+                let before = try stamp(url, offDevice: offDevice)
+                guard before.bytes == expected.bytes,
+                      try read(url, wifi: wifi, skipCache: true) == expected else { throw ArchiveProofError.copyDiffers }
+                guard try stamp(url, offDevice: offDevice) == before else { throw ArchiveProofError.changedSinceCheck }
+                return before
+            }
+        }
+    }
+
+    /// The copy's current size and date, without reading its contents.
+    static func copyStamp(named name: String, in folder: URL, wifi: ArchiveWiFi?, offDevice: Bool = true) throws -> CopyStamp {
+        try wifi?.requireConnection()
+        return try scoped(folder) {
+            try coordinateRead(folder.appendingPathComponent(name)) { try stamp($0, offDevice: offDevice) }
+        }
+    }
+
+    /// Reads the whole original from Photos again (downloading it from iCloud if needed) and hashes it.
+    static func originalFingerprint(_ id: String) throws -> ArchiveFingerprint {
+        guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject,
+              let resource = original(for: asset) else { throw ArchiveProofError.originalChanged }
+        let sink = ArchiveHasher()
+        let options = PHAssetResourceRequestOptions()
+        options.isNetworkAccessAllowed = true
+        let completion = DispatchSemaphore(value: 0)
+        let manager = PHAssetResourceManager.default()
+        let request = manager.requestData(for: resource, options: options) { data in
+            sink.append(data)
+        } completionHandler: { error in
+            sink.finish(error)
+            completion.signal()
+        }
+        let limit: DispatchTimeInterval = asset.mediaType == .video ? .seconds(3600) : .seconds(600)
+        if completion.wait(timeout: .now() + limit) == .timedOut {
+            sink.finish(ArchiveError.unavailable)
+            manager.cancelDataRequest(request)
+        }
+        do {
+            return try sink.result()
+        } catch let error as NSError where error.domain == PHPhotosErrorDomain {
+            throw ArchiveError.iCloudDownload
+        }
+    }
+
+    private static func stamp(_ url: URL, offDevice: Bool) throws -> CopyStamp {
+        guard FileManager.default.fileExists(atPath: url.path) else { throw ArchiveProofError.copyMissing }
+        var fresh = url
+        fresh.removeAllCachedResourceValues()
+        let values = try fresh.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey,
+                                                        .contentModificationDateKey, .isUbiquitousItemKey,
+                                                        .ubiquitousItemIsUploadedKey])
+        guard values.isRegularFile == true, values.isSymbolicLink != true, let size = values.fileSize else {
+            throw ArchiveProofError.copyMissing
+        }
+        // A copy in iCloud Drive that hasn't uploaded exists only on this iPhone.
+        if values.isUbiquitousItem == true {
+            guard values.ubiquitousItemIsUploaded == true else { throw ArchiveProofError.notUploaded }
+        } else if offDevice, !isOnAnotherVolume(fresh) {
+            throw ArchiveProofError.notConfirmable
+        }
+        return CopyStamp(bytes: Int64(size), modified: values.contentModificationDate, checksum: nil)
+    }
+
+    /// True for a plugged-in drive or a server: storage that is not this iPhone's own. Cloud apps other than
+    /// iCloud keep files on the iPhone until they upload and don't say when they have, so their folders don't
+    /// count. Anything unclear counts as no.
+    private static func isOnAnotherVolume(_ url: URL) -> Bool {
+        let own = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+        guard let mine = try? own.resourceValues(forKeys: [.volumeIdentifierKey]).volumeIdentifier,
+              let values = try? url.resourceValues(forKeys: [.volumeIdentifierKey, .volumeIsInternalKey]),
+              let theirs = values.volumeIdentifier else { return false }
+        if values.volumeIsInternal == true || mine.isEqual(theirs) { return false }
+        let path = url.standardizedFileURL.path
+        return !["/File Provider Storage", "/CloudStorage/", "/Containers/"].contains { path.contains($0) }
+    }
+
     private static func copyPhoto(_ id: String, to temporary: URL, wifi: ArchiveWiFi?) throws -> ArchiveFingerprint {
         guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject,
               let resource = original(for: asset) else { throw ArchiveError.unsupportedPhoto }
@@ -176,10 +260,13 @@ enum VerifiedArchive {
         return source
     }
 
-    private static func read(_ url: URL, wifi: ArchiveWiFi?, chunk: (Data) -> Void = { _ in }) throws -> ArchiveFingerprint {
+    private static func read(_ url: URL, wifi: ArchiveWiFi?, skipCache: Bool = false,
+                             chunk: (Data) -> Void = { _ in }) throws -> ArchiveFingerprint {
         try wifi?.requireConnection()
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
+        // Asks iOS to read from the drive itself rather than from memory.
+        if skipCache { _ = fcntl(handle.fileDescriptor, F_NOCACHE, 1) }
         var hash = SHA256()
         var bytes: Int64 = 0
         while true {
@@ -214,6 +301,17 @@ enum VerifiedArchive {
         return try result.get()
     }
 
+    private static func coordinateRead<T>(_ url: URL, work: (URL) throws -> T) throws -> T {
+        var error: NSError?
+        var result: Result<T, Error>?
+        NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &error) { accessibleURL in
+            result = Result { try work(accessibleURL) }
+        }
+        if let error { throw error }
+        guard let result else { throw ArchiveError.unavailable }
+        return try result.get()
+    }
+
     private static func coordinateCopy<T>(from source: URL, to destination: URL, work: (URL, URL) throws -> T) throws -> T {
         guard source.standardizedFileURL != destination.standardizedFileURL else { throw ArchiveError.conflict }
         var error: NSError?
@@ -225,6 +323,38 @@ enum VerifiedArchive {
         if let error { throw error }
         guard let result else { throw ArchiveError.unavailable }
         return try result.get()
+    }
+}
+
+/// Hashes an original as Photos hands it over, keeping nothing.
+private final class ArchiveHasher: @unchecked Sendable {
+    private let lock = NSLock()
+    private var hash = SHA256()
+    private var bytes: Int64 = 0
+    private var error: Error?
+    private var closed = false
+
+    func append(_ data: Data) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !closed else { return }
+        hash.update(data: data)
+        bytes += Int64(data.count)
+    }
+
+    func finish(_ failure: Error?) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !closed else { return }
+        closed = true
+        error = failure
+    }
+
+    func result() throws -> ArchiveFingerprint {
+        lock.lock()
+        defer { lock.unlock() }
+        if let error { throw error }
+        return VerifiedArchive.fingerprint(hash, bytes: bytes)
     }
 }
 
@@ -263,6 +393,11 @@ private final class ArchiveWriter: @unchecked Sendable {
         guard !closed else { return }
         closed = true
         error = error ?? failure
+        // Push the bytes out to the drive itself before they are read back and checked.
+        if error == nil, fcntl(handle.fileDescriptor, F_FULLFSYNC) == -1, fsync(handle.fileDescriptor) == -1,
+           errno != ENOTSUP, errno != EINVAL {
+            error = ArchiveError.unavailable
+        }
         do { try handle.close() } catch { self.error = self.error ?? error }
     }
 

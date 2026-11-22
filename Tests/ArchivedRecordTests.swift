@@ -19,5 +19,17 @@ final class ArchivedRecordTests: XCTestCase {
         let reopened = try InventoryStore(url: path)
         XCTAssertEqual(try reopened.archived().map(\.name), ["Newer ' 📷.jpg", "Older.heic"])
         XCTAssertEqual(try reopened.archived().first?.folderBookmark, Data([1, 2, 3]))
+        XCTAssertEqual(try reopened.archivedBytes(), 2_468)
+    }
+
+    func testLargeArchivesKeepEveryRecordAndTheFullTotal() throws {
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".sqlite")
+        defer { try? FileManager.default.removeItem(at: path) }
+        let store = try InventoryStore(url: path)
+        XCTAssertEqual(try store.archivedBytes(), 0)
+        try store.saveArchived((0..<2_105).map { record("\($0).heic", at: TimeInterval($0)) })
+        XCTAssertEqual(try store.archived().count, 2_105)
+        XCTAssertEqual(try store.archived().last?.name, "0.heic", "The oldest copy stays reachable.")
+        XCTAssertEqual(try store.archivedBytes(), 2_105 * 1_234)
     }
 }

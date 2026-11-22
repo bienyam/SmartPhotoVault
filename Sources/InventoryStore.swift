@@ -73,8 +73,17 @@ final class InventoryStore {
         }
     }
 
+    /// Total size of everything archived, without loading every record.
+    func archivedBytes() throws -> Int64 {
+        let statement = try prepare("SELECT COALESCE(SUM(json_extract(payload, '$.bytes')), 0) FROM archived")
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_step(statement) == SQLITE_ROW else { throw error() }
+        return sqlite3_column_int64(statement, 0)
+    }
+
+    /// Every archived copy, newest first. No limit: an older copy must never drop out of Get back.
     func archived() throws -> [ArchivedRecord] {
-        let statement = try prepare("SELECT payload FROM archived ORDER BY timestamp DESC, id LIMIT 2000")
+        let statement = try prepare("SELECT payload FROM archived ORDER BY timestamp DESC, id")
         defer { sqlite3_finalize(statement) }
         let decoder = JSONDecoder()
         var records: [ArchivedRecord] = []
