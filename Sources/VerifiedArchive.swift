@@ -120,25 +120,26 @@ enum VerifiedArchive {
 
     /// Reads a whole archive copy back from where it is stored and compares it with the fingerprint taken
     /// when it was archived. Anything missing, different or not yet uploaded throws.
+    /// `offDevice` is only ever false in tests, which have no second volume to write to.
     static func checkCopy(named name: String, in folder: URL, expected: ArchiveFingerprint,
-                          wifi: ArchiveWiFi?) throws -> CopyStamp {
+                          wifi: ArchiveWiFi?, offDevice: Bool = true) throws -> CopyStamp {
         try wifi?.requireConnection()
         return try scoped(folder) {
             try coordinateRead(folder.appendingPathComponent(name)) { url in
-                let before = try stamp(url)
+                let before = try stamp(url, offDevice: offDevice)
                 guard before.bytes == expected.bytes,
                       try read(url, wifi: wifi, skipCache: true) == expected else { throw ArchiveProofError.copyDiffers }
-                guard try stamp(url) == before else { throw ArchiveProofError.changedSinceCheck }
+                guard try stamp(url, offDevice: offDevice) == before else { throw ArchiveProofError.changedSinceCheck }
                 return before
             }
         }
     }
 
     /// The copy's current size and date, without reading its contents.
-    static func copyStamp(named name: String, in folder: URL, wifi: ArchiveWiFi?) throws -> CopyStamp {
+    static func copyStamp(named name: String, in folder: URL, wifi: ArchiveWiFi?, offDevice: Bool = true) throws -> CopyStamp {
         try wifi?.requireConnection()
         return try scoped(folder) {
-            try coordinateRead(folder.appendingPathComponent(name)) { try stamp($0) }
+            try coordinateRead(folder.appendingPathComponent(name)) { try stamp($0, offDevice: offDevice) }
         }
     }
 
@@ -169,7 +170,7 @@ enum VerifiedArchive {
         }
     }
 
-    private static func stamp(_ url: URL) throws -> CopyStamp {
+    private static func stamp(_ url: URL, offDevice: Bool) throws -> CopyStamp {
         guard FileManager.default.fileExists(atPath: url.path) else { throw ArchiveProofError.copyMissing }
         var fresh = url
         fresh.removeAllCachedResourceValues()
@@ -180,10 +181,25 @@ enum VerifiedArchive {
             throw ArchiveProofError.copyMissing
         }
         // A copy in iCloud Drive that hasn't uploaded exists only on this iPhone.
-        if values.isUbiquitousItem == true, values.ubiquitousItemIsUploaded != true {
-            throw ArchiveProofError.notUploaded
+        if values.isUbiquitousItem == true {
+            guard values.ubiquitousItemIsUploaded == true else { throw ArchiveProofError.notUploaded }
+        } else if offDevice, !isOnAnotherVolume(fresh) {
+            throw ArchiveProofError.notConfirmable
         }
         return CopyStamp(bytes: Int64(size), modified: values.contentModificationDate, checksum: nil)
+    }
+
+    /// True for a plugged-in drive or a server: storage that is not this iPhone's own. Cloud apps other than
+    /// iCloud keep files on the iPhone until they upload and don't say when they have, so their folders don't
+    /// count. Anything unclear counts as no.
+    private static func isOnAnotherVolume(_ url: URL) -> Bool {
+        let own = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+        guard let mine = try? own.resourceValues(forKeys: [.volumeIdentifierKey]).volumeIdentifier,
+              let values = try? url.resourceValues(forKeys: [.volumeIdentifierKey, .volumeIsInternalKey]),
+              let theirs = values.volumeIdentifier else { return false }
+        if values.volumeIsInternal == true || mine.isEqual(theirs) { return false }
+        let path = url.standardizedFileURL.path
+        return !["/File Provider Storage", "/CloudStorage/", "/Containers/"].contains { path.contains($0) }
     }
 
     private static func copyPhoto(_ id: String, to temporary: URL, wifi: ArchiveWiFi?) throws -> ArchiveFingerprint {

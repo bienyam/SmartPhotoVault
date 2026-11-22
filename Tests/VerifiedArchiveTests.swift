@@ -46,11 +46,11 @@ final class VerifiedArchiveTests: XCTestCase {
             let receipt = try VerifiedArchive.copy(item, to: archive)
             let name = receipt.url.lastPathComponent
             func check() throws -> CopyStamp {
-                try VerifiedArchive.checkCopy(named: name, in: archive, expected: receipt.fingerprint, wifi: nil)
+                try VerifiedArchive.checkCopy(named: name, in: archive, expected: receipt.fingerprint, wifi: nil, offDevice: false)
             }
             let stamp = try check()
             XCTAssertEqual(stamp.bytes, 700_000)
-            XCTAssertEqual(try VerifiedArchive.copyStamp(named: name, in: archive, wifi: nil), stamp)
+            XCTAssertEqual(try VerifiedArchive.copyStamp(named: name, in: archive, wifi: nil, offDevice: false), stamp)
 
             var tampered = bytes
             tampered[650_000] ^= 0xff
@@ -62,7 +62,7 @@ final class VerifiedArchiveTests: XCTestCase {
             XCTAssertThrowsError(try check(), "Cut short.") { XCTAssertEqual($0 as? ArchiveProofError, .copyDiffers) }
             try FileManager.default.removeItem(at: receipt.url)
             XCTAssertThrowsError(try check(), "Gone.")
-            XCTAssertThrowsError(try VerifiedArchive.copyStamp(named: name, in: archive, wifi: nil))
+            XCTAssertThrowsError(try VerifiedArchive.copyStamp(named: name, in: archive, wifi: nil, offDevice: false))
         }
     }
 
@@ -72,9 +72,26 @@ final class VerifiedArchiveTests: XCTestCase {
             let item = ArchiveItem(id: "test", name: source.lastPathComponent, source: .file(source))
             let receipt = try VerifiedArchive.copy(item, to: archive)
             let name = receipt.url.lastPathComponent
-            let stamp = try VerifiedArchive.checkCopy(named: name, in: archive, expected: receipt.fingerprint, wifi: nil)
+            let stamp = try VerifiedArchive.checkCopy(named: name, in: archive, expected: receipt.fingerprint, wifi: nil, offDevice: false)
             try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 5)], ofItemAtPath: receipt.url.path)
-            XCTAssertNotEqual(try VerifiedArchive.copyStamp(named: name, in: archive, wifi: nil), stamp)
+            XCTAssertNotEqual(try VerifiedArchive.copyStamp(named: name, in: archive, wifi: nil, offDevice: false), stamp)
+        }
+    }
+
+    /// Owner's rule: no delete unless the destination copy can be confirmed. A folder on the iPhone (or a
+    /// cloud app's folder, which is also on the iPhone until it uploads) never counts.
+    func testCopyOnTheIPhoneItselfNeverAllowsDeleting() throws {
+        try withFolders { source, archive, _ in
+            try Data([1, 2, 3]).write(to: source)
+            let item = ArchiveItem(id: "test", name: source.lastPathComponent, source: .file(source))
+            let receipt = try VerifiedArchive.copy(item, to: archive)
+            let name = receipt.url.lastPathComponent
+            XCTAssertThrowsError(try VerifiedArchive.checkCopy(named: name, in: archive, expected: receipt.fingerprint, wifi: nil)) {
+                XCTAssertEqual($0 as? ArchiveProofError, .notConfirmable)
+            }
+            XCTAssertThrowsError(try VerifiedArchive.copyStamp(named: name, in: archive, wifi: nil)) {
+                XCTAssertEqual($0 as? ArchiveProofError, .notConfirmable)
+            }
         }
     }
 
