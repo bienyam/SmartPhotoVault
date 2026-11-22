@@ -174,7 +174,7 @@ final class DashboardUITests: XCTestCase {
                     "guide-messages": "Messages attachments", "more-explainer": "Where your storage goes",
                     "more-optimize": "Keep smaller copies", "more-icloud-downloads": "Remove a file download",
                     "more-help": "Help & privacy"]
-        for (id, title) in rows.sorted(by: { order.firstIndex(of: $0.key)! < order.firstIndex(of: $1.key)! }) {
+        for (id, title) in rows {
             let row = app.buttons[id]
             reveal(row, in: app)
             XCTAssertTrue(row.waitForExistence(timeout: 5), "\(id) is missing")
