@@ -222,9 +222,11 @@ private struct PayoffBeat: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Out of space? Let's fix it safely.")
                             .font(.largeTitle.bold())
+                            .fixedSize(horizontal: false, vertical: true)
                             .accessibilityAddTraits(.isHeader)
                         Text("TidyAway shows what is filling your iPhone and iCloud, then helps you clear it without losing a photo.")
                             .font(.body)
+                            .fixedSize(horizontal: false, vertical: true)
                             .foregroundStyle(.white.opacity(0.85))
                     }
                     VStack(alignment: .leading, spacing: 10) {
@@ -272,6 +274,7 @@ private struct PayoffBeat: View {
                 .foregroundStyle(Color(red: 0.24, green: 0.86, blue: 0.59))
                 .accessibilityHidden(true)
             Text(text).font(.subheadline)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }
