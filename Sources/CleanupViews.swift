@@ -251,14 +251,7 @@ struct RescueResultView: View {
                     Text("Almost there").font(.largeTitle.bold())
                     Text(DuplicateRemovalOutcome.removedMessage(count: result.count, bytes: result.bytes))
                         .font(.title3)
-                    VStack(alignment: .leading, spacing: 14) {
-                        step(1, "Open the Photos app.", icon: "photo.on.rectangle")
-                        step(2, "Scroll down to Utilities and tap Recently Deleted.", icon: "trash")
-                        step(3, "Tap Select, then Delete All.", icon: "checkmark.circle")
-                    }
-                    .padding(16)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Brand.surface, in: RoundedRectangle(cornerRadius: 16))
+                    RecentlyDeletedSteps()
                     Text("Until you do, the items stay recoverable there for 30 days, and so does the space they use.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
@@ -271,14 +264,6 @@ struct RescueResultView: View {
                     Button("Done") { dismiss() }.accessibilityIdentifier("result-done")
                 }
             }
-        }
-    }
-
-    private func step(_ number: Int, _ text: String, icon: String) -> some View {
-        HStack(alignment: .center, spacing: 12) {
-            Image(systemName: icon).font(.title3).frame(width: 30).foregroundStyle(Brand.primary)
-                .accessibilityHidden(true)
-            Text("\(number). \(text)").font(.body)
         }
     }
 }

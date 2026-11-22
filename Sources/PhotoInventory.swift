@@ -164,6 +164,7 @@ final class DashboardModel: ObservableObject {
                 PHAssetChangeRequest.deleteAssets(targets)
             }
             try? store?.log("Operation \(operation) finished: \(ids.count) item(s) moved to Recently Deleted.")
+            RecentRemovals.add(bytes)
             if isScanning {
                 // People can act on early results; the rest of the check keeps going.
                 deletedDuringScan.formUnion(ids)

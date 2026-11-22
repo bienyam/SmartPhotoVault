@@ -315,6 +315,21 @@ final class DashboardUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Get started"].waitForExistence(timeout: 15), "The story should end by itself.")
     }
 
+    func testRecentlyDeletedGuideOpensWithClearStepsAndMeasures() {
+        let app = launch()
+        let card = app.buttons["recently-deleted-card"]
+        XCTAssertTrue(card.waitForExistence(timeout: 10))
+        card.tap()
+        let measure = app.buttons["recently-deleted-measure"]
+        XCTAssertTrue(app.staticTexts["Empty Recently Deleted"].waitForExistence(timeout: 5))
+        keepScreenshot(of: app, named: "Recently Deleted guide")
+        for _ in 0..<5 where !measure.isHittable { app.swipeUp() }
+        measure.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["recently-deleted-result"].waitForExistence(timeout: 5))
+        app.buttons["recently-deleted-done"].tap()
+        XCTAssertTrue(card.waitForExistence(timeout: 5))
+    }
+
     private func keepScreenshot(of app: XCUIApplication, named name: String) {
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = name
