@@ -174,7 +174,10 @@ struct GroupSkimView: View {
             let position = positions[record.id] ?? 0
             if position % 4 == 0 || position == positions.count {
                 GeometryReader { geo in
-                    Color.clear.onChange(of: geo.frame(in: .global).maxY < UIScreen.main.bounds.height - 150, initial: true) { _, shown in
+                    let frame = geo.frame(in: .global)
+                    // Pictures prepared ahead of scrolling have no place on screen yet, so they don't count.
+                    let shown = frame.height > 1 && frame.minY > 60 && frame.maxY < UIScreen.main.bounds.height - 150
+                    Color.clear.onChange(of: shown, initial: true) { _, shown in
                         if shown, position > seen { seen = position }
                     }
                 }
