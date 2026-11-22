@@ -225,7 +225,9 @@ struct PhotoArchiveView: View {
             .padding(.horizontal, 20)
             .padding(.bottom, 20)
             .frame(maxWidth: .infinity)
+            .reportsArchiveScroll()
         }
+        .coordinateSpace(name: ArchiveScroll.space)
         .disabled(busy)
         .background(Brand.background)
         .safeAreaInset(edge: .bottom) {

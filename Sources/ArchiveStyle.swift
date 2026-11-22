@@ -55,9 +55,26 @@ enum ArchiveMode: String, CaseIterable {
     var identifier: String { self == .moveOut ? "archive-move-out" : "archive-get-back" }
 }
 
-/// Move out and Get back, as two large buttons that stay on screen.
+/// How far an Archive page has scrolled, so the big buttons can make room.
+struct ArchiveScroll: PreferenceKey {
+    static let space = "archive-scroll"
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = min(value, nextValue()) }
+}
+
+extension View {
+    /// Put on the content of a scroll view whose coordinate space is `ArchiveScroll.space`.
+    func reportsArchiveScroll() -> some View {
+        background(GeometryReader { geo in
+            Color.clear.preference(key: ArchiveScroll.self, value: geo.frame(in: .named(ArchiveScroll.space)).minY)
+        })
+    }
+}
+
+/// Move out and Get back, as two large buttons that stay on screen. They shrink while the page is scrolled.
 struct ArchiveKeys: View {
     @Binding var mode: ArchiveMode
+    var compact = false
     let locked: Bool
     let moveOutNote: String
     let getBackNote: String
@@ -74,28 +91,31 @@ struct ArchiveKeys: View {
         .padding(.horizontal, 20)
         .padding(.vertical, 10)
         .animation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.8), value: mode)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: compact)
         .sensoryFeedback(.selection, trigger: mode)
     }
 
     private func key(_ kind: ArchiveMode, note: String) -> some View {
         let on = mode == kind
+        let small = compact && !typeSize.isAccessibilitySize
+        let stack = small ? AnyLayout(HStackLayout(spacing: 8)) : AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
         return Button { mode = kind } label: {
-            HStack(alignment: .top, spacing: 8) {
-                VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: small ? .center : .top, spacing: 8) {
+                stack {
                     Image(systemName: locked && on ? "lock.fill" : kind.icon)
                         .font(.headline.weight(.heavy))
                         .foregroundStyle(Color(red: 0.078, green: 0.086, blue: 0.122))
                         .frame(width: 36, height: 36)
                         .background(Color(red: 1, green: 0.541, blue: 0.361), in: Circle())
                     Text(kind.rawValue).font(.title3.weight(.heavy))
-                    Text(note).font(.footnote).lineLimit(2)
+                    if !small { Text(note).font(.footnote).lineLimit(2) }
                 }
                 Spacer(minLength: 0)
                 if on { Image(systemName: "checkmark").font(.subheadline.weight(.heavy)) }
             }
             .multilineTextAlignment(.leading)
-            .padding(12)
-            .frame(maxWidth: .infinity, minHeight: 104, maxHeight: .infinity, alignment: .topLeading)
+            .padding(small ? 8 : 12)
+            .frame(maxWidth: .infinity, minHeight: small ? 56 : 104, maxHeight: .infinity, alignment: small ? .leading : .topLeading)
             .foregroundStyle(on ? ArchiveStyle.onSelected : ArchiveStyle.ink)
             .background(on ? ArchiveStyle.selected : Brand.surface, in: RoundedRectangle(cornerRadius: 24))
             .overlay(RoundedRectangle(cornerRadius: 24).stroke(on ? Color.clear : ArchiveStyle.border, lineWidth: 1.5))

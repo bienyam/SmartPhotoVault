@@ -94,7 +94,9 @@ struct ArchivedView: View {
             .padding(.horizontal, 20)
             .padding(.bottom, 20)
             .frame(maxWidth: .infinity)
+            .reportsArchiveScroll()
         }
+        .coordinateSpace(name: ArchiveScroll.space)
         .background(Brand.background)
         .onAppear(perform: reload)
     }

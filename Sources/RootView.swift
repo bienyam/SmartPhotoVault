@@ -61,6 +61,7 @@ struct ArchiveTabView: View {
     @State private var locked = false
     @State private var readyBytes: Int64 = 0
     @State private var safeCount = 0
+    @State private var compact = false
 
     private var snapshot: ScanSnapshot? {
         if ProcessInfo.processInfo.arguments.contains("--demo-archive") { return DemoLibrary.archiveSnapshot }
@@ -70,7 +71,7 @@ struct ArchiveTabView: View {
     var body: some View {
         NavigationStack(path: $path) {
             VStack(spacing: 0) {
-                ArchiveKeys(mode: $mode, locked: locked,
+                ArchiveKeys(mode: $mode, compact: compact, locked: locked,
                             moveOutNote: readyBytes > 0 ? "\(readyBytes.fileSize) in groups" : "Copy off this iPhone",
                             getBackNote: safeCount > 0 ? "\(safeCount.formatted()) archived" : "Nothing yet")
                 ZStack {
@@ -82,13 +83,20 @@ struct ArchiveTabView: View {
                         .accessibilityHidden(mode != .moveOut)
                     if mode == .getBack { ArchivedView() }
                 }
+                .onPreferenceChange(ArchiveScroll.self) { offset in
+                    // Two thresholds, so the buttons don't flip back and forth.
+                    if offset < -60 { compact = true } else if offset > -4 { compact = false }
+                }
             }
             .background(Brand.background)
             .navigationTitle("Archive")
             .navigationBarTitleDisplayMode(.inline)
         }
         .onAppear(perform: count)
-        .onChange(of: mode) { count() }
+        .onChange(of: mode) {
+            compact = false
+            count()
+        }
         .onChange(of: locked) { count() }
     }
 
