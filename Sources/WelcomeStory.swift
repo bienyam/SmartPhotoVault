@@ -322,18 +322,21 @@ private struct BottomShade: View {
     }
 }
 
-/// Illustration of the "storage almost full" moment. Branded, so it never passes for a real iOS alert.
+/// Illustration of the moment the camera stops. Branded, so it never passes for a real iOS alert.
 private struct StorageBanner: View {
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: "externaldrive.fill.badge.exclamationmark")
+            Image(systemName: "camera.fill")
                 .font(.title3)
                 .foregroundStyle(.white)
                 .frame(width: 40, height: 40)
                 .background(Brand.primary, in: RoundedRectangle(cornerRadius: 10))
             VStack(alignment: .leading, spacing: 2) {
-                Text("Storage almost full").font(.subheadline.bold())
-                Text("No room for new photos.").font(.footnote).foregroundStyle(.white.opacity(0.8))
+                // The words people see when the camera stops, in TidyAway's own look and with no buttons.
+                Text("Cannot Take Photo").font(.subheadline.bold())
+                Text("There is not enough available storage to take a photo.")
+                    .font(.footnote).foregroundStyle(.white.opacity(0.9))
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
         }
