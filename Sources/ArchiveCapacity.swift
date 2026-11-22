@@ -27,7 +27,7 @@ struct FolderCheck: Equatable, Sendable {
 
     var problem: String? {
         if isNTFS {
-            return "This drive is formatted for Windows (NTFS). iPhone can read it but can't save to it. To use it here, erase it as ExFAT in the Files app: touch and hold the drive, then tap Erase. Erasing deletes everything on the drive, so copy anything you need first."
+            return "This drive is formatted for Windows (NTFS). iPhone can read it but can't save to it. To use it here, it has to be erased as ExFAT. On an iPhone with USB-C, do that in the Files app: touch and hold the drive, then tap Erase. With Lightning, use a computer. Erasing deletes everything on the drive, so copy anything you need first."
         }
         if readOnly || !writable {
             return "TidyAway can't save to this folder. It may be read-only or need you to sign in again in the Files app. Choose another folder."

@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 
 /// Screens pushed from the Archive tab.
 enum ArchiveRoute: Hashable {
-    case group(String), albums, filter, destination, copy
+    case group(String), albums, filter, destination, copy, drive
 }
 
 /// A folder picker that belongs to the screen showing it.
@@ -145,6 +145,8 @@ struct PhotoArchiveView: View {
     @State private var findingGroups = false
     @State private var showAllGroups = false
     @StateObject private var run = ArchiveRun()
+    @StateObject private var drive = DriveModel()
+    @State private var showDriveHelp = false
     @Environment(\.dynamicTypeSize) private var typeSize
     @Binding private var path: NavigationPath
     @Binding private var locked: Bool
@@ -237,6 +239,12 @@ struct PhotoArchiveView: View {
             case .filter: filterScreen
             case .destination: destinationScreen
             case .copy: copyScreen
+            case .drive:
+                DriveScreen(model: drive) { folder in
+                    destinationKind = .drive
+                    useSavedDrive(folder)
+                    path = NavigationPath()
+                }
             }
         }
         .fullScreenCover(isPresented: $showRun) { runCover }
@@ -536,7 +544,10 @@ struct PhotoArchiveView: View {
                 availableGB = ""
                 archiveConsent = false
                 folderCheck = nil
+                // A drive chosen before is used straight away when it's plugged in.
+                if destinationKind == .drive, let status = drive.status { useSavedDrive(status.url) }
             }
+            .task { await drive.watch() }
             if let destinationKind {
                 HStack(alignment: .top, spacing: 4) {
                     Text(destinationKind.detail).font(.footnote).foregroundStyle(.secondary)
@@ -545,6 +556,7 @@ struct PhotoArchiveView: View {
                                    text: "Any drive you already have can work. No drive yet? A portable USB-C SSD formatted as ExFAT works best. Spinning hard drives may need their own power supply to run from an iPhone.")
                     }
                 }
+                if destinationKind == .drive { drivePanel }
                 if destinationKind == .google {
                     googleConnection
                 } else {
@@ -584,6 +596,34 @@ struct PhotoArchiveView: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private var drivePanel: some View {
+        if let saved = drive.drive {
+            Button { path.append(ArchiveRoute.drive) } label: {
+                DriveCard(name: saved.name, status: drive.status)
+            }
+            .buttonStyle(.plain)
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
+            .accessibilityIdentifier("drive-open")
+            if let status = drive.status, destination == nil {
+                Button("Use this drive") { useSavedDrive(status.url) }
+                    .fontWeight(.semibold)
+                    .accessibilityIdentifier("drive-use")
+            }
+        }
+        Button { showDriveHelp = true } label: { Label("Don't see your drive?", systemImage: "questionmark.circle") }
+            .accessibilityIdentifier("drive-help")
+            .sheet(isPresented: $showDriveHelp) { DriveHelpView() }
+    }
+
+    private func useSavedDrive(_ folder: URL) {
+        destination = folder
+        availableGB = ""
+        archiveConsent = false
+        checkFolder(folder)
     }
 
     @ViewBuilder
@@ -942,10 +982,11 @@ struct PhotoArchiveView: View {
     }
 
     private func setDestination(_ folder: URL) {
-        destination = folder
-        availableGB = ""
-        archiveConsent = false
-        checkFolder(folder)
+        useSavedDrive(folder)
+        if destinationKind == .drive {
+            SavedDrive.remember(folder)
+            Task { await drive.refresh() }
+        }
     }
 
     private var availableBytes: Int64? {

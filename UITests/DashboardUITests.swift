@@ -264,6 +264,12 @@ final class DashboardUITests: XCTestCase {
         app.buttons["Drive plugged into this iPhone"].tap()
         XCTAssertTrue(app.buttons["Choose archive folder in Files"].waitForExistence(timeout: 5))
         keepScreenshot(of: app, named: "Archive destinations")
+        let help = app.buttons["drive-help"]
+        reveal(help, in: app)
+        help.tap()
+        XCTAssertTrue(app.staticTexts["Where to find it"].waitForExistence(timeout: 5))
+        keepScreenshot(of: app, named: "Drive help")
+        app.buttons["drive-help-done"].tap()
     }
 
     private func launchArchiveGroups(pro: Bool) -> XCUIApplication {
