@@ -123,7 +123,7 @@ enum ArchiveProver {
 
 /// Reads a whole file back from Google Drive and hashes it, without storing it on the iPhone.
 final class DriveReadBack: NSObject, URLSessionDataDelegate, @unchecked Sendable {
-    private var hash = SHA256()
+    private var hasher = SHA256()
     private var bytes: Int64 = 0
     private var failure: Error?
     private var continuation: CheckedContinuation<ArchiveFingerprint, Error>?
@@ -157,7 +157,7 @@ final class DriveReadBack: NSObject, URLSessionDataDelegate, @unchecked Sendable
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        hash.update(data: data)
+        hasher.update(data: data)
         bytes += Int64(data.count)
     }
 
@@ -166,7 +166,7 @@ final class DriveReadBack: NSObject, URLSessionDataDelegate, @unchecked Sendable
             continuation?.resume(throwing: problem)
         } else {
             continuation?.resume(returning: ArchiveFingerprint(
-                bytes: bytes, digest: hash.finalize().map { String(format: "%02x", $0) }.joined()))
+                bytes: bytes, digest: hasher.finalize().map { String(format: "%02x", $0) }.joined()))
         }
         continuation = nil
     }
