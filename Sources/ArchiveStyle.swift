@@ -124,7 +124,6 @@ struct ArchiveKeys: View {
         }
         .buttonStyle(.plain)
         .disabled(locked)
-        .accessibilityElement(children: .ignore)
         .accessibilityLabel(kind.rawValue)
         .accessibilityValue(note)
         .accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)

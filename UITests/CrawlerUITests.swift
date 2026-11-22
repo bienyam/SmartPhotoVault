@@ -28,7 +28,8 @@ final class CrawlerUITests: XCTestCase {
     private let budget: TimeInterval = 1_200
     private var app = XCUIApplication()
     private var rootSignatures: [String: String] = [:]
-    private var kinds: Set<String> = []
+    private var shapes: Set<String> = []
+    private var tapped: [String: Int] = [:]
     private var relaunches = 0
 
     override func setUp() {
@@ -52,23 +53,28 @@ final class CrawlerUITests: XCTestCase {
             }
             if controls.isEmpty { log("LEAF", path, "", screen) }
             let shape = Set(controls.map(Self.kind)).sorted().joined(separator: ",")
-            if controls.count >= 3, !kinds.insert(shape).inserted {
+            if controls.count >= 3, !shapes.insert(shape).inserted {
                 log("SAME_KIND", path, "", screen)
                 continue
             }
-            var tapped: [String: Int] = [:]
-            for key in controls {
+            var pending = controls
+            var index = 0
+            while index < pending.count, Date().timeIntervalSince(started) < budget {
+                let key = pending[index]
+                index += 1
                 if skip.contains(where: { key.contains($0) }) {
                     log("SKIPPED", path, key, "leaves the app, buys, signs in, scans or deletes")
                     continue
                 }
-                // Rows of one kind behave alike: two of each are enough.
-                tapped[Self.kind(key), default: 0] += 1
-                if tapped[Self.kind(key)]! > 2 { continue }
+                // Rows of one kind behave alike: two of each on a screen are enough.
+                let kindOnScreen = screen + "|" + Self.kind(key)
+                if tapped[kindOnScreen, default: 0] >= 2 { continue }
+                tapped[kindOnScreen, default: 0] += 1
                 let before = signature(app)
                 guard let element = find(key, in: app), reveal(element, in: app) else {
-                    log("UNREACHABLE", path, key, "listed but not tappable")
-                    guard signature(app) == before || open(path) else { break }
+                    // Something chosen earlier on this screen may have put it away; that isn't a dead button.
+                    if controls.contains(key), index <= controls.count { log("UNREACHABLE", path, key, "listed but not tappable") }
+                    if place(signature(app)) != place(before), !open(path) { break }
                     continue
                 }
                 element.tap()
@@ -83,14 +89,20 @@ final class CrawlerUITests: XCTestCase {
                     log("NO_EFFECT", path, key, "nothing changed on \(screen)")
                     continue
                 }
-                let title = navTitle(app)
-                let kind = title != navTitleFrom(before) ? "OPENS" : "CHANGES"
-                log(kind, path, key, title.isEmpty ? "sheet, popover or state change" : title)
-                let revealedNew = !Set(candidates(app).map(Self.kind)).subtracting(controls.map(Self.kind)).isEmpty
-                if path.count < 6, kind == "OPENS" || revealedNew {
-                    queue.append(path + [Step(key: key)])
+                let title = navTitleFrom(after)
+                let opens = title != navTitleFrom(before)
+                log(opens ? "OPENS" : "CHANGES", path, key, title.isEmpty ? "sheet, popover or state change" : title)
+                let found = candidates(app)
+                let covered = place(after) != place(before) || !(find(key, in: app).map { canTap($0, in: app) } ?? false)
+                if opens || covered {
+                    // Somewhere else, or a menu or sheet on top: look at it later, and go back now.
+                    let revealed = !Set(found.map(Self.kind)).subtracting(controls.map(Self.kind)).isEmpty
+                    if path.count < 6, opens || revealed { queue.append(path + [Step(key: key)]) }
+                    guard undo(key, to: before, opened: opens) || open(path) else { break }
+                } else {
+                    // A choice on the same screen. Nothing needs undoing; anything it revealed is tapped here too.
+                    for extra in found where !pending.contains(extra) { pending.append(extra) }
                 }
-                guard undo(key, to: before) || open(path) else { break }
             }
         }
         let seconds = Int(Date().timeIntervalSince(started))
@@ -108,7 +120,8 @@ final class CrawlerUITests: XCTestCase {
 
     /// The same key with numbers and sample names taken out, so rows of one kind compare equal.
     private static func kind(_ key: String) -> String {
-        key.replacingOccurrences(of: "[0-9]+", with: "#", options: .regularExpression)
+        key.replacingOccurrences(of: "sample-[A-Za-z0-9-]+", with: "sample", options: .regularExpression)
+            .replacingOccurrences(of: "[0-9]+", with: "#", options: .regularExpression)
     }
 
     // MARK: - Navigation
@@ -127,11 +140,22 @@ final class CrawlerUITests: XCTestCase {
         return last
     }
 
-    /// Undoes one tap the way a person would. Much faster than starting the app again.
-    private func undo(_ key: String, to before: String) -> Bool {
-        func back() -> Bool { settle(timeout: 0.6) == before }
-        if signature(app) == before { return true }
-        if goBack(app), back() { return true }
+    /// Which screen this is and what is on top of it, ignoring what is selected there.
+    private func place(_ signature: String) -> String {
+        signature.components(separatedBy: "§").prefix(2).joined(separator: "§")
+    }
+
+    /// Goes back the way a person would. Much faster than starting the app again.
+    private func undo(_ key: String, to before: String, opened: Bool) -> Bool {
+        func back() -> Bool {
+            guard place(settle(timeout: 0.6)) == place(before), let element = find(key, in: app) else { return false }
+            return canTap(element, in: app) || reveal(element, in: app)
+        }
+        func outside() -> Bool {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.07)).tap()
+            return back()
+        }
+        if !opened, outside() { return true }
         for name in ["Done", "Not now", "Cancel", "Close"] {
             let button = app.buttons[name].firstMatch
             if canTap(button, in: app) {
@@ -139,13 +163,7 @@ final class CrawlerUITests: XCTestCase {
                 if back() { return true }
             }
         }
-        // A popover closes when its outside is tapped; a switch or selection flips back.
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.07)).tap()
-        if back() { return true }
-        if let element = find(key, in: app), canTap(element, in: app) {
-            element.tap()
-            if back() { return true }
-        }
+        if goBack(app), back() { return true }
         return false
     }
 
@@ -156,9 +174,8 @@ final class CrawlerUITests: XCTestCase {
             let tab = app.tabBars.buttons[String(first.key.dropFirst(4))]
             if canTap(tab, in: app) {
                 tab.tap()
-                settle(timeout: 0.5)
-                if signature(app) != root, canTap(tab, in: app) { tab.tap() }
-                if settle(timeout: 0.6) == root, replay(path.dropFirst(), from: path) { return true }
+                if place(settle(timeout: 0.5)) != place(root), canTap(tab, in: app) { tab.tap() }
+                if place(settle(timeout: 0.6)) == place(root), replay(path.dropFirst(), from: path, quiet: true) { return true }
             }
         }
         relaunches += 1
@@ -175,11 +192,11 @@ final class CrawlerUITests: XCTestCase {
         return replay(path.dropFirst(), from: path)
     }
 
-    private func replay(_ steps: ArraySlice<Step>, from path: [Step]) -> Bool {
+    private func replay(_ steps: ArraySlice<Step>, from path: [Step], quiet: Bool = false) -> Bool {
         for step in steps {
             let before = signature(app)
             guard let element = find(step.key, in: app), reveal(element, in: app) else {
-                log("PATH_BROKEN", path, step.key, "could not replay")
+                if !quiet { log("PATH_BROKEN", path, step.key, "could not replay") }
                 return false
             }
             element.tap()
@@ -273,7 +290,7 @@ final class CrawlerUITests: XCTestCase {
     }
 
     private func navTitleFrom(_ signature: String) -> String {
-        String(signature.split(separator: "§").first ?? "")
+        signature.components(separatedBy: "§").first ?? ""
     }
 
     private func screenKey(_ app: XCUIApplication) -> String {
@@ -287,7 +304,9 @@ final class CrawlerUITests: XCTestCase {
         guard let root = try? app.snapshot() else { return navTitle(app) }
         var parts: [String] = []
         var overlays = 0
+        var title: String?
         func walk(_ node: XCUIElementSnapshot) {
+            if node.elementType == .navigationBar, title == nil { title = node.identifier }
             if node.elementType == .sheet || node.elementType == .popover { overlays += 1 }
             if [.staticText, .button, .switch].contains(node.elementType), parts.count < 150 {
                 parts.append("\(node.elementType.rawValue)|\(node.identifier)|\(node.label)|\(node.isSelected)|\(node.isEnabled)|\(node.value as? String ?? "")")
@@ -295,7 +314,7 @@ final class CrawlerUITests: XCTestCase {
             node.children.forEach(walk)
         }
         walk(root)
-        return ([navTitle(app), "\(overlays)"] + parts).joined(separator: "§")
+        return ([title ?? "", "\(overlays)"] + parts).joined(separator: "§")
     }
 
     private func checkHealthy(_ app: XCUIApplication, _ path: [Step]) {
