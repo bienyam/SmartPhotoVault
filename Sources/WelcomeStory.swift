@@ -6,7 +6,6 @@ import SwiftUI
 /// Photos: Adobe Stock 379533224, 254326092, 109692836 (licensed, see mockups/welcome-assets/LICENSES.txt).
 struct WelcomeStoryView: View {
     let start: () -> Void
-    let trySamples: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
@@ -23,7 +22,7 @@ struct WelcomeStoryView: View {
                 switch beat {
                 case 0: MomentBeat(animate: !reduceMotion).id(0)
                 case 1: ScanBeat(animate: !reduceMotion).id(1)
-                default: PayoffBeat(animate: !reduceMotion, start: start, trySamples: trySamples).id(2)
+                default: PayoffBeat(animate: !reduceMotion, start: start).id(2)
                 }
             }
             .transition(.opacity)
@@ -81,7 +80,8 @@ private struct MomentBeat: View {
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            StoryPhoto(name: "WelcomeMoment", animate: animate)
+            // Covers the upper part only, which keeps the whole phone and hand in the frame.
+            StoryPhoto(name: "WelcomeMoment", animate: animate, heightFraction: 0.76)
             BottomShade()
             VStack {
                 StorageBanner()
@@ -199,20 +199,22 @@ private struct ScanBeat: View {
 private struct PayoffBeat: View {
     let animate: Bool
     let start: () -> Void
-    let trySamples: () -> Void
     @State private var glow = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            StoryPhoto(name: "WelcomePayoff", animate: animate)
-            LinearGradient(stops: [.init(color: .clear, location: 0),
-                                   .init(color: .black.opacity(0.55), location: 0.35),
-                                   .init(color: .black.opacity(0.92), location: 0.62)],
+            // The photo fills only the upper part, so the faces stay clear of the text below.
+            StoryPhoto(name: "WelcomePayoff", animate: animate, heightFraction: 0.58)
+            LinearGradient(stops: [.init(color: .black.opacity(0.45), location: 0),
+                                   .init(color: .clear, location: 0.12),
+                                   .init(color: .clear, location: 0.30),
+                                   .init(color: .black.opacity(0.75), location: 0.42),
+                                   .init(color: .black, location: 0.56)],
                            startPoint: .top, endPoint: .bottom)
                 .ignoresSafeArea()
+            GeometryReader { geo in
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Spacer(minLength: 180)
                     HStack(spacing: 10) {
                         BrandMark(size: 40)
                         Text("TidyAway").font(.title3.bold())
@@ -220,9 +222,11 @@ private struct PayoffBeat: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Out of space? Let's fix it safely.")
                             .font(.largeTitle.bold())
+                            .fixedSize(horizontal: false, vertical: true)
                             .accessibilityAddTraits(.isHeader)
                         Text("TidyAway shows what is filling your iPhone and iCloud, then helps you clear it without losing a photo.")
                             .font(.body)
+                            .fixedSize(horizontal: false, vertical: true)
                             .foregroundStyle(.white.opacity(0.85))
                     }
                     VStack(alignment: .leading, spacing: 10) {
@@ -236,14 +240,9 @@ private struct PayoffBeat: View {
                                 .font(.headline)
                                 .frame(maxWidth: .infinity, minHeight: 56)
                                 .foregroundStyle(Color.white)
-                                .background(Brand.primary, in: RoundedRectangle(cornerRadius: 16))
+                                // Deep orange in both modes: white on the lighter dark-mode orange is hard to read.
+                                .background(Color(red: 0.784, green: 0.314, blue: 0.122), in: RoundedRectangle(cornerRadius: 16))
                                 .shadow(color: Brand.primary.opacity(glow ? 0.85 : 0.45), radius: glow ? 20 : 12, y: 8)
-                        }
-                        Button(action: trySamples) {
-                            Text("Try it with sample photos")
-                                .font(.subheadline.weight(.semibold))
-                                .frame(maxWidth: .infinity, minHeight: 48)
-                                .foregroundStyle(Color(red: 1, green: 0.84, blue: 0.74))
                         }
                         Text("TidyAway asks for Photos access only when you start a scan, and it only reads at that stage.")
                             .font(.footnote)
@@ -256,9 +255,10 @@ private struct PayoffBeat: View {
                 .frame(maxWidth: 520)
                 .padding(.horizontal, 24)
                 .padding(.bottom, 28)
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: .infinity, minHeight: geo.size.height, alignment: .bottom)
             }
             .scrollBounceBehavior(.basedOnSize)
+            }
         }
         .onAppear {
             if animate {
@@ -274,6 +274,7 @@ private struct PayoffBeat: View {
                 .foregroundStyle(Color(red: 0.24, green: 0.86, blue: 0.59))
                 .accessibilityHidden(true)
             Text(text).font(.subheadline)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }
@@ -284,6 +285,8 @@ private struct PayoffBeat: View {
 private struct StoryPhoto: View {
     let name: String
     let animate: Bool
+    /// How much of the screen, from the top, the photo covers.
+    var heightFraction: CGFloat = 1
     @State private var zoomed = false
 
     var body: some View {
@@ -291,7 +294,7 @@ private struct StoryPhoto: View {
             Image(name)
                 .resizable()
                 .scaledToFill()
-                .frame(width: geo.size.width, height: geo.size.height)
+                .frame(width: geo.size.width, height: geo.size.height * heightFraction)
                 .scaleEffect(zoomed ? 1.14 : 1.04)
                 .offset(x: zoomed ? -geo.size.width * 0.015 : 0, y: zoomed ? -geo.size.height * 0.01 : 0)
                 .clipped()
@@ -307,10 +310,13 @@ private struct StoryPhoto: View {
 
 private struct BottomShade: View {
     var body: some View {
-        LinearGradient(stops: [.init(color: .black.opacity(0.05), location: 0),
-                               .init(color: .clear, location: 0.35),
-                               .init(color: .black.opacity(0.72), location: 0.72),
-                               .init(color: .black.opacity(0.92), location: 1)],
+        // Darker at the very top so the status bar and Skip read; fully dark where the photo ends.
+        LinearGradient(stops: [.init(color: .black.opacity(0.40), location: 0),
+                               .init(color: .black.opacity(0.10), location: 0.12),
+                               .init(color: .clear, location: 0.28),
+                               .init(color: .black.opacity(0.10), location: 0.46),
+                               .init(color: .black.opacity(0.85), location: 0.69),
+                               .init(color: .black, location: 0.755)],
                        startPoint: .top, endPoint: .bottom)
             .ignoresSafeArea()
     }

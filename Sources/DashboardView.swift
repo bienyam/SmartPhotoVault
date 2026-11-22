@@ -8,12 +8,14 @@ struct FreeUpView: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.colorScheme) private var colorScheme
     @State private var storage = DeviceStorage.current()
+    @State private var showRecentlyDeleted = false
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     header
+                    RecentlyDeletedCard { showRecentlyDeleted = true }
                     if model.isScanning {
                         scanning
                     }
@@ -42,6 +44,9 @@ struct FreeUpView: View {
             .background(colorScheme == .dark ? Color(uiColor: .systemBackground) : Brand.background)
             .navigationTitle("TidyAway")
             .navigationBarTitleDisplayMode(.inline)
+            .sheet(isPresented: $showRecentlyDeleted, onDismiss: { storage = DeviceStorage.current() }) {
+                RecentlyDeletedGuide()
+            }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active { storage = DeviceStorage.current() }
             }
@@ -77,9 +82,6 @@ struct FreeUpView: View {
                 InfoButton(title: "How it works",
                            text: "TidyAway looks through the photos and videos on this iPhone and lists the biggest things you could remove. It reads them on your iPhone and sends nothing anywhere. You choose what goes, sign off, and Apple asks you to confirm.")
             }
-            Button("Try it with sample photos") { model.showDemo() }
-                .font(.subheadline)
-                .accessibilityIdentifier("try-samples")
         }
     }
 
@@ -387,7 +389,7 @@ struct StorageExplainer: View {
                     .font(.footnote).foregroundStyle(.secondary)
             }
             Section("Recently Deleted") {
-                Text("Photos you delete wait here for 30 days and still use space. Open Photos, scroll to Utilities, tap Recently Deleted, then Select and Delete All.")
+                Text("Photos you delete wait here for 30 days and still use space. Open Photos, tap Collections, scroll to Utilities, tap Recently Deleted, then Select, the ••• button and Delete All.")
             }
             Section("Files downloaded from iCloud Drive") {
                 Text("Files you open from iCloud Drive stay downloaded. In the Files app, touch and hold a file or folder, then tap Remove Download. It stays in iCloud.")
