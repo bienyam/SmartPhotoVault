@@ -72,7 +72,7 @@ struct ArchiveTabView: View {
             VStack(spacing: 0) {
                 ArchiveKeys(mode: $mode, locked: locked,
                             moveOutNote: readyBytes > 0 ? "\(readyBytes.fileSize) in groups" : "Copy off this iPhone",
-                            getBackNote: safeCount > 0 ? "\(safeCount.formatted()) archived" : "Nothing archived yet")
+                            getBackNote: safeCount > 0 ? "\(safeCount.formatted()) archived" : "Nothing yet")
                 ZStack {
                     // Kept alive while Get back is showing, so a selection or a running copy is never lost.
                     PhotoArchiveView(snapshot: snapshot, model: model, showArchived: { mode = .getBack },

@@ -241,10 +241,11 @@ final class DashboardUITests: XCTestCase {
         XCTAssertTrue(picker.waitForExistence(timeout: 10))
         reveal(picker, in: app)
         picker.tap()
-        let google = app.buttons["Google Drive"]
+        let google = app.buttons["Google Drive"].firstMatch
         XCTAssertTrue(google.waitForExistence(timeout: 5))
         google.tap()
         let connect = app.buttons["google-connect"]
+        reveal(connect, in: app)
         XCTAssertTrue(connect.waitForExistence(timeout: 5), "Google Drive offers a sign-in, not a folder list.")
         XCTAssertFalse(app.buttons["Choose archive folder in Files"].exists)
     }
@@ -259,9 +260,10 @@ final class DashboardUITests: XCTestCase {
         picker.tap()
         for name in ["Drive plugged into this iPhone", "Google Drive", "iCloud Drive", "Other Files location",
                      "Home file server", "Another Apple Account"] {
-            XCTAssertTrue(app.buttons[name].waitForExistence(timeout: 5), "\(name) must stay available.")
+            XCTAssertTrue(app.buttons[name].firstMatch.waitForExistence(timeout: 5), "\(name) must stay available.")
         }
-        app.buttons["Drive plugged into this iPhone"].tap()
+        app.buttons["Drive plugged into this iPhone"].firstMatch.tap()
+        reveal(app.buttons["Choose archive folder in Files"], in: app)
         XCTAssertTrue(app.buttons["Choose archive folder in Files"].waitForExistence(timeout: 5))
         keepScreenshot(of: app, named: "Archive destinations")
         let help = app.buttons["drive-help"]
@@ -292,6 +294,7 @@ final class DashboardUITests: XCTestCase {
         XCTAssertTrue(next.waitForExistence(timeout: 10))
         XCTAssertTrue(next.label.contains("120 items"), next.label)
         keepScreenshot(of: app, named: "Archive skim")
+        XCTAssertFalse(app.staticTexts["Seen 120 of 120"].exists, "Only what has been on screen counts as seen.")
         app.buttons["skim-sample-trip0-0"].tap()
         XCTAssertTrue(next.label.contains("119 items"), "One tap leaves one out. \(next.label)")
         next.tap()

@@ -73,12 +73,21 @@ final class SmartGroupTests: XCTestCase {
 
     func testTripIsSeveralDaysFarFromHomeAndReplacesItsEvents() {
         let start: TimeInterval = 1_700_000_000
-        let atHome = run("h", from: start, count: 60, at: home)
+        let atHome = run("h", from: start, count: 30, at: home)
+            + (1..<6).flatMap { run("h\($0)", from: start + Double($0) * 86_400, count: 3, at: home) }
         let day1 = run("x", from: start + 10 * 86_400, count: 30, at: away)
         let day2 = run("y", from: start + 11 * 86_400, count: 30, at: away)
         let groups = SmartGrouper.groups(in: snapshot(atHome + day1 + day2), now: now, calendar: calendar)
         XCTAssertEqual(groups.filter { $0.kind == .trip }.map(\.records.count), [60])
-        XCTAssertEqual(groups.filter { $0.kind == .event }.map(\.records.count), [60], "Only the event at home is left as an event.")
+        XCTAssertEqual(groups.filter { $0.kind == .event }.map(\.records.count), [30], "Only the event at home is left as an event.")
+    }
+
+    func testOneLateEveningAwayIsAnEventNotATrip() {
+        let start: TimeInterval = 1_700_000_000
+        let atHome = (0..<6).flatMap { run("h\($0)", from: start + Double($0) * 86_400, count: 3, at: home) }
+        let evening = run("e", from: start + 20 * 86_400, count: 40, every: 400, at: away)
+        let groups = SmartGrouper.groups(in: snapshot(atHome + evening), now: now, calendar: calendar)
+        XCTAssertEqual(groups.map(\.kind), [.event], "Past midnight is still one evening.")
     }
 
     func testWithoutLocationsThereAreEventsButNoTrips() {

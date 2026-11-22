@@ -70,6 +70,7 @@ struct ArchiveKeys: View {
             key(.moveOut, note: moveOutNote)
             key(.getBack, note: getBackNote)
         }
+        .fixedSize(horizontal: false, vertical: true)
         .padding(.horizontal, 20)
         .padding(.vertical, 10)
         .animation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.8), value: mode)
@@ -94,7 +95,7 @@ struct ArchiveKeys: View {
             }
             .multilineTextAlignment(.leading)
             .padding(12)
-            .frame(maxWidth: .infinity, minHeight: 104, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: 104, maxHeight: .infinity, alignment: .topLeading)
             .foregroundStyle(on ? ArchiveStyle.onSelected : ArchiveStyle.ink)
             .background(on ? ArchiveStyle.selected : Brand.surface, in: RoundedRectangle(cornerRadius: 24))
             .overlay(RoundedRectangle(cornerRadius: 24).stroke(on ? Color.clear : ArchiveStyle.border, lineWidth: 1.5))

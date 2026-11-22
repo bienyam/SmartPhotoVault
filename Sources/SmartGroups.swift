@@ -123,7 +123,9 @@ enum SmartGrouper {
         var result: [Trip] = []
         var current: Trip?
         func close() {
-            if let trip = current, trip.items.count >= eventMinimum, days(trip.items, calendar) >= 2 { result.append(trip) }
+            // Long enough to include a night away, so one late evening out is an event, not a trip.
+            if let trip = current, trip.items.count >= eventMinimum, let first = trip.items.first?.createdAt,
+               let last = trip.items.last?.createdAt, last.timeIntervalSince(first) >= 20 * 3600 { result.append(trip) }
             current = nil
         }
         for (index, segment) in segments.enumerated() {
@@ -214,16 +216,18 @@ enum SmartGrouper {
         return items.compactMap(point).map { kilometers($0, middle) }.max()
     }
 
-    /// Where most photos are taken: the busiest area of roughly 10 km. Needs enough located items to mean anything.
+    /// Where photos are taken on the most different days, in areas of roughly 10 km. Days rather than photos,
+    /// because one busy trip can have more photos than months at home.
     private static func home(of items: [AssetRecord]) -> Point? {
         var areas: [String: [AssetRecord]] = [:]
         for item in items {
             guard let place = point(item) else { continue }
             areas["\(Int((place.latitude * 10).rounded())),\(Int((place.longitude * 10).rounded()))", default: []].append(item)
         }
-        guard let busiest = areas.max(by: { $0.value.count == $1.value.count ? $0.key > $1.key : $0.value.count < $1.value.count }),
-              busiest.value.count >= eventMinimum else { return nil }
-        return center(of: busiest.value)
+        let visits = areas.mapValues { items in Set(items.compactMap { $0.createdAt.map { Int($0.timeIntervalSince1970 / 86_400) } }).count }
+        guard let busiest = visits.max(by: { $0.value == $1.value ? $0.key > $1.key : $0.value < $1.value }),
+              busiest.value >= 3 else { return nil }
+        return center(of: areas[busiest.key] ?? [])
     }
 
     private static func days(_ items: [AssetRecord], _ calendar: Calendar) -> Int {

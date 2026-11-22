@@ -532,7 +532,6 @@ struct PhotoArchiveView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityElement(children: .ignore)
                     .accessibilityLabel(kind.rawValue)
                     .accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
                 }

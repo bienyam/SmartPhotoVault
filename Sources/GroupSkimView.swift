@@ -169,10 +169,16 @@ struct GroupSkimView: View {
         .accessibilityValue(out ? "Left out" : "Selected")
         .accessibilityAddTraits(out ? [] : .isSelected)
         .accessibilityIdentifier("skim-\(record.id)")
-        .onAppear {
-            // A row at a time, so scrolling doesn't redraw the screen for every picture.
+        .background {
+            // Counts a picture as seen only once it has really been on screen, a row at a time.
             let position = positions[record.id] ?? 0
-            if position > seen, position % 4 == 0 || position == positions.count { seen = position }
+            if position % 4 == 0 || position == positions.count {
+                GeometryReader { geo in
+                    Color.clear.onChange(of: geo.frame(in: .global).maxY < UIScreen.main.bounds.height - 150, initial: true) { _, shown in
+                        if shown, position > seen { seen = position }
+                    }
+                }
+            }
         }
     }
 
