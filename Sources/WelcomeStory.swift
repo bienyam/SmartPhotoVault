@@ -202,15 +202,18 @@ private struct PayoffBeat: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            StoryPhoto(name: "WelcomePayoff", animate: animate)
-            LinearGradient(stops: [.init(color: .clear, location: 0),
-                                   .init(color: .black.opacity(0.55), location: 0.35),
-                                   .init(color: .black.opacity(0.92), location: 0.62)],
+            // The photo fills only the upper part, so the faces stay clear of the text below.
+            StoryPhoto(name: "WelcomePayoff", animate: animate, heightFraction: 0.58)
+            LinearGradient(stops: [.init(color: .black.opacity(0.45), location: 0),
+                                   .init(color: .clear, location: 0.12),
+                                   .init(color: .clear, location: 0.30),
+                                   .init(color: .black.opacity(0.75), location: 0.42),
+                                   .init(color: .black, location: 0.56)],
                            startPoint: .top, endPoint: .bottom)
                 .ignoresSafeArea()
+            GeometryReader { geo in
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Spacer(minLength: 180)
                     HStack(spacing: 10) {
                         BrandMark(size: 40)
                         Text("TidyAway").font(.title3.bold())
@@ -234,7 +237,8 @@ private struct PayoffBeat: View {
                                 .font(.headline)
                                 .frame(maxWidth: .infinity, minHeight: 56)
                                 .foregroundStyle(Color.white)
-                                .background(Brand.primary, in: RoundedRectangle(cornerRadius: 16))
+                                // Deep orange in both modes: white on the lighter dark-mode orange is hard to read.
+                                .background(Color(red: 0.784, green: 0.314, blue: 0.122), in: RoundedRectangle(cornerRadius: 16))
                                 .shadow(color: Brand.primary.opacity(glow ? 0.85 : 0.45), radius: glow ? 20 : 12, y: 8)
                         }
                         Text("TidyAway asks for Photos access only when you start a scan, and it only reads at that stage.")
@@ -248,9 +252,10 @@ private struct PayoffBeat: View {
                 .frame(maxWidth: 520)
                 .padding(.horizontal, 24)
                 .padding(.bottom, 28)
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: .infinity, minHeight: geo.size.height, alignment: .bottom)
             }
             .scrollBounceBehavior(.basedOnSize)
+            }
         }
         .onAppear {
             if animate {
@@ -276,6 +281,8 @@ private struct PayoffBeat: View {
 private struct StoryPhoto: View {
     let name: String
     let animate: Bool
+    /// How much of the screen, from the top, the photo covers.
+    var heightFraction: CGFloat = 1
     @State private var zoomed = false
 
     var body: some View {
@@ -283,7 +290,7 @@ private struct StoryPhoto: View {
             Image(name)
                 .resizable()
                 .scaledToFill()
-                .frame(width: geo.size.width, height: geo.size.height)
+                .frame(width: geo.size.width, height: geo.size.height * heightFraction)
                 .scaleEffect(zoomed ? 1.14 : 1.04)
                 .offset(x: zoomed ? -geo.size.width * 0.015 : 0, y: zoomed ? -geo.size.height * 0.01 : 0)
                 .clipped()

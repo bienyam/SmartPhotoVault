@@ -304,6 +304,17 @@ final class DashboardUITests: XCTestCase {
         XCTAssertFalse(app.buttons["try-samples"].exists)
     }
 
+    func testWelcomeStoryTapMovesOnAndEndsOnGetStarted() {
+        let app = XCUIApplication()
+        app.launchArguments += ["--reset-welcome"]
+        app.launch()
+        XCTAssertTrue(app.buttons["welcome-skip"].waitForExistence(timeout: 10))
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        usleep(1_500_000)
+        keepScreenshot(of: app, named: "Welcome scan")
+        XCTAssertTrue(app.buttons["Get started"].waitForExistence(timeout: 15), "The story should end by itself.")
+    }
+
     private func keepScreenshot(of app: XCUIApplication, named name: String) {
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = name
