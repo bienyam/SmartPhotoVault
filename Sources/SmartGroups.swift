@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 
 /// A ready-made set of photos and videos to archive in one go, with a reason people can check.
 struct SmartGroup: Identifiable {
-    enum Kind: String { case event, trip, largeVideos, oldVideos }
+    enum Kind: String { case event, trip, largeVideos, oldVideos, album }
 
     let id: String
     let kind: Kind
@@ -57,6 +57,16 @@ enum SmartGrouper {
         if record.inICloud { return true }
         let resource = image ? PHAssetResourceType.photo.rawValue : PHAssetResourceType.video.rawValue
         return record.issue == nil && record.resources.count == 1 && record.resources.first?.type == resource
+    }
+
+    /// Everything in one of the person's own albums, oldest first.
+    static func album(_ album: AlbumInfo, in snapshot: ScanSnapshot) -> SmartGroup {
+        let all = snapshot.assets
+            .filter { $0.albumIDs?.contains(album.id) == true }
+            .sorted { ($0.createdAt ?? .distantPast, $0.id) < ($1.createdAt ?? .distantPast, $1.id) }
+        let ready = all.filter(canArchive)
+        return SmartGroup(id: "album-\(album.id)", kind: .album, title: album.title, reason: "Everything in this album",
+                          records: ready, notYet: all.count - ready.count)
     }
 
     // MARK: - Events

@@ -81,6 +81,13 @@ final class InventoryStore {
         return sqlite3_column_int64(statement, 0)
     }
 
+    func archivedCount() throws -> Int {
+        let statement = try prepare("SELECT COUNT(*) FROM archived")
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_step(statement) == SQLITE_ROW else { throw error() }
+        return Int(sqlite3_column_int64(statement, 0))
+    }
+
     /// Every archived copy, newest first. No limit: an older copy must never drop out of Get back.
     func archived() throws -> [ArchivedRecord] {
         let statement = try prepare("SELECT payload FROM archived ORDER BY timestamp DESC, id")

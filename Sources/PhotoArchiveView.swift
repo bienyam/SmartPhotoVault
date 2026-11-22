@@ -3,6 +3,53 @@ import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// Screens pushed from the Archive tab.
+enum ArchiveRoute: Hashable {
+    case group(String), albums, filter, destination, copy
+}
+
+/// A folder picker that belongs to the screen showing it.
+private struct FolderPicker: ViewModifier {
+    @Binding var isPresented: Bool
+    let pick: (URL) -> Void
+
+    func body(content: Content) -> some View {
+        content.fileImporter(isPresented: $isPresented, allowedContentTypes: [.folder]) { result in
+            if case .success(let folder) = result { pick(folder) }
+        }
+    }
+}
+
+/// Offers the scan that groups come from, and shows its progress.
+struct ArchiveScanCard: View {
+    @ObservedObject var model: DashboardModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if model.isScanning {
+                if model.total > 0 {
+                    ProgressView(value: Double(model.completed), total: Double(model.total)) {
+                        Text("Looking through \(model.completed.formatted()) of \(model.total.formatted())")
+                    }
+                } else {
+                    ProgressView("Looking through your photos…")
+                }
+            } else {
+                Text("TidyAway groups your events, trips and large videos, so you can move a whole group in one go.")
+                    .foregroundStyle(ArchiveStyle.muted)
+                Button("Find my groups") { model.startDuplicateScan() }
+                    .buttonStyle(ArchiveButtonStyle())
+                    .accessibilityIdentifier("archive-scan")
+                Text("Checked on your iPhone. Nothing is removed.").font(.footnote).foregroundStyle(ArchiveStyle.muted)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Brand.surface, in: RoundedRectangle(cornerRadius: 18))
+    }
+}
+
+/// Move out: choose a group or pick items, choose where to copy, approve, copy and check.
 struct PhotoArchiveView: View {
     let snapshot: ScanSnapshot?
 
@@ -40,10 +87,6 @@ struct PhotoArchiveView: View {
 
 
     private static let suggestionLimit = 200
-
-    private enum PickerPurpose {
-        case files, archive, restore
-    }
 
     private enum Destination: String, CaseIterable {
         case drive = "Drive plugged into this iPhone"
@@ -90,8 +133,22 @@ struct PhotoArchiveView: View {
     @State private var checkedPhotos: [String: ResourceFingerprint] = [:]
     @State private var wifi = ArchiveWiFi()
     @State private var restoreFolder: URL?
-    @State private var picker: PickerPurpose = .files
     @State private var showFiles = false
+    @State private var showArchiveFolder = false
+    @State private var showRestoreFolder = false
+    @State private var showDetails = false
+    @State private var showRunDetails = false
+    @State private var showReview = false
+    @State private var showProPushed = false
+    @State private var showRun = false
+    @State private var groups: [SmartGroup] = []
+    @State private var findingGroups = false
+    @State private var showAllGroups = false
+    @StateObject private var run = ArchiveRun()
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @Binding private var path: NavigationPath
+    @Binding private var locked: Bool
+    @Binding private var readyBytes: Int64
     @State private var age: Age = .two
     @State private var sizeFloor: SizeFloor = .any
     @State private var kind: ArchiveKind = .photos
@@ -123,11 +180,15 @@ struct PhotoArchiveView: View {
     var model: DashboardModel?
     /// Switches the Archive tab to Get back.
     var showArchived: (() -> Void)?
-    @State private var completion: ArchiveCompletion?
     @State private var removal: ArchiveCompletion?
     @Environment(\.openURL) private var openURL
 
-    init(snapshot: ScanSnapshot?, selectedFiles: [URL] = [], model: DashboardModel? = nil, showArchived: (() -> Void)? = nil) {
+    init(snapshot: ScanSnapshot?, selectedFiles: [URL] = [], model: DashboardModel? = nil, showArchived: (() -> Void)? = nil,
+         path: Binding<NavigationPath> = .constant(NavigationPath()), locked: Binding<Bool> = .constant(false),
+         readyBytes: Binding<Int64> = .constant(0)) {
+        _path = path
+        _locked = locked
+        _readyBytes = readyBytes
         self.snapshot = snapshot
         self.model = model
         self.showArchived = showArchived
@@ -137,86 +198,339 @@ struct PhotoArchiveView: View {
     }
 
     var body: some View {
-        List {
-            Section {
-                VStack(alignment: .leading, spacing: 8) {
-                    Label("Make an archive copy", systemImage: "externaldrive.badge.plus")
-                        .font(.title2.bold())
-                        .accessibilityAddTraits(.isHeader)
-                    Text("Copy full-resolution originals or files, then test a restore. Your source items stay where they are.")
-                        .foregroundStyle(.secondary)
-                    Label("TidyAway only adds copies to your archive. It never deletes or changes anything there, by design.",
-                          systemImage: "lock.shield")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(Brand.safe)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                if let message { Text(message).font(.subheadline).accessibilityAddTraits(.updatesFrequently) }
+                groupsSection
+                pickRow
+                destinationChip
+                HStack(spacing: 2) {
+                    Label("Only adds. Never deletes there.", systemImage: "lock.shield")
+                        .font(.footnote.weight(.bold))
+                        .foregroundStyle(ArchiveStyle.safeText)
+                        .padding(.horizontal, 12).padding(.vertical, 7)
+                        .background(ArchiveStyle.safeBack, in: Capsule())
                         .accessibilityIdentifier("archive-write-only")
+                    InfoButton(title: "Your archive", text: Self.promise)
                 }
-                .padding(.vertical, 8)
+                if !receipts.isEmpty || !failures.isEmpty {
+                    Button("Last copy: results and test restore") { showDetails = true }
+                        .buttonStyle(ArchiveOutlineStyle())
+                        .accessibilityIdentifier("archive-details")
+                }
             }
-            if busy {
-                Section { ProgressView(checkingSizes ? "Checking selected sizes…" : "Copying and verifying…") }
-            }
-            Group {
-                destinationSection
-                selectionSection
-                if !items.isEmpty { reviewSection }
-                if !receipts.isEmpty || !failures.isEmpty { resultsSection }
-                if let restoreTarget { restoreSection(restoreTarget) }
-            }
-            .disabled(busy)
-            if let message {
-                Section { Text(message).accessibilityAddTraits(.updatesFrequently) }
-            }
+            .frame(maxWidth: 640)
+            .padding(.horizontal, 20)
+            .padding(.bottom, 20)
+            .frame(maxWidth: .infinity)
+        }
+        .disabled(busy)
+        .background(Brand.background)
+        .safeAreaInset(edge: .bottom) {
+            if !items.isEmpty { nextBar }
         }
         .tint(accent)
-        .navigationTitle("Archive originals")
-        .navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonHidden(busy)
-        .fullScreenCover(item: $completion) { done in
-            CompletionView(title: "Archived",
-                           detail: "\(done.count) \(done.count == 1 ? "item" : "items") · \(done.bytes.fileSize) copied to \(done.place) and checked against the originals.",
-                           note: completionNote(done),
-                           actions: completionActions(done))
-        }
-        .sheet(item: $removal) { done in
-            if let model {
-                NavigationStack { ArchivedRemovalView(done: done, model: model) }
+        .navigationDestination(for: ArchiveRoute.self) { route in
+            switch route {
+            case .group(let id): groupScreen(id)
+            case .albums: albumsScreen
+            case .filter: filterScreen
+            case .destination: destinationScreen
+            case .copy: copyScreen
             }
         }
-        .sheet(isPresented: $showPro) {
-            NavigationStack {
-                ProUpgradeView()
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) { Button("Not now") { showPro = false } }
-                    }
-            }
-            .environmentObject(pro)
-        }
+        .fullScreenCover(isPresented: $showRun) { runCover }
+        .sheet(isPresented: $showDetails) { detailsSheet }
+        .sheet(isPresented: $showPro) { proSheet($showPro) }
         .onAppear { refreshArchivedBytes() }
-        .sheet(isPresented: $showPlacePicker) {
-            if let snapshot { PlacePickerSheet(place: $place, snapshot: snapshot) }
-        }
         .onChange(of: snapshot?.date) {
             // A new scan can drop albums or places, so start the album and place choices fresh.
             albumID = nil
             place = nil
         }
-        .fileImporter(isPresented: $showFiles,
-                      allowedContentTypes: picker == .files ? [.data] : [.folder],
-                      allowsMultipleSelection: picker == .files,
-                      onCompletion: handlePicker)
+        .onChange(of: busy) { locked = busy }
+        .task(id: groupKey) { await findGroups() }
+        .fileImporter(isPresented: $showFiles, allowedContentTypes: [.data], allowsMultipleSelection: true, onCompletion: addFiles)
         .onChange(of: photoSelection) { _, selection in addPhotos(selection) }
     }
 
+    private static let promise = "TidyAway only adds copies to your archive. It never deletes or changes anything there, by design. Copies are full-resolution originals, checked against the originals on your iPhone. Your source items stay where they are."
+    private static let supported = "Photos supports JPEG and HEIC photos and single-file videos. Live Photos, slo-mo and edited videos aren't supported yet. Use Files for documents. Suggestions leave out favorites; events and trips include them, and they are never deleted."
+
+    // MARK: - Home
+
+    private var groupKey: String { "\(snapshot?.date.timeIntervalSince1970 ?? 0)-\(snapshot?.assets.count ?? 0)" }
+
+    /// The biggest few events and trips, then the video groups.
+    private var featured: [SmartGroup] {
+        let moments = groups.filter { $0.kind == .event || $0.kind == .trip }
+        return Array(moments.prefix(3)) + groups.filter { $0.kind == .largeVideos || $0.kind == .oldVideos }
+    }
+
+    @ViewBuilder
+    private var groupsSection: some View {
+        HStack(spacing: 8) {
+            Text("Ready to move in one go").font(.title3.weight(.heavy)).foregroundStyle(ArchiveStyle.ink)
+                .accessibilityAddTraits(.isHeader)
+            if !pro.unlocked {
+                Text("PRO").font(.caption.weight(.heavy))
+                    .foregroundStyle(ArchiveStyle.onAction)
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(ArchiveStyle.action, in: RoundedRectangle(cornerRadius: 8))
+            }
+        }
+        if let snapshot, !snapshot.includedCloudDownloads {
+            let shown = showAllGroups ? groups : featured
+            if findingGroups {
+                ProgressView("Finding groups…")
+            } else if let first = shown.first {
+                groupButton(first, tall: true)
+                LazyVGrid(columns: typeSize.isAccessibilitySize ? [GridItem(.flexible())] : [GridItem(.flexible(), spacing: 10), GridItem(.flexible())], spacing: 10) {
+                    ForEach(shown.dropFirst()) { groupButton($0, tall: false) }
+                }
+                if groups.count > featured.count {
+                    Button(showAllGroups ? "Show fewer" : "Show all \(groups.count.formatted()) groups") { showAllGroups.toggle() }
+                        .font(.subheadline.weight(.bold)).foregroundStyle(ArchiveStyle.link).frame(minHeight: 44)
+                        .accessibilityIdentifier("archive-all-groups")
+                }
+            } else {
+                Text("No ready-made groups in your last scan. Pick photos below, or use Filter.")
+                    .foregroundStyle(ArchiveStyle.muted)
+            }
+            if snapshot.albums != nil {
+                HStack(spacing: 10) {
+                    Button { if pro.unlocked { path.append(ArchiveRoute.albums) } else { showPro = true } } label: {
+                        Label("Albums", systemImage: pro.unlocked ? "rectangle.stack" : "lock")
+                    }
+                    .accessibilityIdentifier("archive-albums")
+                    Button { if pro.unlocked { path.append(ArchiveRoute.filter) } else { showPro = true } } label: {
+                        Label("Places", systemImage: pro.unlocked ? "map" : "lock")
+                    }
+                    .accessibilityIdentifier("archive-places")
+                }
+                .buttonStyle(ArchiveOutlineStyle())
+            } else {
+                Text("Scan again to also choose by album or place.").font(.footnote).foregroundStyle(ArchiveStyle.muted)
+            }
+        } else if let model {
+            ArchiveScanCard(model: model)
+        }
+    }
+
+    private func groupButton(_ group: SmartGroup, tall: Bool) -> some View {
+        Button {
+            if pro.unlocked { path.append(ArchiveRoute.group(group.id)) } else { showPro = true }
+        } label: {
+            ArchiveCard(title: group.title,
+                        detail: "\(group.records.count.formatted()) \(group.records.count == 1 ? "item" : "items") · \(group.bytes.fileSize)",
+                        coverID: group.records.first?.id, tall: tall)
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier("group-\(group.id)")
+    }
+
+    @ViewBuilder
+    private var pickRow: some View {
+        let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 10)) : AnyLayout(HStackLayout(spacing: 10))
+        layout {
+            switch photoAccess {
+            case .authorized, .limited:
+                PhotosPicker(selection: $photoSelection, maxSelectionCount: 200, matching: .any(of: [.images, .videos]), photoLibrary: .shared()) {
+                    Label("Pick photos", systemImage: "photo.on.rectangle")
+                }
+                .buttonStyle(ArchiveOutlineStyle())
+                .accessibilityLabel("Pick photos or videos myself")
+            case .notDetermined:
+                Button {
+                    Task { photoAccess = await PHPhotoLibrary.requestAuthorization(for: .readWrite) }
+                } label: {
+                    Label("Allow Photos", systemImage: "photo.on.rectangle")
+                }
+                .buttonStyle(ArchiveOutlineStyle())
+                .accessibilityLabel("Allow Photos access to pick originals")
+            default:
+                Button {
+                    if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                } label: {
+                    Label("Open Settings", systemImage: "gear")
+                }
+                .buttonStyle(ArchiveOutlineStyle())
+            }
+            Button { showFiles = true } label: { Label("Pick files", systemImage: "folder") }
+                .buttonStyle(ArchiveOutlineStyle())
+                .accessibilityLabel("Pick files myself")
+        }
+        if photoAccess == .denied || photoAccess == .restricted {
+            Text("Allow Photos access in Settings to pick originals, or choose an item from Files.")
+                .font(.footnote).foregroundStyle(ArchiveStyle.muted)
+        }
+        HStack(spacing: 2) {
+            if let snapshot, !snapshot.includedCloudDownloads {
+                Button { path.append(ArchiveRoute.filter) } label: { Label("Filter", systemImage: "line.3.horizontal.decrease.circle") }
+                    .font(.subheadline.weight(.bold)).foregroundStyle(ArchiveStyle.link).frame(minHeight: 44)
+                    .accessibilityIdentifier("archive-filter")
+            }
+            Spacer(minLength: 0)
+            Text("What can be archived").font(.footnote).foregroundStyle(ArchiveStyle.muted)
+            InfoButton(title: "What can be archived", text: Self.supported)
+        }
+    }
+
+    private var destinationTitle: String {
+        if destinationKind == .google, google.email != nil { return "Copy to Google Drive" }
+        if let destination { return "Copy to \(destination.lastPathComponent)" }
+        return "Choose where to copy"
+    }
+
+    private var destinationDetail: String {
+        if destinationKind == .google { return google.email ?? "Connect Google Drive" }
+        if let problem = folderCheck?.problem { return problem }
+        if let free = folderCheck?.available { return "\(formattedBytes(free)) free" }
+        return destination == nil ? "A drive, a cloud, or your own server" : "Ready"
+    }
+
+    private var destinationChip: some View {
+        Button { path.append(ArchiveRoute.destination) } label: {
+            HStack(spacing: 12) {
+                Image(systemName: destinationKind?.icon ?? "externaldrive.badge.plus").font(.title2).foregroundStyle(ArchiveStyle.link)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(destinationTitle).font(.headline).foregroundStyle(ArchiveStyle.ink)
+                    Text(destinationDetail).font(.footnote).foregroundStyle(ArchiveStyle.muted)
+                }
+                Spacer(minLength: 0)
+                Text(destination == nil && destinationKind == nil ? "Choose" : "Change").font(.subheadline.weight(.bold)).foregroundStyle(ArchiveStyle.link)
+            }
+            .multilineTextAlignment(.leading)
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Brand.surface, in: RoundedRectangle(cornerRadius: 16))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier("storage-location")
+    }
+
+    private var nextBar: some View {
+        HStack(spacing: 10) {
+            Button("Clear") {
+                items = []
+                archiveConsent = false
+            }
+            .font(.subheadline.weight(.bold)).foregroundStyle(ArchiveStyle.link).frame(minWidth: 56, minHeight: 44)
+            .accessibilityIdentifier("archive-clear")
+            Button("Next · \(items.count.formatted()) \(items.count == 1 ? "item" : "items")\(selectedBytes > 0 ? " · \(formattedBytes(selectedBytes))" : "")") {
+                path.append(ArchiveRoute.copy)
+            }
+            .buttonStyle(ArchiveButtonStyle())
+            .accessibilityIdentifier("archive-next")
+        }
+        .padding(.horizontal, 16).padding(.vertical, 10)
+        .background(.regularMaterial)
+    }
+
+    // MARK: - Groups and albums
+
+    @ViewBuilder
+    private func groupScreen(_ id: String) -> some View {
+        if let group = groups.first(where: { $0.id == id }) ?? albumGroup(id) {
+            GroupSkimView(group: group) { records in
+                add(records)
+                path.append(ArchiveRoute.copy)
+            }
+        } else {
+            Text("This group changed after the last scan. Go back and choose again.").padding()
+        }
+    }
+
+    private func albumGroup(_ id: String) -> SmartGroup? {
+        guard let snapshot, let album = snapshot.albums?.first(where: { "album-\($0.id)" == id }) else { return nil }
+        return SmartGrouper.album(album, in: snapshot)
+    }
+
+    private var albumsScreen: some View {
+        List {
+            if let snapshot, let albums = snapshot.albums, !albums.isEmpty {
+                ForEach(albums) { album in
+                    Button { path.append(ArchiveRoute.group("album-\(album.id)")) } label: {
+                        Label(album.title, systemImage: "rectangle.stack").foregroundStyle(.primary)
+                    }
+                }
+            } else {
+                Text("Your last scan found no albums.")
+            }
+        }
+        .navigationTitle("Albums")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func findGroups() async {
+        guard let snapshot, !snapshot.includedCloudDownloads else {
+            groups = []
+            readyBytes = 0
+            return
+        }
+        findingGroups = groups.isEmpty
+        let found = await Task.detached(priority: .userInitiated) { SmartGrouper.groups(in: snapshot) }.value
+        guard !Task.isCancelled else { return }
+        groups = found
+        var counted = Set<String>()
+        readyBytes = found.flatMap(\.records).reduce(Int64(0)) { counted.insert($1.id).inserted ? $0 + $1.displayBytes : $0 }
+        findingGroups = false
+    }
+
+    /// Adds a whole group. The scan already knows each item's size and, for local ones, its fingerprint.
+    private func add(_ records: [AssetRecord]) {
+        var known = Set(items.map(\.id))
+        for record in records where known.insert(record.id).inserted {
+            items.append(ArchiveItem(id: record.id, name: record.filename,
+                                     source: .photo(record.id, expected: record.inICloud ? nil : record.resources.first)))
+            if record.inICloud, let size = record.cloudBytes { measuredBytes[record.id] = size }
+        }
+        archiveConsent = false
+    }
+
+    // MARK: - Destination
+
+    private var destinationScreen: some View {
+        List { destinationSection }
+            .navigationTitle("Copy to")
+            .navigationBarTitleDisplayMode(.inline)
+            .disabled(busy)
+            .modifier(FolderPicker(isPresented: $showArchiveFolder, pick: setDestination))
+    }
+
     private var destinationSection: some View {
-        Section("1. Connect an archive folder") {
-            Picker("Storage location", selection: $destinationKind) {
-                Text("Choose a destination").tag(nil as Destination?)
+        Section("Copy to") {
+            LazyVGrid(columns: typeSize.isAccessibilitySize ? [GridItem(.flexible())] : [GridItem(.flexible(), spacing: 10), GridItem(.flexible())], spacing: 10) {
                 ForEach(Destination.offered, id: \.self) { kind in
-                    Label(kind.rawValue, systemImage: kind.icon).tag(Optional(kind))
+                    let on = destinationKind == kind
+                    Button { destinationKind = kind } label: {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Image(systemName: kind.icon).font(.title2).foregroundStyle(ArchiveStyle.link)
+                            Text(kind.rawValue).font(.subheadline.weight(.semibold)).foregroundStyle(ArchiveStyle.ink)
+                        }
+                        .multilineTextAlignment(.leading)
+                        .padding(12)
+                        .frame(maxWidth: .infinity, minHeight: 88, alignment: .topLeading)
+                        .background(Brand.surface, in: RoundedRectangle(cornerRadius: 14))
+                        .overlay(RoundedRectangle(cornerRadius: 14).stroke(on ? ArchiveStyle.action : Color.clear, lineWidth: 2.5))
+                        .overlay(alignment: .topTrailing) {
+                            if on { Image(systemName: "checkmark.circle.fill").foregroundStyle(ArchiveStyle.action).padding(8) }
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(kind.rawValue)
+                    .accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
                 }
             }
-            .accessibilityIdentifier("storage-location")
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets())
             .onChange(of: destinationKind) {
                 destination = nil
                 availableGB = ""
@@ -234,7 +548,7 @@ struct PhotoArchiveView: View {
                 if destinationKind == .google {
                     googleConnection
                 } else {
-                Button { openPicker(.archive) } label: {
+                Button { showArchiveFolder = true } label: {
                     Label(destination.map { "Change folder (\($0.lastPathComponent))" } ?? "Choose archive folder in Files",
                           systemImage: "folder.badge.plus")
                 }
@@ -262,6 +576,10 @@ struct PhotoArchiveView: View {
                         .keyboardType(.decimalPad)
                         .onChange(of: availableGB) { archiveConsent = false }
                     Text("Files doesn’t supply a verified account quota. Use the available space shown by your provider for an estimate.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+                if destinationKind == .other || destinationKind == .home || destinationKind == .shared {
+                    Text("Deleting from your iPhone afterwards is offered only when TidyAway can confirm the copy is safe there. Cloud apps other than iCloud Drive and Google Drive can't confirm it.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }
@@ -294,197 +612,340 @@ struct PhotoArchiveView: View {
         }
     }
 
-    private var selectionSection: some View {
-        Section("2. Choose what to copy") {
-            switch photoAccess {
-            case .authorized, .limited:
-                PhotosPicker(selection: $photoSelection, maxSelectionCount: 25, matching: .any(of: [.images, .videos]), photoLibrary: .shared()) {
-                    Label("Pick photos or videos myself", systemImage: "photo.on.rectangle")
-                }
-            case .notDetermined:
-                Button {
-                    Task { photoAccess = await PHPhotoLibrary.requestAuthorization(for: .readWrite) }
-                } label: {
-                    Label("Allow Photos access to pick originals", systemImage: "photo.on.rectangle")
-                }
-            default:
-                Text("Allow Photos access in Settings to pick originals, or choose an item from Files.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-            Button { openPicker(.files) } label: {
-                Label("Pick files myself", systemImage: "folder")
-            }
+    // MARK: - Filter
+
+    private var filterScreen: some View {
+        List {
             if let snapshot, !snapshot.includedCloudDownloads {
-                Picker("Taken", selection: $age) {
-                    ForEach(Age.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                }
-                Picker("Size", selection: $sizeFloor) {
-                    ForEach(SizeFloor.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                }
-                Picker("Kind", selection: $kind) {
-                    ForEach(ArchiveKind.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                }
-                if !pro.unlocked {
-                    Button { showPro = true } label: {
-                        LabeledContent {
-                            Text("Pro").font(.caption.bold()).foregroundStyle(Brand.primary)
-                        } label: {
-                            Label("Choose by album or place", systemImage: "lock")
-                        }
+                Section("Filter") {
+                    Picker("Taken", selection: $age) {
+                        ForEach(Age.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                     }
-                    .accessibilityIdentifier("archive-filters-pro")
-                } else if let albums = snapshot.albums {
-                    if !albums.isEmpty {
-                        Picker("Album", selection: $albumID) {
-                            Text("Any album").tag(String?.none)
-                            ForEach(albums) { Text($0.title).tag(Optional($0.id)) }
-                        }
+                    Picker("Size", selection: $sizeFloor) {
+                        ForEach(SizeFloor.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                     }
-                    if snapshot.assets.contains(where: { $0.latitude != nil }) {
-                        Button { showPlacePicker = true } label: {
+                    Picker("Kind", selection: $kind) {
+                        ForEach(ArchiveKind.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                    }
+                    if !pro.unlocked {
+                        Button { showProPushed = true } label: {
                             LabeledContent {
-                                Text(place == nil ? "Anywhere" : "Area on map")
+                                Text("Pro").font(.caption.bold()).foregroundStyle(Brand.primary)
                             } label: {
-                                Label("Place", systemImage: "map")
+                                Label("Choose by album or place", systemImage: "lock")
                             }
                         }
-                        .accessibilityIdentifier("archive-place")
-                        if place != nil {
-                            Button("Clear place") { place = nil }
+                        .accessibilityIdentifier("archive-filters-pro")
+                    } else if let albums = snapshot.albums {
+                        if !albums.isEmpty {
+                            Picker("Album", selection: $albumID) {
+                                Text("Any album").tag(String?.none)
+                                ForEach(albums) { Text($0.title).tag(Optional($0.id)) }
+                            }
                         }
-                    }
-                } else {
-                    Text("Scan again to also choose by album or place.")
-                        .font(.footnote).foregroundStyle(.secondary)
-                }
-                Button { showSuggestions(from: snapshot) } label: {
-                    Label(kind == .videos ? "Show matching videos" : "Show matching photos", systemImage: "line.3.horizontal.decrease.circle")
-                }
-                Button {
-                    kind = .videos
-                    sizeFloor = .twentyFive
-                    age = .any
-                    albumID = nil
-                    place = nil
-                    showSuggestions(from: snapshot)
-                } label: {
-                    Label("Suggest large videos", systemImage: "film.stack")
-                }
-                .accessibilityIdentifier("archive-suggest-videos")
-                if showSuggested {
-                    let matchingBytes = suggested.compactMap { bytes(for: $0) }.reduce(Int64(0), +)
-                    LabeledContent(kind == .videos ? "Matching videos" : "Matching photos", value: "\(suggested.count.formatted()) · \(formattedBytes(matchingBytes))")
-                    if suggested.isEmpty {
-                        Text("Nothing from your last scan matches. Try a wider choice.")
-                            .font(.footnote).foregroundStyle(.secondary)
-                    } else {
-                        Button("Add all \(suggested.count.formatted()) to the selection") {
-                            for item in suggested { add(item) }
-                        }
-                        if suggested.count == Self.suggestionLimit {
-                            Text("Showing the \(Self.suggestionLimit) largest matches. Archive these, then choose again for more.")
-                                .font(.footnote).foregroundStyle(.secondary)
-                        }
-                    }
-                    ForEach(suggested) { item in
-                        Button { toggle(item) } label: {
-                            Label {
-                                VStack(alignment: .leading) {
-                                    Text(item.name)
-                                    Text(item.sourceLabel).font(.caption).foregroundStyle(.secondary)
+                        if snapshot.assets.contains(where: { $0.latitude != nil }) {
+                            Button { showPlacePicker = true } label: {
+                                LabeledContent {
+                                    Text(place == nil ? "Anywhere" : "Area on map")
+                                } label: {
+                                    Label("Place", systemImage: "map")
                                 }
-                            } icon: {
-                                Image(systemName: items.contains { $0.id == item.id } ? "checkmark.circle.fill" : "plus.circle")
+                            }
+                            .accessibilityIdentifier("archive-place")
+                            if place != nil {
+                                Button("Clear place") { place = nil }
+                            }
+                        }
+                    } else {
+                        Text("Scan again to also choose by album or place.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                    Button { showSuggestions(from: snapshot) } label: {
+                        Label(kind == .videos ? "Show matching videos" : "Show matching photos", systemImage: "line.3.horizontal.decrease.circle")
+                    }
+                    Button {
+                        guard pro.unlocked else {
+                            showProPushed = true
+                            return
+                        }
+                        kind = .videos
+                        sizeFloor = .twentyFive
+                        age = .any
+                        albumID = nil
+                        place = nil
+                        showSuggestions(from: snapshot)
+                    } label: {
+                        Label("Suggest large videos", systemImage: pro.unlocked ? "film.stack" : "lock")
+                    }
+                    .accessibilityIdentifier("archive-suggest-videos")
+                }
+                if showSuggested {
+                    Section {
+                        let matchingBytes = suggested.compactMap { bytes(for: $0) }.reduce(Int64(0), +)
+                        LabeledContent(kind == .videos ? "Matching videos" : "Matching photos", value: "\(suggested.count.formatted()) · \(formattedBytes(matchingBytes))")
+                        if suggested.isEmpty {
+                            Text("Nothing from your last scan matches. Try a wider choice.")
+                                .font(.footnote).foregroundStyle(.secondary)
+                        } else {
+                            Button("Add all \(suggested.count.formatted()) to the selection") {
+                                for item in suggested { add(item) }
+                            }
+                            if suggested.count == Self.suggestionLimit {
+                                Text("Showing the \(Self.suggestionLimit) largest matches. Archive these, then choose again for more.")
+                                    .font(.footnote).foregroundStyle(.secondary)
+                            }
+                        }
+                        let chosen = Set(items.map(\.id))
+                        ForEach(suggested) { item in
+                            Button { toggle(item) } label: {
+                                Label {
+                                    VStack(alignment: .leading) {
+                                        Text(item.name)
+                                        Text(item.sourceLabel).font(.caption).foregroundStyle(.secondary)
+                                    }
+                                } icon: {
+                                    Image(systemName: chosen.contains(item.id) ? "checkmark.circle.fill" : "plus.circle")
+                                }
                             }
                         }
                     }
                 }
+            } else {
+                Text("Scan your photos first.")
             }
-            Text("Photos supports JPEG and HEIC photos and single-file videos already on this iPhone. Live Photos, slo-mo and edited videos aren't supported yet. Use Files for documents. Suggestions leave out favorites.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
         }
+        .navigationTitle("Filter")
+        .navigationBarTitleDisplayMode(.inline)
+        .safeAreaInset(edge: .bottom) {
+            if !items.isEmpty { nextBar }
+        }
+        .sheet(isPresented: $showPlacePicker) {
+            if let snapshot { PlacePickerSheet(place: $place, snapshot: snapshot) }
+        }
+        .sheet(isPresented: $showProPushed) { proSheet($showProPushed) }
     }
 
-    private var reviewSection: some View {
-        Section("3. Review space and approve") {
-            ForEach(items) { item in
-                Button { toggle(item) } label: {
-                    HStack {
-                        if case .photo(let id, _) = item.source {
-                            AssetThumbnail(assetID: id)
+    // MARK: - Copy
+
+    private var selectedBytes: Int64 { items.compactMap { bytes(for: $0) }.reduce(Int64(0), +) }
+    private var unmeasured: Int { items.filter { bytes(for: $0) == nil }.count }
+    private var comparison: ArchiveCapacity { ArchiveCapacity(selected: selectedBytes, available: availableBytes) }
+    private var allowance: ArchiveAllowance { ProStore.archiveAllowance(used: archivedBytes, selection: selectedBytes, unlocked: pro.unlocked) }
+    private var overAllowance: Bool { if case .over = allowance { return true } else { return false } }
+    private var toGoogle: Bool { destinationKind == .google && google.email != nil }
+    private var hasDestination: Bool { toGoogle || (destinationKind != .google && destination != nil) }
+
+    private var canCopy: Bool {
+        guard archiveConsent, !busy, !items.isEmpty, hasDestination, !overAllowance else { return false }
+        if toGoogle { return true }
+        return comparison.fits != false && (availableGB.isEmpty || availableBytes != nil)
+            && folderCheck?.problem == nil && !checkingFolder && tooBigForDrive.isEmpty
+    }
+
+    private var consentLine: String {
+        let count = "\(items.count.formatted()) \(items.count == 1 ? "item" : "items")"
+        if toGoogle { return "I authorize copying \(count) to Google Drive (\(google.email ?? ""))." }
+        return "I authorize copying \(count) to \(destination?.lastPathComponent ?? "this folder")."
+    }
+
+    private var consentText: String {
+        toGoogle
+            ? "I authorize copying these items to Google Drive (\(google.email ?? "")), in the TidyAway Archive folder. Source items stay where they are and this step frees no space."
+            : "I authorize copying these items to this folder. Files providers may download selected files and sync these copies. Source items stay where they are and this step frees no space."
+    }
+
+    private var copyScreen: some View {
+        List {
+            Section {
+                Text("\(items.count.formatted()) \(items.count == 1 ? "item" : "items") · \(formattedBytes(selectedBytes))")
+                    .font(.title.bold())
+                    .accessibilityIdentifier("copy-summary")
+                if let message { Text(message).font(.footnote) }
+            }
+            destinationSection
+            Section("Check") { checks }
+            Section {
+                DisclosureGroup("Review \(items.count.formatted()) \(items.count == 1 ? "item" : "items")", isExpanded: $showReview) {
+                    ForEach(items) { item in
+                        Button { toggle(item) } label: {
+                            HStack {
+                                if case .photo(let id, _) = item.source {
+                                    AssetThumbnail(assetID: id)
+                                }
+                                VStack(alignment: .leading) {
+                                    Text(item.name).foregroundStyle(.primary)
+                                    Text(item.sourceLabel).font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: "minus.circle").accessibilityHidden(true)
+                            }
                         }
-                        VStack(alignment: .leading) {
-                            Text(item.name).foregroundStyle(.primary)
-                            Text(item.sourceLabel).font(.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Image(systemName: "minus.circle").accessibilityHidden(true)
+                        .accessibilityLabel("Remove \(item.name) from selection")
                     }
                 }
-                .accessibilityLabel("Remove \(item.name) from selection")
+                .accessibilityIdentifier("copy-review")
             }
-            let unmeasured = items.filter { bytes(for: $0) == nil }.count
-            let selectedBytes = items.compactMap { bytes(for: $0) }.reduce(Int64(0), +)
-            let comparison = ArchiveCapacity(selected: selectedBytes, available: availableBytes)
-            LabeledContent(unmeasured == 0 ? "Selected size" : "Known selected size", value: formattedBytes(selectedBytes))
-            if unmeasured > 0 {
-                Button("Check sizes of \(unmeasured) items", action: measureSelection)
+        }
+        .disabled(busy)
+        .navigationTitle("Copy")
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(busy)
+        .safeAreaInset(edge: .bottom) {
+            VStack(spacing: 8) {
+                if hasDestination {
+                    HStack(spacing: 4) {
+                        Button { archiveConsent.toggle() } label: {
+                            Label(consentLine, systemImage: archiveConsent ? "checkmark.square.fill" : "square")
+                                .font(.subheadline)
+                                .multilineTextAlignment(.leading)
+                                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityAddTraits(archiveConsent ? .isSelected : [])
+                        .accessibilityIdentifier("archive-consent")
+                        InfoButton(title: "What you're agreeing to", text: consentText)
+                    }
+                }
+                Button(hasDestination ? "Copy \(items.count.formatted()) \(items.count == 1 ? "item" : "items")" : "Choose where to copy above") {
+                    if toGoogle { beginDriveCopy() } else { beginCopy() }
+                }
+                .buttonStyle(ArchiveButtonStyle())
+                .disabled(!canCopy)
+                .accessibilityIdentifier("archive-copy")
             }
-            if let available = comparison.available {
-                LabeledContent("Available space you entered", value: formattedBytes(available))
-            }
+            .padding(.horizontal, 16).padding(.vertical, 10)
+            .background(.regularMaterial)
+            .disabled(busy)
+        }
+        .modifier(FolderPicker(isPresented: $showArchiveFolder, pick: setDestination))
+        .sheet(isPresented: $showProPushed) { proSheet($showProPushed) }
+    }
+
+    @ViewBuilder
+    private var checks: some View {
+        LabeledContent(unmeasured == 0 ? "Selected size" : "Known selected size", value: formattedBytes(selectedBytes))
+        if checkingSizes {
+            ProgressView("Checking selected sizes…")
+        } else if unmeasured > 0 {
+            Button("Check sizes of \(unmeasured) items", action: measureSelection)
+        }
+        if !toGoogle, let available = comparison.available {
+            LabeledContent("Available space", value: formattedBytes(available))
+        }
+        if !toGoogle {
             if comparison.fits == false {
-                Label("This selection exceeds the space entered. Remove items or choose a different folder.", systemImage: "exclamationmark.triangle")
+                Label("This selection doesn't fit. Remove items or choose a different folder.", systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(Brand.caution)
             } else if unmeasured == 0, comparison.fits == true {
-                Text("The selection fits the space entered. Your provider makes the final capacity check.")
+                Label("Fits. Your provider makes the final capacity check.", systemImage: "checkmark.circle").foregroundStyle(Brand.safe)
             } else if destination != nil {
                 Text(unmeasured > 0 && comparison.available != nil
                      ? "Check the remaining item sizes for a complete comparison, or try a small batch."
                      : "Capacity is unconfirmed. You can enter the available space shown by your provider or try a small batch.")
+                    .font(.footnote).foregroundStyle(.secondary)
             }
             if !availableGB.isEmpty && availableBytes == nil {
                 Text("Enter available space as a number in GB.").foregroundStyle(.secondary)
             }
-            let allowance = ProStore.archiveAllowance(used: archivedBytes, selection: selectedBytes, unlocked: pro.unlocked)
-            switch allowance {
-            case .unlimited:
-                EmptyView()
-            case .fits(let left):
-                Text("Free archive: \(formattedBytes(left)) of 5 GB left.")
-                    .font(.footnote).foregroundStyle(.secondary)
-                    .accessibilityIdentifier("archive-allowance")
-            case .over(let left):
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("This selection is \(formattedBytes(selectedBytes)). \(formattedBytes(left)) of your free 5 GB archive is left. Remove some items, or unlock Pro to archive without a limit.")
-                    Button("See TidyAway Pro") { showPro = true }
-                }
-                .accessibilityIdentifier("archive-allowance")
-            }
-            if destinationKind == .google, let email = google.email {
-                LabeledContent("Archive", value: "Google Drive")
-                Toggle("I authorize copying these items to Google Drive (\(email)), in the TidyAway Archive folder. Source items stay where they are and this step frees no space.", isOn: $archiveConsent)
-                    .accessibilityIdentifier("google-consent")
-                Button("Copy and verify", action: beginDriveCopy)
-                    .fontWeight(.semibold)
-                    .disabled(!archiveConsent || { if case .over = allowance { return true } else { return false } }())
-            } else if let destination {
-                LabeledContent("Archive folder", value: destination.lastPathComponent)
-                Toggle("I authorize copying these items to this folder. Files providers may download selected files and sync these copies. Source items stay where they are and this step frees no space.", isOn: $archiveConsent)
-                Button("Copy and verify", action: beginCopy)
-                    .fontWeight(.semibold)
-                    .disabled(!archiveConsent || comparison.fits == false || (!availableGB.isEmpty && availableBytes == nil)
-                              || { if case .over = allowance { return true } else { return false } }()
-                              || folderCheck?.problem != nil || checkingFolder || !tooBigForDrive.isEmpty)
-                if !tooBigForDrive.isEmpty {
-                    Text("\(tooBigForDrive.count) selected \(tooBigForDrive.count == 1 ? "item is" : "items are") over 4 GB, too big for this FAT32 drive. Remove \(tooBigForDrive.count == 1 ? "it" : "them") or use an ExFAT drive.")
-                        .font(.footnote).foregroundStyle(Brand.caution)
-                }
-            } else {
-                Text(destinationKind == .google ? "Connect Google Drive above to continue." : "Choose an archive folder above to continue.")
-            }
         }
+        switch allowance {
+        case .unlimited:
+            EmptyView()
+        case .fits(let left):
+            Text("Free archive: \(formattedBytes(left)) of 5 GB left.")
+                .font(.footnote).foregroundStyle(.secondary)
+                .accessibilityIdentifier("archive-allowance")
+        case .over(let left):
+            VStack(alignment: .leading, spacing: 8) {
+                Text("This selection is \(formattedBytes(selectedBytes)). \(formattedBytes(left)) of your free 5 GB archive is left. Remove some items, or unlock Pro to archive without a limit.")
+                Button("See TidyAway Pro") { showProPushed = true }
+            }
+            .accessibilityIdentifier("archive-allowance")
+        }
+        if !toGoogle, !tooBigForDrive.isEmpty {
+            Text("\(tooBigForDrive.count) selected \(tooBigForDrive.count == 1 ? "item is" : "items are") over 4 GB, too big for this FAT32 drive. Remove \(tooBigForDrive.count == 1 ? "it" : "them") or use an ExFAT drive.")
+                .font(.footnote).foregroundStyle(Brand.caution)
+        }
+    }
+
+    // MARK: - Run and results
+
+    @ViewBuilder
+    private var runCover: some View {
+        if let outcome = run.outcome {
+            ArchiveDoneView(outcome: outcome,
+                            note: outcome.completion.flatMap(completionNote),
+                            canDelete: RemovalAfterArchive.enabled && model != nil && !(outcome.completion?.removable.isEmpty ?? true),
+                            openDrive: driveLink(outcome.completion?.driveFolderID),
+                            delete: { removal = outcome.completion },
+                            getBack: {
+                                closeRun()
+                                showArchived?()
+                            },
+                            details: { showRunDetails = true },
+                            close: closeRun)
+                .sheet(item: $removal) { done in
+                    if let model {
+                        NavigationStack { ArchivedRemovalView(done: done, model: model) }
+                    }
+                }
+                .sheet(isPresented: $showRunDetails) { detailsSheet }
+        } else {
+            ArchiveProgressView(run: run, usesDrive: destinationKind == .google)
+        }
+    }
+
+    private func driveLink(_ folder: String?) -> (() -> Void)? {
+        guard let folder, let url = URL(string: "https://drive.google.com/drive/folders/\(folder)") else { return nil }
+        return { openURL(url) }
+    }
+
+    private func closeRun() {
+        showRun = false
+        path = NavigationPath()
+    }
+
+    private var detailsSheet: some View {
+        NavigationStack {
+            List {
+                if let message { Section { Text(message) } }
+                resultsSection
+                if let restoreTarget { restoreSection(restoreTarget) }
+            }
+            .disabled(busy)
+            .navigationTitle("Results")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        showDetails = false
+                        showRunDetails = false
+                    }
+                    .disabled(busy)
+                }
+            }
+            .modifier(FolderPicker(isPresented: $showRestoreFolder) { folder in
+                restoreFolder = folder
+                restoreConsent = false
+            })
+        }
+    }
+
+    private func proSheet(_ shown: Binding<Bool>) -> some View {
+        NavigationStack {
+            ProUpgradeView()
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) { Button("Not now") { shown.wrappedValue = false } }
+                }
+        }
+        .environmentObject(pro)
+    }
+
+    private func setDestination(_ folder: URL) {
+        destination = folder
+        availableGB = ""
+        archiveConsent = false
+        checkFolder(folder)
     }
 
     private var availableBytes: Int64? {
@@ -572,7 +1033,7 @@ struct PhotoArchiveView: View {
     private func restoreSection(_ receipt: ArchiveReceipt) -> some View {
         Section("Test restore") {
             Text(receipt.url.lastPathComponent)
-            Button { openPicker(.restore) } label: {
+            Button { showRestoreFolder = true } label: {
                 Label(restoreFolder.map { "Change folder (\($0.lastPathComponent))" } ?? "Choose a different restore folder", systemImage: "folder")
             }
             if let restoreFolder {
@@ -587,28 +1048,10 @@ struct PhotoArchiveView: View {
         }
     }
 
-    private func openPicker(_ purpose: PickerPurpose) {
-        picker = purpose
-        showFiles = true
-    }
-
-    private func handlePicker(_ result: Result<[URL], Error>) {
+    private func addFiles(_ result: Result<[URL], Error>) {
         do {
-            let urls = try result.get()
-            switch picker {
-            case .files:
-                for url in urls {
-                    let item = ArchiveItem(id: url.absoluteString, name: url.lastPathComponent, source: .file(url))
-                    add(item)
-                }
-            case .archive:
-                destination = urls.first
-                availableGB = ""
-                archiveConsent = false
-                if let folder = urls.first { checkFolder(folder) }
-            case .restore:
-                restoreFolder = urls.first
-                restoreConsent = false
+            for url in try result.get() {
+                add(ArchiveItem(id: url.absoluteString, name: url.lastPathComponent, source: .file(url)))
             }
         } catch {
             message = "Could not open the selection. \(error.localizedDescription)"
@@ -679,6 +1122,8 @@ struct PhotoArchiveView: View {
         message = nil
         restoreTarget = nil
         let account = google
+        run.start(selection.count)
+        showRun = true
         UIApplication.shared.isIdleTimerDisabled = true
         Task {
             var records: [ArchivedRecord] = []
@@ -690,6 +1135,8 @@ struct PhotoArchiveView: View {
                 let folderID = try await GoogleDriveClient.archiveFolder(token: try await account.accessToken())
                 driveFolder = folderID
                 for item in selection {
+                    if run.stopping { break }
+                    run.currentID = Self.photoID(item)
                     do {
                         // A fresh token per item; each item streams straight from Photos or Files to
                         // Drive in small pieces, so no full copy needs room on this iPhone.
@@ -700,14 +1147,18 @@ struct PhotoArchiveView: View {
                         let record = ArchivedRecord(id: UUID().uuidString, name: item.name,
                                                     folderName: "Google Drive", bytes: uploaded.fingerprint.bytes,
                                                     digest: uploaded.fingerprint.digest, date: Date(),
-                                                    viaHomeServer: false, folderBookmark: nil, driveFileID: uploaded.fileID)
+                                                    viaHomeServer: false, folderBookmark: nil, driveFileID: uploaded.fileID,
+                                                    photoID: Self.photoID(item))
                         records.append(record)
                         copiedItems.append(item)
+                        run.copied += 1
+                        run.bytes += record.bytes
                         // Saved as each item finishes, so an interrupted run keeps what it already copied.
                         if Self.save(record) { copies[item.id] = record } else { problems.append(Self.notSaved(item)) }
                     } catch {
                         problems.append("\(item.name) — \(error.localizedDescription)")
                     }
+                    run.tried += 1
                 }
             } catch {
                 problems.append(error.localizedDescription)
@@ -717,10 +1168,10 @@ struct PhotoArchiveView: View {
             failures = problems
             items.removeAll { copiedIDs.contains($0.id) }
             message = nil
-            if !records.isEmpty {
-                completion = ArchiveCompletion(items: copiedItems, bytes: records.reduce(0) { $0 + $1.bytes },
-                                               place: "Google Drive", driveFolderID: driveFolder, copies: copies)
-            }
+            let completion = records.isEmpty ? nil : ArchiveCompletion(items: copiedItems, bytes: records.reduce(0) { $0 + $1.bytes },
+                                                                       place: "Google Drive", driveFolderID: driveFolder, copies: copies)
+            run.outcome = ArchiveOutcome(completion: completion, failures: problems,
+                                         left: run.stopping ? selection.count - run.tried : 0, place: "Google Drive")
             recordOutcome("Archive copy to Google Drive \(operation) completed. Verified \(records.count) of \(selection.count) items.")
             UIApplication.shared.isIdleTimerDisabled = false
             busy = false
@@ -746,6 +1197,8 @@ struct PhotoArchiveView: View {
         busy = true
         message = nil
         restoreTarget = nil
+        run.start(selection.count)
+        showRun = true
         UIApplication.shared.isIdleTimerDisabled = true
         Task {
             var successes: [ArchiveReceipt] = []
@@ -753,6 +1206,8 @@ struct PhotoArchiveView: View {
             var copies: [String: ArchivedRecord] = [:]
             let bookmark = Self.bookmark(for: destination)
             for item in selection {
+                if run.stopping { break }
+                run.currentID = Self.photoID(item)
                 let result = await Task.detached(priority: .userInitiated) {
                     Result { try VerifiedArchive.copy(item, to: destination, wifi: home ? wifiCheck : nil) }
                 }.value
@@ -762,12 +1217,15 @@ struct PhotoArchiveView: View {
                     let record = ArchivedRecord(id: UUID().uuidString, name: receipt.url.lastPathComponent,
                                                 folderName: destination.lastPathComponent, bytes: receipt.fingerprint.bytes,
                                                 digest: receipt.fingerprint.digest, date: Date(),
-                                                viaHomeServer: home, folderBookmark: bookmark)
+                                                viaHomeServer: home, folderBookmark: bookmark, photoID: Self.photoID(item))
+                    run.copied += 1
+                    run.bytes += record.bytes
                     // Saved as each item finishes, so an interrupted run keeps what it already copied.
                     if Self.save(record) { copies[item.id] = record } else { problems.append(Self.notSaved(item)) }
                 case let .failure(error):
                     problems.append("\(item.name) — \(error.localizedDescription)")
                 }
+                run.tried += 1
             }
             let copied = Set(successes.map(\.id))
             receipts.removeAll { copied.contains($0.id) }
@@ -783,11 +1241,11 @@ struct PhotoArchiveView: View {
                 checkedPhotos[id] = nil
             }
             recordOutcome("Archive copy \(operation) completed. Verified \(copied.count) of \(selection.count) items.")
-            if !copied.isEmpty {
-                completion = ArchiveCompletion(items: selection.filter { copied.contains($0.id) },
-                                               bytes: successes.reduce(0) { $0 + $1.fingerprint.bytes },
-                                               place: destination.lastPathComponent, driveFolderID: nil, copies: copies)
-            }
+            let completion = copied.isEmpty ? nil : ArchiveCompletion(items: selection.filter { copied.contains($0.id) },
+                                                                      bytes: successes.reduce(0) { $0 + $1.fingerprint.bytes },
+                                                                      place: destination.lastPathComponent, driveFolderID: nil, copies: copies)
+            run.outcome = ArchiveOutcome(completion: completion, failures: problems,
+                                         left: run.stopping ? selection.count - run.tried : 0, place: destination.lastPathComponent)
             UIApplication.shared.isIdleTimerDisabled = false
             busy = false
         }
@@ -855,31 +1313,14 @@ struct PhotoArchiveView: View {
         return "They're still on your iPhone too. Removing originals after archiving turns on once putting an item back has been tested on this iPhone."
     }
 
-    private func completionActions(_ done: ArchiveCompletion) -> [CompletionAction] {
-        var actions: [CompletionAction] = []
-        let removable = done.removable
-        if !removable.isEmpty, RemovalAfterArchive.enabled, model != nil {
-            actions.append(CompletionAction(title: "Free up \(done.bytes(of: removable).fileSize) on iPhone", icon: "iphone.and.arrow.forward",
-                                            prominent: true, identifier: "completion-remove") {
-                completion = nil
-                removal = done
-            })
-        }
-        if let folder = done.driveFolderID, let url = URL(string: "https://drive.google.com/drive/folders/\(folder)") {
-            actions.append(CompletionAction(title: "See them in Google Drive", icon: "arrow.up.forward.app",
-                                            prominent: actions.isEmpty, identifier: "completion-drive") { openURL(url) })
-        }
-        actions.append(CompletionAction(title: RemovalAfterArchive.enabled ? "See them in Get back" : "Test it: put one back",
-                                        icon: "arrow.uturn.backward.circle", identifier: "completion-getback") {
-            completion = nil
-            showArchived?()
-        })
-        return actions
-    }
-
     /// Everything archived so far counts toward the free 5 GB.
     private func refreshArchivedBytes() {
         archivedBytes = (try? InventoryStore.openDefault().archivedBytes()) ?? 0
+    }
+
+    private static func photoID(_ item: ArchiveItem) -> String? {
+        if case let .photo(id, _) = item.source { return id }
+        return nil
     }
 
     private static func save(_ record: ArchivedRecord) -> Bool {

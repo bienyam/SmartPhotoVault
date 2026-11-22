@@ -14,6 +14,8 @@ struct ArchivedRecord: Codable, Identifiable, Equatable {
     let folderBookmark: Data?
     /// Set when the copy is in Google Drive rather than a Files folder.
     var driveFileID: String? = nil
+    /// Which photo this came from, kept on this iPhone only to show its picture while it is still there.
+    var photoID: String? = nil
 }
 
 /// Archived items grouped by the day they were archived.
@@ -32,47 +34,109 @@ struct ArchiveDay: Identifiable, Equatable {
     }
 }
 
-/// Get back: archived items by date. Tap a day to see its files and restore them.
+/// Get back: archived items by date, as picture cards. Tap a day to see its files and restore them.
 struct ArchivedView: View {
     @State private var records: [ArchivedRecord] = []
+    @State private var year: Int?
+    @State private var loaded = false
+
+    private var years: [Int] {
+        Array(Set(records.map { Calendar.current.component(.year, from: $0.date) })).sorted(by: >)
+    }
+
+    private var days: [ArchiveDay] {
+        ArchiveDay.group(records.filter { year == nil || Calendar.current.component(.year, from: $0.date) == year })
+    }
 
     var body: some View {
-        List {
-            if records.isEmpty {
-                Section {
-                    Text("Nothing archived yet.").font(.headline)
-                    Text("Copies you make with Move out appear here, grouped by date, so you can put any of them back.")
-                        .foregroundStyle(.secondary)
-                }
-            } else {
-                Section {
-                    ForEach(ArchiveDay.group(records)) { day in
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 12) {
+                if loaded, records.isEmpty {
+                    VStack(spacing: 10) {
+                        Image(systemName: "arrow.uturn.backward.circle.fill")
+                            .font(.system(size: 72)).foregroundStyle(ArchiveStyle.link).accessibilityHidden(true)
+                        Text("Nothing archived yet.").font(.title3.bold())
+                        Text("What you move out appears here by day, ready to put back.")
+                            .foregroundStyle(ArchiveStyle.muted)
+                    }
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 40)
+                } else if !records.isEmpty {
+                    Text("What do you want back?").font(.title3.weight(.heavy)).foregroundStyle(ArchiveStyle.ink)
+                        .accessibilityAddTraits(.isHeader)
+                    if years.count > 1 {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                pill("All", on: year == nil) { year = nil }
+                                ForEach(years, id: \.self) { value in
+                                    pill(String(value), on: year == value) { year = value }
+                                }
+                            }
+                        }
+                    }
+                    ForEach(days) { day in
                         NavigationLink {
                             ArchivedDayView(day: day, reload: reload)
                         } label: {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(day.day.formatted(date: .complete, time: .omitted)).font(.headline)
-                                Text("\(day.records.count) \(day.records.count == 1 ? "item" : "items") · \(day.bytes.fileSize) · \(day.places)")
-                                    .font(.caption).foregroundStyle(.secondary)
-                            }
-                            .padding(.vertical, 2)
+                            card(day)
                         }
+                        .buttonStyle(.plain)
+                        .accessibilityElement(children: .combine)
+                        .accessibilityAddTraits(.isButton)
                         .accessibilityIdentifier("archive-day")
                     }
-                } header: {
-                    Text("Archived")
-                } footer: {
-                    Text("Every copy was checked when it was made. Tap a date to see its files and put any of them back.")
+                    Text("Every copy was checked when it was made.")
+                        .font(.footnote).foregroundStyle(ArchiveStyle.muted)
                 }
             }
+            .frame(maxWidth: 640)
+            .padding(.horizontal, 20)
+            .padding(.bottom, 20)
+            .frame(maxWidth: .infinity)
         }
-        .navigationTitle("Archived")
-        .navigationBarTitleDisplayMode(.inline)
+        .background(Brand.background)
         .onAppear(perform: reload)
+    }
+
+    private func pill(_ title: String, on: Bool, action: @escaping () -> Void) -> some View {
+        Button(title, action: action)
+            .font(.subheadline.weight(.bold))
+            .padding(.horizontal, 14)
+            .frame(minHeight: 44)
+            .foregroundStyle(on ? ArchiveStyle.onSelected : ArchiveStyle.ink)
+            .background(on ? ArchiveStyle.selected : Color.clear, in: Capsule())
+            .overlay(Capsule().stroke(on ? Color.clear : ArchiveStyle.border, lineWidth: 1.5))
+            .buttonStyle(.plain)
+            .accessibilityAddTraits(on ? .isSelected : [])
+    }
+
+    private func card(_ day: ArchiveDay) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            let pictures = day.records.compactMap(\.photoID).prefix(4)
+            if !pictures.isEmpty {
+                HStack(spacing: 4) {
+                    ForEach(Array(pictures), id: \.self) { id in
+                        AssetCover(assetID: id, side: 240)
+                            .frame(height: 72)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+                }
+            }
+            Text(day.day.formatted(date: .complete, time: .omitted)).font(.headline).foregroundStyle(ArchiveStyle.ink)
+            Text("\(day.records.count.formatted()) \(day.records.count == 1 ? "item" : "items") · \(day.bytes.fileSize) · \(day.places)")
+                .font(.footnote).foregroundStyle(ArchiveStyle.muted)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Brand.surface, in: RoundedRectangle(cornerRadius: 18))
+        .contentShape(Rectangle())
     }
 
     private func reload() {
         records = (try? InventoryStore.openDefault().archived()) ?? []
+        loaded = true
+        if let year, !years.contains(year) { self.year = nil }
     }
 }
 
@@ -107,8 +171,14 @@ struct ArchivedDayView: View {
                             Image(systemName: selected.contains(record.id) ? "checkmark.circle.fill" : "circle")
                                 .font(.title2)
                                 .foregroundStyle(selected.contains(record.id) ? Brand.primary : Color.secondary)
-                            Image(systemName: Self.isVideo(record.name) ? "video" : "photo")
-                                .foregroundStyle(.secondary).frame(width: 24)
+                            if let id = record.photoID {
+                                AssetCover(assetID: id, side: 140)
+                                    .frame(width: 48, height: 48)
+                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                            } else {
+                                Image(systemName: Self.isVideo(record.name) ? "video" : "photo")
+                                    .foregroundStyle(.secondary).frame(width: 24)
+                            }
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(record.name).foregroundStyle(.primary).lineLimit(1)
                                 Text("\(record.bytes.fileSize) · \(record.folderName) · \(record.date.formatted(date: .omitted, time: .shortened))")
@@ -120,32 +190,6 @@ struct ArchivedDayView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("archived-\(record.id)")
-                }
-            }
-            if !chosen.isEmpty {
-                Section("Put back") {
-                    Picker("Put back to", selection: $target) {
-                        ForEach(Target.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
-                    .onChange(of: target) { consent = false }
-                    .accessibilityIdentifier("restore-target")
-                    if target == .folder {
-                        Button { showFolders = true } label: {
-                            Label(folder.map { "Folder: \($0.lastPathComponent)" } ?? "Choose a folder", systemImage: "folder")
-                        }
-                    }
-                    Toggle(consentText, isOn: $consent).accessibilityIdentifier("restore-consent")
-                    Button {
-                        restore()
-                    } label: {
-                        Text(busy ? progress : "Put back \(chosen.count) \(chosen.count == 1 ? "item" : "items")")
-                            .font(.headline).frame(maxWidth: .infinity, minHeight: 44)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Brand.primary)
-                    .disabled(!consent || busy || (target == .folder && folder == nil))
-                    .accessibilityIdentifier("restore-go")
                 }
             }
             if !problems.isEmpty {
@@ -163,6 +207,33 @@ struct ArchivedDayView: View {
                     consent = false
                 }
                 .accessibilityIdentifier("select-all")
+            }
+        }
+        .safeAreaInset(edge: .bottom) {
+            if !chosen.isEmpty {
+                VStack(spacing: 8) {
+                    Picker("Put back to", selection: $target) {
+                        ForEach(Target.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .onChange(of: target) { consent = false }
+                    .accessibilityIdentifier("restore-target")
+                    if target == .folder {
+                        Button { showFolders = true } label: {
+                            Label(folder.map { "Folder: \($0.lastPathComponent)" } ?? "Choose a folder", systemImage: "folder")
+                        }
+                        .buttonStyle(ArchiveOutlineStyle())
+                    }
+                    Toggle(consentText, isOn: $consent)
+                        .font(.footnote)
+                        .accessibilityIdentifier("restore-consent")
+                    Button(busy ? progress : "Put back \(chosen.count.formatted()) \(chosen.count == 1 ? "item" : "items")") { restore() }
+                        .buttonStyle(ArchiveButtonStyle())
+                        .disabled(!consent || busy || (target == .folder && folder == nil))
+                        .accessibilityIdentifier("restore-go")
+                }
+                .padding(.horizontal, 16).padding(.vertical, 10)
+                .background(.regularMaterial)
             }
         }
         .fileImporter(isPresented: $showFolders, allowedContentTypes: [.folder]) { result in

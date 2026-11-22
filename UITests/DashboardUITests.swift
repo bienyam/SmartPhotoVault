@@ -213,30 +213,38 @@ final class DashboardUITests: XCTestCase {
     func testArchiveTabHasMoveOutAndGetBack() {
         let app = launch()
         app.tabBars.buttons["Archive"].tap()
-        XCTAssertTrue(app.staticTexts["Make an archive copy"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["TidyAway only adds copies to your archive. It never deletes or changes anything there, by design."].exists)
+        let moveOut = app.buttons["archive-move-out"], getBack = app.buttons["archive-get-back"]
+        XCTAssertTrue(moveOut.waitForExistence(timeout: 10))
+        XCTAssertTrue(getBack.exists)
+        XCTAssertGreaterThan(moveOut.frame.height, 80, "Move out and Get back are large buttons.")
+        XCTAssertGreaterThan(getBack.frame.height, 80)
+        XCTAssertTrue(moveOut.isSelected)
+        let promise = app.descendants(matching: .any)["archive-write-only"].firstMatch
+        reveal(promise, in: app)
+        XCTAssertTrue(promise.exists)
         let files = app.buttons["Pick files myself"]
         reveal(files, in: app)
         XCTAssertTrue(files.waitForExistence(timeout: 5))
-        app.buttons["Get back"].tap()
+        keepScreenshot(of: app, named: "Archive move out")
+        getBack.tap()
         XCTAssertTrue(app.staticTexts["Nothing archived yet."].waitForExistence(timeout: 5)
-                      || app.staticTexts["Archived items"].exists)
-        app.buttons["Move out"].tap()
-        XCTAssertTrue(app.staticTexts["Make an archive copy"].waitForExistence(timeout: 5))
+                      || app.descendants(matching: .any)["archive-day"].firstMatch.exists)
+        keepScreenshot(of: app, named: "Archive get back")
+        moveOut.tap()
+        XCTAssertTrue(promise.waitForExistence(timeout: 5))
     }
 
     func testGoogleDriveAsksToConnectInsteadOfShowingFolders() {
         let app = launch()
         app.tabBars.buttons["Archive"].tap()
         let picker = app.buttons["storage-location"]
-        reveal(picker, in: app)
         XCTAssertTrue(picker.waitForExistence(timeout: 10))
+        reveal(picker, in: app)
         picker.tap()
         let google = app.buttons["Google Drive"]
         XCTAssertTrue(google.waitForExistence(timeout: 5))
         google.tap()
         let connect = app.buttons["google-connect"]
-        reveal(connect, in: app)
         XCTAssertTrue(connect.waitForExistence(timeout: 5), "Google Drive offers a sign-in, not a folder list.")
         XCTAssertFalse(app.buttons["Choose archive folder in Files"].exists)
     }
@@ -246,13 +254,65 @@ final class DashboardUITests: XCTestCase {
         let app = launch()
         app.tabBars.buttons["Archive"].tap()
         let picker = app.buttons["storage-location"]
-        reveal(picker, in: app)
         XCTAssertTrue(picker.waitForExistence(timeout: 10))
+        reveal(picker, in: app)
         picker.tap()
         for name in ["Drive plugged into this iPhone", "Google Drive", "iCloud Drive", "Other Files location",
                      "Home file server", "Another Apple Account"] {
             XCTAssertTrue(app.buttons[name].waitForExistence(timeout: 5), "\(name) must stay available.")
         }
+        app.buttons["Drive plugged into this iPhone"].tap()
+        XCTAssertTrue(app.buttons["Choose archive folder in Files"].waitForExistence(timeout: 5))
+        keepScreenshot(of: app, named: "Archive destinations")
+    }
+
+    private func launchArchiveGroups(pro: Bool) -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments += ["--skip-welcome", "--demo-archive"] + (pro ? ["--pro"] : [])
+        app.launch()
+        app.tabBars.buttons["Archive"].tap()
+        return app
+    }
+
+    func testAGroupOpensSelectedAndGoesToCopyInOneShot() {
+        let app = launchArchiveGroups(pro: true)
+        let group = app.buttons["group-large-videos"]
+        XCTAssertTrue(group.waitForExistence(timeout: 15), "Very large videos is offered.")
+        keepScreenshot(of: app, named: "Archive groups")
+        let trip = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'group-trip'")).firstMatch
+        XCTAssertTrue(trip.exists, "The trip is offered.")
+        trip.tap()
+        let next = app.buttons["skim-next"]
+        XCTAssertTrue(next.waitForExistence(timeout: 10))
+        XCTAssertTrue(next.label.contains("120 items"), next.label)
+        keepScreenshot(of: app, named: "Archive skim")
+        app.buttons["skim-sample-trip0-0"].tap()
+        XCTAssertTrue(next.label.contains("119 items"), "One tap leaves one out. \(next.label)")
+        next.tap()
+        XCTAssertTrue(app.staticTexts["copy-summary"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["copy-summary"].label.contains("119 items"))
+        XCTAssertFalse(app.buttons["archive-copy"].isEnabled, "Nothing copies without a destination and sign-off.")
+        keepScreenshot(of: app, named: "Archive copy")
+    }
+
+    func testGroupsNeedProButEveryoneSeesThem() {
+        let app = launchArchiveGroups(pro: false)
+        let group = app.buttons["group-large-videos"]
+        XCTAssertTrue(group.waitForExistence(timeout: 15))
+        group.tap()
+        XCTAssertTrue(app.buttons["pro-monthly"].waitForExistence(timeout: 5), "Opening a group shows Pro.")
+    }
+
+    /// Regression guard: the filters that shipped stay available, free.
+    func testArchiveFiltersAreStillAvailable() {
+        let app = launchArchiveGroups(pro: false)
+        let filter = app.buttons["archive-filter"]
+        XCTAssertTrue(filter.waitForExistence(timeout: 15))
+        reveal(filter, in: app)
+        filter.tap()
+        XCTAssertTrue(app.buttons["Show matching photos"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["archive-filters-pro"].exists)
+        XCTAssertTrue(app.buttons["archive-suggest-videos"].exists)
     }
 
     /// Regression guard: restored features stay reachable.
