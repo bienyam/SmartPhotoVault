@@ -1,12 +1,12 @@
 import SwiftUI
 import Photos
 
-/// The launch tab: one button to find space, then the biggest wins, largest first.
+/// The launch tab: the Dial with one button to find space, then the finds as picture cards.
 struct FreeUpView: View {
     @ObservedObject var model: DashboardModel
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openURL
-    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var storage = DeviceStorage.current()
     @State private var showRecentlyDeleted = false
 
@@ -14,34 +14,33 @@ struct FreeUpView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    header
-                    RecentlyDeletedCard { showRecentlyDeleted = true }
                     if model.isScanning {
                         scanning
-                    }
-                    if let rescue = model.rescue {
-                        results(rescue)
-                    } else if !model.isScanning {
+                    } else if let rescue = model.rescue {
+                        resultDial(rescue)
+                    } else {
                         start
                     }
-                    if let error = model.errorMessage {
-                        Text(error).font(.subheadline).foregroundStyle(Brand.caution)
-                    }
-                    if model.authorization == .denied || model.authorization == .restricted {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("TidyAway needs access to your photos to find space.")
-                            Button("Open Settings") {
-                                if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
-                            }
-                            .buttonStyle(.bordered)
-                        }
+                    problems
+                    if let rescue = model.rescue {
+                        finds(rescue)
+                        RecentlyDeletedCard { showRecentlyDeleted = true }
+                        footer(rescue)
+                    } else {
+                        RecentlyDeletedCard { showRecentlyDeleted = true }
                     }
                 }
                 .frame(maxWidth: 520)
                 .padding(20)
                 .frame(maxWidth: .infinity)
             }
-            .background(colorScheme == .dark ? Color(uiColor: .systemBackground) : Brand.background)
+            .background(Brand.background)
+            .safeAreaInset(edge: .bottom) {
+                if !model.isScanning, let rescue = model.rescue,
+                   rescue.duplicateCopies > 0 || !rescue.videos.isEmpty || !rescue.screenshots.items.isEmpty {
+                    nextStep(rescue)
+                }
+            }
             .navigationTitle("TidyAway")
             .navigationBarTitleDisplayMode(.inline)
             .sheet(isPresented: $showRecentlyDeleted, onDismiss: { storage = DeviceStorage.current() }) {
@@ -53,126 +52,257 @@ struct FreeUpView: View {
         }
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Storage full? Get your camera back.")
-                .font(.title.bold())
-                .accessibilityAddTraits(.isHeader)
-            // Once there are results, the fuller breakdown below replaces this simple bar.
-            if let storage, model.rescue == nil {
-                StorageBar(storage: storage)
-            }
-        }
+    // MARK: - Dial
+
+    private var usedSummary: String {
+        storage.map { "\($0.used.fileSize) of \($0.total.fileSize) used" } ?? "Storage on this iPhone"
     }
 
     private var start: some View {
-        VStack(spacing: 12) {
-            Button { model.startDuplicateScan() } label: {
-                Label("Free up space", systemImage: "sparkles")
-                    .font(.title3.bold())
-                    .frame(maxWidth: .infinity, minHeight: 64)
-                    .foregroundStyle(Color.white)
-                    .background(Brand.primary, in: RoundedRectangle(cornerRadius: 18))
+        VStack(spacing: 16) {
+            Text("Storage full? Get your camera back.")
+                .font(.title.bold())
+                .foregroundStyle(ArchiveStyle.ink)
+                .multilineTextAlignment(.center)
+                .accessibilityAddTraits(.isHeader)
+            StorageDial(parts: [DialPart(fraction: storage?.usedFraction ?? 0, color: DialPart.photos)], summary: usedSummary) {
+                DialButton { model.startDuplicateScan() }
             }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("free-up-space")
-            HStack(spacing: 4) {
+            if let storage {
+                (Text("\(storage.available.fileSize) free").font(.title3.bold()).foregroundColor(ArchiveStyle.ink)
+                    + Text(" of \(storage.total.fileSize)").font(.body).foregroundColor(ArchiveStyle.muted))
+                    .multilineTextAlignment(.center)
+            }
+            HStack(spacing: 2) {
                 Text("Nothing is removed until you approve it.")
-                    .font(.footnote).foregroundStyle(.secondary)
+                    .font(.footnote.weight(.bold))
+                    .foregroundStyle(ArchiveStyle.safeText)
+                    .padding(.horizontal, 12).padding(.vertical, 7)
+                    .background(ArchiveStyle.safeBack, in: Capsule())
                 InfoButton(title: "How it works",
                            text: "TidyAway looks through the photos and videos on this iPhone and lists the biggest things you could remove. It reads them on your iPhone and sends nothing anywhere. You choose what goes, sign off, and Apple asks you to confirm.")
             }
         }
+        .frame(maxWidth: .infinity)
     }
 
     private var scanning: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if model.total > 0 {
-                ProgressView(value: Double(model.completed), total: Double(model.total)) {
-                    Text("Looking through \(model.completed.formatted()) of \(model.total.formatted())")
+        VStack(spacing: 14) {
+            Text("Looking through your photos").font(.title2.bold()).foregroundStyle(ArchiveStyle.ink)
+                .multilineTextAlignment(.center)
+                .accessibilityAddTraits(.isHeader)
+            StorageDial(parts: [DialPart(fraction: model.total > 0 ? Double(model.completed) / Double(model.total) : 0, color: DialPart.photos)],
+                        summary: "\(model.completed.formatted()) of \(model.total.formatted()) checked") {
+                VStack(spacing: 4) {
+                    if let rescue = model.rescue {
+                        heroNumber(rescue.upToBytes.fileSize)
+                        Text("found so far").font(.subheadline).foregroundStyle(ArchiveStyle.muted)
+                    } else {
+                        ProgressView().controlSize(.large)
+                    }
                 }
-            } else {
-                ProgressView("Looking through your photos…")
+            }
+            if model.total > 0 {
+                Text("Looking through \(model.completed.formatted()) of \(model.total.formatted())")
+                    .font(.subheadline).monospacedDigit().foregroundStyle(ArchiveStyle.muted)
             }
             Text("The biggest finds show up first. You can start clearing them now.")
-                .font(.footnote).foregroundStyle(.secondary)
+                .font(.footnote).foregroundStyle(ArchiveStyle.muted)
+                .multilineTextAlignment(.center)
             Button("Stop", role: .cancel) { model.cancel() }
+                .buttonStyle(ArchiveOutlineStyle())
         }
-        .padding(16)
-        .background(Brand.surface, in: RoundedRectangle(cornerRadius: 16))
+        .frame(maxWidth: .infinity)
+    }
+
+    private func heroNumber(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 46, weight: .heavy, design: .rounded))
+            .monospacedDigit()
+            .minimumScaleFactor(0.5)
+            .lineLimit(1)
+            .foregroundStyle(ArchiveStyle.selected)
+            .contentTransition(.numericText())
+    }
+
+    private func parts(_ rescue: RescueSummary) -> [DialPart] {
+        guard let storage, storage.total > 0 else { return [] }
+        let photos = model.isDemo ? 0 : min(rescue.libraryLocalBytes, storage.used)
+        return [DialPart(fraction: Double(photos) / Double(storage.total), color: DialPart.photos),
+                DialPart(fraction: Double(max(0, storage.used - photos)) / Double(storage.total), color: DialPart.other)]
     }
 
     @ViewBuilder
-    private func results(_ rescue: RescueSummary) -> some View {
-        if model.isDemo {
-            Label("Sample photos, not your library", systemImage: "testtube.2")
-                .font(.subheadline.weight(.semibold))
-        }
-        if let storage {
-            PhoneBreakdown(storage: storage, photosBytes: rescue.libraryLocalBytes, isDemo: model.isDemo)
-        }
-        VStack(alignment: .leading, spacing: 4) {
-            Text("You could free up to").font(.subheadline).foregroundStyle(.secondary)
-            Text(rescue.upToBytes.fileSize).font(.system(size: 40, weight: .bold))
-                .accessibilityIdentifier("hero-bytes")
-            Text(rescue.iCloudBytes > 0 ? "on this iPhone, plus \(rescue.iCloudBytes.fileSize) in iCloud" : "on this iPhone")
-                .font(.subheadline).foregroundStyle(.secondary)
-        }
-        VStack(spacing: 0) {
-            NavigationLink {
-                CleanupListView(title: "Large videos",
-                                guidance: "Videos are usually the biggest files on an iPhone. These are the ones on this iPhone, largest first.",
-                                items: rescue.videos, source: "Large videos", allowsRemoval: true, model: model)
-            } label: {
-                row("Large videos", icon: "video", detail: rescue.videos.isEmpty ? "None" : split(rescue.videoBytes, rescue.videoICloudBytes))
+    private func resultDial(_ rescue: RescueSummary) -> some View {
+        VStack(spacing: 12) {
+            if model.isDemo {
+                Label("Sample photos, not your library", systemImage: "testtube.2")
+                    .font(.subheadline.weight(.semibold))
             }
-            .accessibilityIdentifier("row-videos")
-            Divider()
-            NavigationLink { DuplicatesListView(model: model) } label: {
-                row("Duplicates", icon: "square.on.square",
-                    detail: rescue.duplicateCopies == 0 ? "None" : rescue.duplicateBytes.fileSize)
+            Text("You could free up to").font(.headline).foregroundStyle(ArchiveStyle.muted)
+                .accessibilityAddTraits(.isHeader)
+            StorageDial(parts: parts(rescue), summary: usedSummary) {
+                VStack(spacing: 2) {
+                    heroNumber(rescue.upToBytes.fileSize).accessibilityIdentifier("hero-bytes")
+                    Text(rescue.iCloudBytes > 0 ? "on this iPhone, plus \(rescue.iCloudBytes.fileSize) in iCloud" : "on this iPhone")
+                        .font(.subheadline).foregroundStyle(ArchiveStyle.muted)
+                        .multilineTextAlignment(.center)
+                }
             }
-            .accessibilityIdentifier("row-duplicates")
-            Divider()
-            NavigationLink {
-                CleanupListView(title: "Screenshots", guidance: CleanCategory.screenshots.guidance,
-                                items: rescue.screenshots.items, source: "Screenshots", allowsRemoval: true, model: model)
-            } label: {
-                row("Screenshots", icon: "camera.viewfinder",
-                    detail: rescue.screenshots.items.isEmpty ? "None" : split(rescue.screenshots.localBytes, rescue.screenshots.iCloudBytes))
+            if let storage {
+                let photos = model.isDemo ? 0 : min(rescue.libraryLocalBytes, storage.used)
+                let rest = max(0, storage.used - photos)
+                VStack(spacing: 4) {
+                    legend(DialPart.photos, "Photos & videos", model.isDemo ? "—" : photos.fileSize)
+                    legend(DialPart.other, "Apps, System Data & other", model.isDemo ? "—" : rest.fileSize)
+                    legend(Color.gray.opacity(0.35), "Free", storage.available.fileSize)
+                }
+                NavigationLink {
+                    WhatsUsingView(storage: storage, photosBytes: rescue.libraryLocalBytes, isDemo: model.isDemo)
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(!model.isDemo && storage.used > 0 && Double(photos) / Double(storage.used) < 0.4
+                             ? "Most of your space isn't photos. See what's using it" : "See what's using it")
+                            .multilineTextAlignment(.leading)
+                        Image(systemName: "chevron.right").font(.footnote.bold())
+                    }
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(ArchiveStyle.link)
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("whats-using")
             }
-            .accessibilityIdentifier("row-screenshots")
-            Divider()
-            NavigationLink { MoreTypesView(types: rescue.otherTypes, model: model) } label: {
-                row("More types", icon: "square.grid.2x2", detail: rescue.otherBytes.fileSize)
-            }
-            .accessibilityIdentifier("row-more")
         }
-        .buttonStyle(.plain)
-        .background(Brand.surface, in: RoundedRectangle(cornerRadius: 16))
+        .frame(maxWidth: .infinity)
+    }
+
+    private func legend(_ color: Color, _ title: String, _ value: String) -> some View {
+        HStack(spacing: 8) {
+            Circle().fill(color).frame(width: 10, height: 10)
+            Text(title)
+            Spacer()
+            Text(value).foregroundStyle(ArchiveStyle.muted)
+        }
+        .font(.footnote)
+        .accessibilityElement(children: .combine)
+    }
+
+    // MARK: - Finds
+
+    @ViewBuilder
+    private var problems: some View {
+        if let error = model.errorMessage {
+            Text(error).font(.subheadline).foregroundStyle(Brand.caution)
+        }
+        if model.authorization == .denied || model.authorization == .restricted {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("TidyAway needs access to your photos to find space.")
+                Button("Open Settings") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func finds(_ rescue: RescueSummary) -> some View {
+        FindTag(kind: .safe)
+        NavigationLink { duplicatesList } label: {
+            ArchiveCard(title: "Duplicates",
+                        detail: rescue.duplicateCopies == 0 ? "None" : "\(rescue.duplicateCopies.formatted()) extra \(rescue.duplicateCopies == 1 ? "copy" : "copies") · \(rescue.duplicateBytes.fileSize)",
+                        coverID: rescue.duplicateGroups.first?.assets.first?.id)
+        }
+        .find("row-duplicates")
+        FindTag(kind: .look)
+        LazyVGrid(columns: typeSize.isAccessibilitySize ? [GridItem(.flexible())] : [GridItem(.flexible(), spacing: 10), GridItem(.flexible())], spacing: 10) {
+            NavigationLink { videosList(rescue) } label: {
+                ArchiveCard(title: "Large videos",
+                            detail: rescue.videos.isEmpty ? "None" : split(rescue.videoBytes, rescue.videoICloudBytes),
+                            coverID: rescue.videos.first?.id)
+            }
+            .find("row-videos")
+            NavigationLink { screenshotsList(rescue) } label: {
+                ArchiveCard(title: "Screenshots",
+                            detail: rescue.screenshots.items.isEmpty ? "None" : split(rescue.screenshots.localBytes, rescue.screenshots.iCloudBytes),
+                            coverID: rescue.screenshots.items.first?.id)
+            }
+            .find("row-screenshots")
+        }
+        FindTag(kind: .decide)
+        NavigationLink { MoreTypesView(types: rescue.otherTypes, model: model) } label: {
+            ArchiveCard(title: "More types", detail: rescue.otherBytes.fileSize,
+                        coverID: rescue.otherTypes.first { !$0.items.isEmpty }?.items.first?.id)
+        }
+        .find("row-more")
+    }
+
+    private var duplicatesList: some View { DuplicatesListView(model: model) }
+
+    private func videosList(_ rescue: RescueSummary) -> some View {
+        CleanupListView(title: "Large videos",
+                        guidance: "Videos are usually the biggest files on an iPhone. These are the ones on this iPhone, largest first.",
+                        items: rescue.videos, source: "Large videos", allowsRemoval: true, model: model)
+    }
+
+    private func screenshotsList(_ rescue: RescueSummary) -> some View {
+        CleanupListView(title: "Screenshots", guidance: CleanCategory.screenshots.guidance,
+                        items: rescue.screenshots.items, source: "Screenshots", allowsRemoval: true, model: model)
+    }
+
+    /// One clear next step: the safest find first, then the biggest.
+    @ViewBuilder
+    private func nextStep(_ rescue: RescueSummary) -> some View {
+        Group {
+            if rescue.duplicateCopies > 0 {
+                NavigationLink("Review duplicates · \(rescue.duplicateBytes.fileSize)") { duplicatesList }
+            } else if !rescue.videos.isEmpty {
+                NavigationLink("Review large videos · \(split(rescue.videoBytes, rescue.videoICloudBytes))") { videosList(rescue) }
+            } else if !rescue.screenshots.items.isEmpty {
+                NavigationLink("Review screenshots · \(split(rescue.screenshots.localBytes, rescue.screenshots.iCloudBytes))") { screenshotsList(rescue) }
+            }
+        }
+        .buttonStyle(ArchiveButtonStyle())
+        .accessibilityIdentifier("review-next")
+        .frame(maxWidth: 520)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity)
+        .background(.regularMaterial)
+    }
+
+    @ViewBuilder
+    private func footer(_ rescue: RescueSummary) -> some View {
         if rescue.includesICloud {
             HStack(alignment: .top, spacing: 4) {
                 Text("Some items are kept in iCloud, with a small copy on this iPhone.")
-                    .font(.footnote).foregroundStyle(.secondary)
+                    .font(.footnote).foregroundStyle(ArchiveStyle.muted)
                 InfoButton(title: "Items in iCloud",
                            text: "Optimize iPhone Storage is on, so the full-size originals of these items are in iCloud and your iPhone keeps smaller copies. Deleting them frees their full size in iCloud and the smaller copy on this iPhone. Duplicates can only be confirmed for items whose originals are on this iPhone.")
             }
             .accessibilityIdentifier("icloud-note")
         }
         if model.libraryChanged {
-            Text("Your photos changed since this check.").font(.footnote).foregroundStyle(.secondary)
+            Text("Your photos changed since this check.").font(.footnote).foregroundStyle(ArchiveStyle.muted)
         }
         if let status = model.duplicateScanStatus, status != "Scan complete." {
-            Text(status).font(.footnote).foregroundStyle(.secondary)
+            Text(status).font(.footnote).foregroundStyle(ArchiveStyle.muted)
         }
         if !model.isScanning {
-            NavigationLink { ScanDetailsView(snapshot: rescue.snapshot, isDemo: model.isDemo) } label: {
-                Label("Scan details", systemImage: "list.bullet.rectangle").font(.subheadline)
+            HStack {
+                NavigationLink { ScanDetailsView(snapshot: rescue.snapshot, isDemo: model.isDemo) } label: {
+                    Label("Scan details", systemImage: "list.bullet.rectangle")
+                }
+                .accessibilityIdentifier("scan-details")
+                Spacer()
+                Button(model.isDemo ? "Check my photos instead" : "Check again") { model.startDuplicateScan() }
+                    .accessibilityIdentifier("check-again")
             }
-            .accessibilityIdentifier("scan-details")
-            Button(model.isDemo ? "Check my photos instead" : "Check again") { model.startDuplicateScan() }
-                .font(.subheadline)
-                .accessibilityIdentifier("check-again")
+            .font(.subheadline.weight(.bold))
+            .foregroundStyle(ArchiveStyle.link)
+            .frame(minHeight: 44)
         }
     }
 
@@ -182,20 +312,15 @@ struct FreeUpView: View {
         if local == 0 { return "In iCloud · \(iCloud.fileSize)" }
         return "\(local.fileSize) + \(iCloud.fileSize) in iCloud"
     }
+}
 
-    private func row(_ title: String, icon: String, detail: String) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon).font(.title3).frame(width: 30).foregroundStyle(Brand.primary)
-                .accessibilityHidden(true)
-            Text(title).font(.headline)
-            Spacer()
-            Text(detail).foregroundStyle(.secondary)
-            Image(systemName: "chevron.right").font(.footnote.bold()).foregroundStyle(.secondary)
-                .accessibilityHidden(true)
-        }
-        .padding(.horizontal, 16)
-        .frame(minHeight: 60)
-        .contentShape(Rectangle())
+private extension View {
+    /// A find card: one button to VoiceOver, named by its title and size.
+    func find(_ identifier: String) -> some View {
+        buttonStyle(.plain)
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityIdentifier(identifier)
     }
 }
 
@@ -261,27 +386,6 @@ struct PhoneBreakdown: View {
             Text(title).font(.subheadline)
             Spacer()
             Text(value).font(.subheadline).foregroundStyle(.secondary)
-        }
-        .accessibilityElement(children: .combine)
-    }
-}
-
-/// Used and free space on this iPhone, like the bar in Settings.
-struct StorageBar: View {
-    let storage: DeviceStorage
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            GeometryReader { proxy in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Color.secondary.opacity(0.2))
-                    Capsule().fill(Brand.primary)
-                        .frame(width: max(8, proxy.size.width * storage.usedFraction))
-                }
-            }
-            .frame(height: 10)
-            Text("\(storage.available.fileSize) free of \(storage.total.fileSize)")
-                .font(.subheadline).foregroundStyle(.secondary)
         }
         .accessibilityElement(children: .combine)
     }

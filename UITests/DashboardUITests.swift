@@ -83,7 +83,7 @@ final class DashboardUITests: XCTestCase {
 
     func testFreeUpLeadsWithOneAction() {
         let app = launch()
-        XCTAssertTrue(app.staticTexts["Storage full? Get your camera back."].exists)
+        XCTAssertTrue(app.staticTexts["Storage full? Get your camera back."].exists || app.staticTexts["hero-bytes"].exists)
         XCTAssertTrue(app.buttons["free-up-space"].exists || app.buttons["check-again"].exists,
                       "One action leads: start a check, or check again after a saved one.")
         XCTAssertEqual(app.tabBars.buttons.count, 3)
@@ -382,6 +382,36 @@ final class DashboardUITests: XCTestCase {
         usleep(1_500_000)
         keepScreenshot(of: app, named: "Welcome scan")
         XCTAssertTrue(app.buttons["Get started"].waitForExistence(timeout: 15), "The story should end by itself.")
+    }
+
+    func testLandingPageShowsTheDialAndEveryFind() {
+        let before = launch()
+        XCTAssertTrue(before.buttons["free-up-space"].waitForExistence(timeout: 10) || before.buttons["check-again"].exists)
+        if before.buttons["free-up-space"].exists {
+            XCTAssertGreaterThan(before.buttons["free-up-space"].frame.width, 150, "Free up space is the biggest button on the page.")
+        }
+        keepScreenshot(of: before, named: "Landing before scan")
+        before.terminate()
+
+        let app = launchWithSamples()
+        XCTAssertTrue(app.staticTexts["hero-bytes"].waitForExistence(timeout: 5))
+        keepScreenshot(of: app, named: "Landing results")
+        for tag in ["Safe to clear", "Worth a look", "You decide"] {
+            XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", tag)).firstMatch.exists, tag)
+        }
+        for row in ["row-duplicates", "row-videos", "row-screenshots", "row-more", "scan-details", "check-again", "review-next", "whats-using"] {
+            XCTAssertTrue(app.buttons[row].exists, "\(row) must stay available.")
+        }
+        XCTAssertTrue(app.buttons["recently-deleted-card"].exists)
+        app.swipeUp()
+        keepScreenshot(of: app, named: "Landing results scrolled")
+        app.buttons["review-next"].tap()
+        XCTAssertTrue(app.navigationBars["Duplicates"].waitForExistence(timeout: 5), "The next step opens the safe finds first.")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        let using = app.buttons["whats-using"]
+        for _ in 0..<4 where !using.isHittable { app.swipeDown() }
+        using.tap()
+        XCTAssertTrue(app.staticTexts["What's using your iPhone"].waitForExistence(timeout: 5))
     }
 
     func testRecentlyDeletedGuideOpensWithClearStepsAndMeasures() {
