@@ -6,7 +6,7 @@ import Vision
 /// What TidyAway recognized in one photo or video, on this iPhone. Labels and numbers only, never a picture.
 struct PhotoInsight: Codable, Equatable, Sendable {
     /// Raised when recognition changes, so old results are read again.
-    static let current = 1
+    static let current = 2
 
     let id: String
     var version = PhotoInsight.current

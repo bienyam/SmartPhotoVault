@@ -172,6 +172,14 @@ final class RecognitionTests: XCTestCase {
         XCTAssertGreaterThan(InsightReader.brightness(of: try image(0.5)), 100)
     }
 
+    func testReminderPicturesNeedFewerToFormAGroup() {
+        let photos = (0..<8).map { photo("park\($0)", old + Double($0) * 90_000) }
+        let insights = Dictionary(uniqueKeysWithValues: photos.map { ($0.id, PhotoInsight(id: $0.id, labels: ["parking_lot"])) })
+        let groups = SmartGrouper.groups(in: snapshot(photos), insights: insights, facts: [:], now: now)
+        XCTAssertEqual(groups.first { $0.id == "topic-parking" }?.records.count, 8)
+        XCTAssertNil(SmartGrouper.groups(in: snapshot(Array(photos.prefix(7))), insights: insights, facts: [:], now: now).first { $0.id == "topic-parking" })
+    }
+
     func testOnlyLabelsWeGroupByAreKept() {
         XCTAssertTrue(Recognition.known.contains("beach"))
         XCTAssertTrue(Recognition.known.contains("receipt"))
