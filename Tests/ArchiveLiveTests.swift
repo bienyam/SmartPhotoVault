@@ -56,6 +56,7 @@ final class ArchiveActivityProgressTests: XCTestCase {
     }
 }
 
+@MainActor
 final class ArchiveRunStatsTests: XCTestCase {
     func testLateProgressNeverBringsAFinishedItemBack() {
         let live = ArchiveLive()
