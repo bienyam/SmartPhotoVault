@@ -27,7 +27,7 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        NSPhotoLibraryUsageDescription: TidyAway reads your photo library to count photos and videos and find exact duplicates. It deletes items only when you authorize it and confirm the prompt from Apple Photos.
+        NSPhotoLibraryUsageDescription: TidyAway reads your photo library to find what is taking space, group photos by what they show (on your iPhone), copy the ones you choose to your archive, and put archived ones back. It deletes items only when you approve and confirm the prompt from Apple Photos.
     settings:
       base:
         TARGETED_DEVICE_FAMILY: '1,2'
