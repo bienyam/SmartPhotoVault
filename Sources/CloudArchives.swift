@@ -448,11 +448,11 @@ enum CloudArchive {
 
     /// The older way: a temporary copy on the iPhone, then the upload. Needs room for the item.
     private static func throughFile(_ item: ArchiveItem, to service: CloudService, token: String, folder: OnlineFolder) async throws -> CloudUpload {
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("TidyAwayUpload-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: folder) }
+        let staging = FileManager.default.temporaryDirectory.appendingPathComponent("TidyAwayUpload-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: staging) }
         let local = try await Task.detached(priority: .userInitiated) {
-            try VerifiedArchive.copy(item, to: folder, flush: false)
+            try VerifiedArchive.copy(item, to: staging, flush: false)
         }.value
         let result: (id: String, name: String, hash: String?, size: Int64, local: String)
         switch service {
