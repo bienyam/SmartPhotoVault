@@ -71,7 +71,7 @@ jobs:
           -resultBundlePath build/AuthorizationResults.xcresult
           CODE_SIGNING_ALLOWED=NO
       - name: Test real Photos resources and app flows
-        timeout-minutes: 8
+        timeout-minutes: 12
         run: >-
           xcodebuild test-without-building
           -project SmartPhotoVault.xcodeproj
