@@ -60,6 +60,11 @@ enum ArchiveProver {
     /// The copy as the destination describes it now. It must exist, be off this iPhone and be exactly the
     /// recorded size; a Drive copy must also carry the recorded SHA-256 when Drive reports one.
     private static func currentStamp(_ record: ArchivedRecord, wifi: ArchiveWiFi) async throws -> CopyStamp {
+        if let service = record.cloud, let fileID = record.driveFileID {
+            let account = await CloudAccount.shared(service)
+            let token = try await account.accessToken()
+            return try stamp(of: try await CloudArchive.stored(fileID, in: service, token: token), for: record, in: service)
+        }
         if let fileID = record.driveFileID {
             let token = try await GoogleDriveAccount.shared.accessToken()
             return try Self.stamp(of: try await GoogleDriveClient.storedFile(fileID, token: token), for: record)
@@ -83,6 +88,16 @@ enum ArchiveProver {
             throw ArchiveProofError.copyDiffers
         }
         return CopyStamp(bytes: size, modified: nil, checksum: file.sha256Checksum ?? file.md5Checksum)
+    }
+
+    /// OneDrive or Dropbox must still hold the file at exactly the recorded size, with the same
+    /// fingerprint the service gave when it was archived.
+    static func stamp(of file: CloudStoredFile, for record: ArchivedRecord, in service: CloudService) throws -> CopyStamp {
+        guard file.bytes == record.bytes else { throw ArchiveProofError.copyDiffers }
+        guard let hash = file.hash, let recorded = record.cloudHash, CloudArchive.sameHash(hash, recorded, service: service) else {
+            throw ArchiveProofError.copyDiffers
+        }
+        return CopyStamp(bytes: file.bytes, modified: nil, checksum: hash)
     }
 
     static func fingerprint(of record: ArchivedRecord) -> ArchiveFingerprint {

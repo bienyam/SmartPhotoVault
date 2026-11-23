@@ -16,6 +16,10 @@ struct ArchivedRecord: Codable, Identifiable, Equatable {
     var driveFileID: String? = nil
     /// Which photo this came from, kept on this iPhone only to show its picture while it is still there.
     var photoID: String? = nil
+    /// Set when the copy is in OneDrive or Dropbox; `driveFileID` then holds that service's file ID.
+    var cloud: CloudService? = nil
+    /// That service's own fingerprint of the copy, matched when it was archived.
+    var cloudHash: String? = nil
 }
 
 /// Archived items grouped by the day they were archived.
@@ -308,6 +312,18 @@ struct ArchivedDayView: View {
 enum ArchiveRestore {
     /// A verified local copy of the archived file, in a temporary folder.
     static func verifiedCopy(_ record: ArchivedRecord, wifi: ArchiveWiFi) async throws -> URL {
+        if let service = record.cloud, let fileID = record.driveFileID {
+            let account = await CloudAccount.shared(service)
+            let token = try await account.accessToken()
+            let downloaded = try await CloudArchive.download(fileID, from: service, token: token)
+            guard downloaded.digest == record.digest.lowercased() else {
+                try? FileManager.default.removeItem(at: downloaded.url)
+                throw CloudError.verification(service.name)
+            }
+            let named = downloaded.url.deletingLastPathComponent().appendingPathComponent("\(UUID().uuidString)-\(record.name)")
+            try FileManager.default.moveItem(at: downloaded.url, to: named)
+            return named
+        }
         if let fileID = record.driveFileID {
             let token = try await GoogleDriveAccount.shared.accessToken()
             let downloaded = try await GoogleDriveClient.download(fileID, token: token)
