@@ -158,6 +158,8 @@ final class DashboardModel: ObservableObject {
         guard targets.count == ids.count, !includesFavorite else {
             return blocked(operation, "An item changed since the scan, so nothing was removed. Refresh and try again.")
         }
+        let archived = Set(((try? store?.archived()) ?? []).compactMap(\.photoID))
+        await ArchiveThumbnails.remember(ids.filter(archived.contains))
         do {
             ownChanges += 1
             try await PHPhotoLibrary.shared().performChanges {

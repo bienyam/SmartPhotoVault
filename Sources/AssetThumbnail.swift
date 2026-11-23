@@ -36,7 +36,10 @@ struct AssetThumbnail: View {
         let access = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         guard access == .authorized || access == .limited else { return }
         let assets = PHAsset.fetchAssets(withLocalIdentifiers: [assetID], options: nil)
-        guard let asset = assets.firstObject else { return }
+        guard let asset = assets.firstObject else {
+            image = ArchiveThumbnails.cached(assetID)
+            return
+        }
         let options = PHImageRequestOptions()
         options.isNetworkAccessAllowed = true
         options.deliveryMode = .opportunistic

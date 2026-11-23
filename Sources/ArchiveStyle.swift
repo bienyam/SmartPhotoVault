@@ -71,7 +71,8 @@ extension View {
     }
 }
 
-/// Move out and Get back, as two large buttons that stay on screen. They shrink while the page is scrolled.
+/// Move out and Get back, as one large sliding switch that stays on screen: the orange pill slides
+/// to the side that's on. Tap a side or swipe across to switch. It shrinks while the page is scrolled.
 struct ArchiveKeys: View {
     @Binding var mode: ArchiveMode
     var compact = false
@@ -80,17 +81,26 @@ struct ArchiveKeys: View {
     let getBackNote: String
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Namespace private var pill
 
     var body: some View {
-        let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 10)) : AnyLayout(HStackLayout(spacing: 11))
+        let vertical = typeSize.isAccessibilitySize
+        let layout = vertical ? AnyLayout(VStackLayout(spacing: 4)) : AnyLayout(HStackLayout(spacing: 4))
         layout {
             key(.moveOut, note: moveOutNote)
             key(.getBack, note: getBackNote)
         }
+        .padding(5)
+        .background(Brand.surface, in: RoundedRectangle(cornerRadius: 28))
+        .overlay(RoundedRectangle(cornerRadius: 28).stroke(ArchiveStyle.border, lineWidth: 1.5))
+        .simultaneousGesture(DragGesture(minimumDistance: 24).onEnded { drag in
+            guard !locked, !vertical else { return }
+            if drag.translation.width > 40 { mode = .getBack } else if drag.translation.width < -40 { mode = .moveOut }
+        })
         .fixedSize(horizontal: false, vertical: true)
         .padding(.horizontal, 20)
         .padding(.vertical, 10)
-        .animation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.8), value: mode)
+        .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.82), value: mode)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: compact)
         .sensoryFeedback(.selection, trigger: mode)
     }
@@ -100,26 +110,27 @@ struct ArchiveKeys: View {
         let small = compact && !typeSize.isAccessibilitySize
         let stack = small ? AnyLayout(HStackLayout(spacing: 8)) : AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
         return Button { mode = kind } label: {
-            HStack(alignment: small ? .center : .top, spacing: 8) {
-                stack {
-                    Image(systemName: locked && on ? "lock.fill" : kind.icon)
-                        .font(.headline.weight(.heavy))
-                        .foregroundStyle(Color(red: 0.078, green: 0.086, blue: 0.122))
-                        .frame(width: 36, height: 36)
-                        .background(Color(red: 1, green: 0.541, blue: 0.361), in: Circle())
-                    Text(kind.rawValue).font(.title3.weight(.heavy))
-                    if !small { Text(note).font(.footnote).lineLimit(2) }
-                }
-                Spacer(minLength: 0)
-                if on { Image(systemName: "checkmark").font(.subheadline.weight(.heavy)) }
+            stack {
+                Image(systemName: locked && on ? "lock.fill" : kind.icon)
+                    .font(.headline.weight(.heavy))
+                    .foregroundStyle(Color(red: 0.078, green: 0.086, blue: 0.122))
+                    .frame(width: 36, height: 36)
+                    .background(Color(red: 1, green: 0.541, blue: 0.361), in: Circle())
+                Text(kind.rawValue).font(.title3.weight(.heavy))
+                if !small { Text(note).font(.footnote).lineLimit(2) }
             }
             .multilineTextAlignment(.leading)
             .padding(small ? 8 : 12)
-            .frame(maxWidth: .infinity, minHeight: small ? 56 : 104, maxHeight: .infinity, alignment: small ? .leading : .topLeading)
+            .frame(maxWidth: .infinity, minHeight: small ? 52 : 98, maxHeight: .infinity, alignment: small ? .leading : .topLeading)
             .foregroundStyle(on ? ArchiveStyle.onSelected : ArchiveStyle.ink)
-            .background(on ? ArchiveStyle.selected : Brand.surface, in: RoundedRectangle(cornerRadius: 24))
-            .overlay(RoundedRectangle(cornerRadius: 24).stroke(on ? Color.clear : ArchiveStyle.border, lineWidth: 1.5))
-            .shadow(color: .black.opacity(on ? 0.2 : 0), radius: 10, y: 6)
+            .background {
+                if on {
+                    RoundedRectangle(cornerRadius: 23)
+                        .fill(ArchiveStyle.selected)
+                        .shadow(color: .black.opacity(0.2), radius: 8, y: 4)
+                        .matchedGeometryEffect(id: "pill", in: pill)
+                }
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -160,8 +171,11 @@ struct AssetCover: View {
     private func load() {
         guard image == nil, !assetID.hasPrefix("sample-") else { return }
         let access = PHPhotoLibrary.authorizationStatus(for: .readWrite)
-        guard access == .authorized || access == .limited,
-              let asset = PHAsset.fetchAssets(withLocalIdentifiers: [assetID], options: nil).firstObject else { return }
+        guard access == .authorized || access == .limited else { return }
+        guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [assetID], options: nil).firstObject else {
+            image = ArchiveThumbnails.cached(assetID)
+            return
+        }
         let options = PHImageRequestOptions()
         // Photos kept in iCloud may fetch a small preview, as they do in Photos.
         options.isNetworkAccessAllowed = true

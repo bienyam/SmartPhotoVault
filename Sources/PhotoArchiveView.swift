@@ -1690,7 +1690,9 @@ struct PhotoArchiveView: View {
     }
 
     private static func save(_ record: ArchivedRecord) -> Bool {
-        (try? InventoryStore.openDefault().saveArchived([record])) != nil
+        let saved = (try? InventoryStore.openDefault().saveArchived([record])) != nil
+        if saved, let id = record.photoID { ArchiveThumbnails.rememberSoon([id]) }
+        return saved
     }
 
     private static func notSaved(_ item: ArchiveItem) -> String {
