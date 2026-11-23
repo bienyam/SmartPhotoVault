@@ -40,7 +40,7 @@ struct ArchiveScanCard: View {
                 Button("Find my groups") { model.startDuplicateScan() }
                     .buttonStyle(ArchiveButtonStyle())
                     .accessibilityIdentifier("archive-scan")
-                Text("Checked on your iPhone. Nothing is removed.").font(.footnote).foregroundStyle(ArchiveStyle.muted)
+                Text("Checked on your \(Device.name). Nothing is removed.").font(.footnote).foregroundStyle(ArchiveStyle.muted)
             }
         }
         .padding(16)
@@ -98,6 +98,9 @@ struct PhotoArchiveView: View {
         case oneDrive = "OneDrive"
         case dropbox = "Dropbox"
 
+        /// What the picker shows; rawValue stays fixed as the identity.
+        var title: String { self == .drive ? "Drive plugged into this \(Device.name)" : rawValue }
+
         /// Every destination stays available (owner rule: never drop an existing feature unasked).
         /// A plugged-in drive is listed first because most people own one.
         /// OneDrive and Dropbox appear once TidyAway is registered with them.
@@ -115,12 +118,12 @@ struct PhotoArchiveView: View {
 
         var detail: String {
             switch self {
-            case .drive: "Plug a USB-C drive or memory stick into your iPhone (older iPhones need Apple's camera adapter), then choose it under Locations. ExFAT drives work best."
+            case .drive: "Plug a USB-C drive or memory stick into your \(Device.name) (older \(Device.name)s need Apple's camera adapter), then choose it under Locations. ExFAT drives work best."
             case .iCloud: "Choose a folder from iCloud Drive in Files."
             case .shared: "Choose a folder the other Apple Account has shared with you with permission to make changes."
             case .google: "Sign in with Google. TidyAway can only see and add the files it puts in a \"TidyAway Archive\" folder."
             case .home: "In Files, connect to your server from Browse → More → Connect to Server, then choose its shared folder. Stay on the same Wi-Fi as your server for copying, verification and restore. This workflow has no background sync."
-            case .other: "Choose a folder from another provider in Files, an attached drive, or On My iPhone."
+            case .other: "Choose a folder from another provider in Files, an attached drive, or On My \(Device.name)."
             case .oneDrive: "Sign in with Microsoft. TidyAway can only see and add files in its own folder, Apps › TidyAway."
             case .dropbox: "Sign in with Dropbox. TidyAway can only see and add files in its own folder, Apps › TidyAway."
             }
@@ -288,7 +291,7 @@ struct PhotoArchiveView: View {
         .onChange(of: photoSelection) { _, selection in addPhotos(selection) }
     }
 
-    private static let promise = "TidyAway only adds copies to your archive. It never deletes or changes anything there, by design. Copies are full-resolution originals, checked against the originals on your iPhone. Your source items stay where they are."
+    private static let promise = "TidyAway only adds copies to your archive. It never deletes or changes anything there, by design. Copies are full-resolution originals, checked against the originals on your \(Device.name). Your source items stay where they are."
     private static let supported = "Photos supports JPEG and HEIC photos and single-file videos. Live Photos, slo-mo and edited videos aren't supported yet. Use Files for documents. Suggestions leave out favorites; events and trips include them, and they are never deleted."
 
     // MARK: - Home
@@ -431,24 +434,24 @@ struct PhotoArchiveView: View {
         if insights.running, insights.total > 0 {
             VStack(alignment: .leading, spacing: 6) {
                 ProgressView(value: Double(insights.done), total: Double(max(insights.total, 1))) {
-                    Text(insights.resting ? "Resting. It continues when your iPhone is cooler and not saving power."
+                    Text(insights.resting ? "Resting. It continues when your \(Device.name) is cooler and not saving power."
                          : "Looking at what's in your photos: \(insights.done.formatted()) of \(insights.total.formatted())")
                         .font(.footnote)
                 }
-                Text("On your iPhone only. Nothing is sent. Groups get better as it goes.").font(.footnote).foregroundStyle(ArchiveStyle.muted)
+                Text("On your \(Device.name) only. Nothing is sent. Groups get better as it goes.").font(.footnote).foregroundStyle(ArchiveStyle.muted)
             }
             .padding(12)
             .background(Brand.surface, in: RoundedRectangle(cornerRadius: 14))
             .accessibilityIdentifier("recognition-progress")
         } else if section == .topics || section == .moments {
             HStack(spacing: 2) {
-                Text("Recognized on your iPhone. Nothing is sent.")
+                Text("Recognized on your \(Device.name). Nothing is sent.")
                     .font(.footnote.weight(.bold))
                     .foregroundStyle(ArchiveStyle.safeText)
                     .padding(.horizontal, 12).padding(.vertical, 7)
                     .background(ArchiveStyle.safeBack, in: Capsule())
                 InfoButton(title: "How groups are made",
-                           text: "TidyAway uses the image recognition built into your iPhone to see what pictures show, such as a beach or a receipt. It can be wrong, so every group says why and opens for you to check. It keeps the labels, never a picture, and can't tell who is in a photo.")
+                           text: "TidyAway uses the image recognition built into your \(Device.name) to see what pictures show, such as a beach or a receipt. It can be wrong, so every group says why and opens for you to check. It keeps the labels, never a picture, and can't tell who is in a photo.")
             }
         }
     }
@@ -683,7 +686,7 @@ struct PhotoArchiveView: View {
                     Button { destinationKind = kind } label: {
                         VStack(alignment: .leading, spacing: 6) {
                             Image(systemName: kind.icon).font(.title2).foregroundStyle(ArchiveStyle.link)
-                            Text(kind.rawValue).font(.subheadline.weight(.semibold)).foregroundStyle(ArchiveStyle.ink)
+                            Text(kind.title).font(.subheadline.weight(.semibold)).foregroundStyle(ArchiveStyle.ink)
                         }
                         .multilineTextAlignment(.leading)
                         .padding(12)
@@ -696,7 +699,7 @@ struct PhotoArchiveView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(kind.rawValue)
+                    .accessibilityLabel(kind.title)
                     .accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
                 }
             }
@@ -716,7 +719,7 @@ struct PhotoArchiveView: View {
                     Text(destinationKind.detail).font(.footnote).foregroundStyle(.secondary)
                     if destinationKind == .drive {
                         InfoButton(title: "Which drive?",
-                                   text: "Any drive you already have can work. No drive yet? A portable USB-C SSD formatted as ExFAT works best. Spinning hard drives may need their own power supply to run from an iPhone.")
+                                   text: "Any drive you already have can work. No drive yet? A portable USB-C SSD formatted as ExFAT works best. Spinning hard drives may need their own power supply to run from an \(Device.name).")
                     }
                 }
                 if destinationKind == .drive { drivePanel }
@@ -756,7 +759,7 @@ struct PhotoArchiveView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 if destinationKind == .other || destinationKind == .home || destinationKind == .shared {
-                    Text("Deleting from your iPhone afterwards is offered only when TidyAway can confirm the copy is safe there. Cloud apps other than iCloud Drive and Google Drive can't confirm it.")
+                    Text("Deleting from your \(Device.name) afterwards is offered only when TidyAway can confirm the copy is safe there. Cloud apps other than iCloud Drive and Google Drive can't confirm it.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }
@@ -1282,7 +1285,7 @@ struct PhotoArchiveView: View {
                 Label(failures[index], systemImage: "exclamationmark.circle")
             }
             if !receipts.isEmpty {
-                Text("Verification checks the bytes this iPhone could read back. It cannot confirm provider sync. Keep this screen open to test a restore.")
+                Text("Verification checks the bytes this \(Device.name) could read back. It cannot confirm provider sync. Keep this screen open to test a restore.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -1670,10 +1673,10 @@ struct PhotoArchiveView: View {
         guard !done.photoIDs.isEmpty else { return nil }
         if RemovalAfterArchive.enabled {
             let removable = done.removable
-            guard !removable.isEmpty else { return "They're still on your iPhone too. Favorites stay." }
-            return "They're still on your iPhone too. Every copy is checked again before anything is removed: up to \(done.bytes(of: removable).fileSize)."
+            guard !removable.isEmpty else { return "They're still on your \(Device.name) too. Favorites stay." }
+            return "They're still on your \(Device.name) too. Every copy is checked again before anything is removed: up to \(done.bytes(of: removable).fileSize)."
         }
-        return "They're still on your iPhone too. Removing originals after archiving turns on once putting an item back has been tested on this iPhone."
+        return "They're still on your \(Device.name) too. Removing originals after archiving turns on once putting an item back has been tested on this \(Device.name)."
     }
 
     /// Everything archived so far counts toward the free 5 GB.
@@ -1691,7 +1694,7 @@ struct PhotoArchiveView: View {
     }
 
     private static func notSaved(_ item: ArchiveItem) -> String {
-        "\(item.name) — Copied, but it couldn't be added to Get back, so its original stays on this iPhone."
+        "\(item.name) — Copied, but it couldn't be added to Get back, so its original stays on this \(Device.name)."
     }
 
     /// Lets the Archived tab reopen the folder later without asking the user to pick it again.

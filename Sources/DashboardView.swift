@@ -55,7 +55,7 @@ struct FreeUpView: View {
     // MARK: - Dial
 
     private var usedSummary: String {
-        storage.map { "\($0.used.fileSize) of \($0.total.fileSize) used" } ?? "Storage on this iPhone"
+        storage.map { "\($0.used.fileSize) of \($0.total.fileSize) used" } ?? "Storage on this \(Device.name)"
     }
 
     private var start: some View {
@@ -80,7 +80,7 @@ struct FreeUpView: View {
                     .padding(.horizontal, 12).padding(.vertical, 7)
                     .background(ArchiveStyle.safeBack, in: Capsule())
                 InfoButton(title: "How it works",
-                           text: "TidyAway looks through the photos and videos on this iPhone and lists the biggest things you could remove. It reads them on your iPhone and sends nothing anywhere. You choose what goes, sign off, and Apple asks you to confirm.")
+                           text: "TidyAway looks through the photos and videos on this \(Device.name) and lists the biggest things you could remove. It reads them on your \(Device.name) and sends nothing anywhere. You choose what goes, sign off, and Apple asks you to confirm.")
             }
         }
         .frame(maxWidth: .infinity)
@@ -145,7 +145,7 @@ struct FreeUpView: View {
             StorageDial(parts: parts(rescue), summary: usedSummary) {
                 VStack(spacing: 2) {
                     heroNumber(rescue.upToBytes.fileSize).accessibilityIdentifier("hero-bytes")
-                    Text(rescue.iCloudBytes > 0 ? "on this iPhone, plus \(rescue.iCloudBytes.fileSize) in iCloud" : "on this iPhone")
+                    Text(rescue.iCloudBytes > 0 ? "on this \(Device.name), plus \(rescue.iCloudBytes.fileSize) in iCloud" : "on this \(Device.name)")
                         .font(.subheadline).foregroundStyle(ArchiveStyle.muted)
                         .multilineTextAlignment(.center)
                 }
@@ -246,7 +246,7 @@ struct FreeUpView: View {
 
     private func videosList(_ rescue: RescueSummary) -> some View {
         CleanupListView(title: "Large videos",
-                        guidance: "Videos are usually the biggest files on an iPhone. These are the ones on this iPhone, largest first.",
+                        guidance: "Videos are usually the biggest files on an \(Device.name). These are the ones on this \(Device.name), largest first.",
                         items: rescue.videos, source: "Large videos", allowsRemoval: true, model: model)
     }
 
@@ -280,10 +280,10 @@ struct FreeUpView: View {
     private func footer(_ rescue: RescueSummary) -> some View {
         if rescue.includesICloud {
             HStack(alignment: .top, spacing: 4) {
-                Text("Some items are kept in iCloud, with a small copy on this iPhone.")
+                Text("Some items are kept in iCloud, with a small copy on this \(Device.name).")
                     .font(.footnote).foregroundStyle(ArchiveStyle.muted)
                 InfoButton(title: "Items in iCloud",
-                           text: "Optimize iPhone Storage is on, so the full-size originals of these items are in iCloud and your iPhone keeps smaller copies. Deleting them frees their full size in iCloud and the smaller copy on this iPhone. Duplicates can only be confirmed for items whose originals are on this iPhone.")
+                           text: "Optimize \(Device.name) Storage is on, so the full-size originals of these items are in iCloud and your \(Device.name) keeps smaller copies. Deleting them frees their full size in iCloud and the smaller copy on this \(Device.name). Duplicates can only be confirmed for items whose originals are on this \(Device.name).")
             }
             .accessibilityIdentifier("icloud-note")
         }
@@ -340,7 +340,7 @@ struct PhoneBreakdown: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("What's using your iPhone").font(.headline)
+            Text("What's using your \(Device.name)").font(.headline)
             GeometryReader { proxy in
                 HStack(spacing: 2) {
                     Rectangle().fill(Brand.primary)
@@ -369,9 +369,9 @@ struct PhoneBreakdown: View {
                 .accessibilityIdentifier("breakdown-explainer")
             }
             HStack(spacing: 4) {
-                Text("Per-app sizes are in Settings, General, iPhone Storage.").font(.caption).foregroundStyle(.secondary)
+                Text("Per-app sizes are in Settings, General, \(Device.name) Storage.").font(.caption).foregroundStyle(.secondary)
                 InfoButton(title: "Why not per app?",
-                           text: "Apple keeps the per-app and System Data figures inside Settings, and doesn't let any app read them. TidyAway measures your photos and videos itself and works out the rest from your iPhone's used space.")
+                           text: "Apple keeps the per-app and System Data figures inside Settings, and doesn't let any app read them. TidyAway measures your photos and videos itself and works out the rest from your \(Device.name)'s used space.")
             }
         }
         .padding(16)
@@ -484,7 +484,7 @@ struct StorageExplainer: View {
     var body: some View {
         List {
             Section("Apps: usually the biggest win") {
-                Text("1. Open Settings, then General, then iPhone Storage. Apps are listed largest first.")
+                Text("1. Open Settings, then General, then \(Device.name) Storage. Apps are listed largest first.")
                 Text("2. Tap a big app you rarely use and choose Offload App. It frees the app but keeps its documents and data; tap its icon later to reinstall.")
                 Text("3. To do this automatically, turn on Offload Unused Apps on that same screen (or in Settings, App Store).")
                 Text("Delete App removes its data too, so only use it for apps you don't need anymore.")
@@ -492,7 +492,7 @@ struct StorageExplainer: View {
             }
             Section("System Data") {
                 Text("Caches, logs and temporary files that iOS manages. It grows and shrinks on its own; apps can't clear it.")
-                Text("Restarting your iPhone often shrinks it. If it stays very large, updating iOS usually helps.")
+                Text("Restarting your \(Device.name) often shrinks it. If it stays very large, updating iOS usually helps.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
             Section("Recently Deleted") {
@@ -502,7 +502,7 @@ struct StorageExplainer: View {
                 Text("Files you open from iCloud Drive stay downloaded. In the Files app, touch and hold a file or folder, then tap Remove Download. It stays in iCloud.")
             }
             Section("Apps") {
-                Text("In Settings, General, iPhone Storage, choose an app and tap Offload App. Its documents stay, and it reinstalls when you tap it.")
+                Text("In Settings, General, \(Device.name) Storage, choose an app and tap Offload App. Its documents stay, and it reinstalls when you tap it.")
             }
         }
         .navigationTitle("Where your storage goes")
@@ -515,12 +515,12 @@ struct OptimizeStorageTip: View {
     var body: some View {
         List {
             Section {
-                Text("If you use iCloud Photos, your iPhone can keep smaller versions of photos and videos and leave the full-size originals in iCloud. It frees space without deleting anything.")
+                Text("If you use iCloud Photos, your \(Device.name) can keep smaller versions of photos and videos and leave the full-size originals in iCloud. It frees space without deleting anything.")
             }
             Section("Turn it on") {
                 Text("1. Open Settings and tap your name.")
                 Text("2. Tap iCloud, then Photos.")
-                Text("3. Choose Optimize iPhone Storage.")
+                Text("3. Choose Optimize \(Device.name) Storage.")
             }
             Section {
                 Text("You need enough iCloud storage to hold your whole library. Menu names can differ slightly between iOS versions.")
@@ -538,18 +538,18 @@ struct HelpPrivacyView: View {
     var body: some View {
         List {
             Section("How TidyAway works") {
-                Text("Free up finds the biggest things on this iPhone. You pick what goes, sign off, and Apple asks you to confirm. Deleted items wait in Recently Deleted for 30 days; empty it in Photos to get the space back.")
+                Text("Free up finds the biggest things on this \(Device.name). You pick what goes, sign off, and Apple asks you to confirm. Deleted items wait in Recently Deleted for 30 days; empty it in Photos to get the space back.")
                 Text("Archive copies photos and files to a place you choose and checks every copy. It only adds copies there; it never deletes or changes anything in your archive.")
             }
             Section("Privacy") {
                 Text("TidyAway reads the Apple Photos items you authorize. Scanning and exact duplicate matching run on your device.")
                 Text("The app stores the latest completed check and its activity log locally. The check can include Photos identifiers, file names, dates, favorite status, resource sizes and hashes, the names of your albums, and an approximate location rounded to about 1 km. The app does not transmit this information to the developer or include advertising or analytics.")
-                Text("When you choose a place on the Archive tab, the map is loaded from Apple Maps. Your photo locations stay on your iPhone.")
-                Text("If you connect Google Drive, Google signs you in and gives TidyAway access only to the files it creates in a TidyAway Archive folder. The sign-in is kept in this iPhone's Keychain. Disconnecting removes it and revokes access; your archived copies stay in Drive.")
+                Text("When you choose a place on the Archive tab, the map is loaded from Apple Maps. Your photo locations stay on your \(Device.name).")
+                Text("If you connect Google Drive, Google signs you in and gives TidyAway access only to the files it creates in a TidyAway Archive folder. The sign-in is kept in this \(Device.name)'s Keychain. Disconnecting removes it and revokes access; your archived copies stay in Drive.")
                 if CloudService.allCases.contains(where: \.available) {
-                    Text("If you connect OneDrive or Dropbox, that service signs you in and gives TidyAway access only to its own folder, Apps › TidyAway. The sign-in is kept in this iPhone's Keychain. Disconnecting removes it; your archived copies stay there.")
+                    Text("If you connect OneDrive or Dropbox, that service signs you in and gives TidyAway access only to its own folder, Apps › TidyAway. The sign-in is kept in this \(Device.name)'s Keychain. Disconnecting removes it; your archived copies stay there.")
                 }
-                Text("Checks read originals already available on your iPhone. If you approve an archive or restore, the app writes a copy to your chosen folder, downloading the original from iCloud first when it isn't on your iPhone. The source stays in place and the provider may sync the copy.")
+                Text("Checks read originals already available on your \(Device.name). If you approve an archive or restore, the app writes a copy to your chosen folder, downloading the original from iCloud first when it isn't on your \(Device.name). The source stays in place and the provider may sync the copy.")
                 Text("After a verified archive copy, the app keeps a local list of the file name, folder, size, checksum and date, with a reference to the folder you chose, so you can find and restore it.")
                 Text("If you approve deleting items, the app asks Apple Photos to delete exactly those items. Apple shows its own confirmation and normally keeps deleted items in Recently Deleted for up to 30 days. The approval, item count and outcome are recorded in the local activity log.")
                 Text("You can change Photos access in Settings. To remove the local data and activity log from this device, delete the app.")

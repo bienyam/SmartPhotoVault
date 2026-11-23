@@ -257,7 +257,7 @@ struct ArchivedDayView: View {
 
     private var consentText: String {
         target == .photos
-            ? "I authorize adding these items back to Apple Photos. They use space on this iPhone, and the archive copies stay in place."
+            ? "I authorize adding these items back to Apple Photos. They use space on this \(Device.name), and the archive copies stay in place."
             : "I authorize creating copies in this folder. They use storage and the folder's provider may sync them. The archive copies stay in place."
     }
 

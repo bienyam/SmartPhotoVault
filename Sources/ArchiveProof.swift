@@ -29,7 +29,7 @@ enum ArchiveProofError: LocalizedError, Equatable {
         case .copyMissing: "Its copy couldn't be found."
         case .copyDiffers: "Its copy doesn't match the original."
         case .notUploaded: "Its copy hasn't finished uploading to iCloud yet."
-        case .notConfirmable: "Its copy is on this iPhone, or in a cloud folder that can't prove it finished uploading."
+        case .notConfirmable: "Its copy is on this \(Device.name), or in a cloud folder that can't prove it finished uploading."
         case .originalChanged: "The original changed after it was copied."
         case .changedSinceCheck: "Something changed after the check."
         }

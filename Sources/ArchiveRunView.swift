@@ -128,7 +128,7 @@ struct ArchiveDoneView: View {
                         .accessibilityHidden(true)
                     }
                     if !outcome.failures.isEmpty {
-                        Label("\(outcome.failures.count.formatted()) need attention. They stay on your iPhone.", systemImage: "exclamationmark.circle.fill")
+                        Label("\(outcome.failures.count.formatted()) need attention. They stay on your \(Device.name).", systemImage: "exclamationmark.circle.fill")
                             .font(.subheadline.weight(.semibold))
                             .accessibilityIdentifier("completion-failures")
                     }
@@ -144,11 +144,11 @@ struct ArchiveDoneView: View {
                     }
                     VStack(spacing: 10) {
                         if canDelete {
-                            Button("Delete from iPhone…", action: delete)
+                            Button("Delete from \(Device.name)…", action: delete)
                                 .buttonStyle(ArchiveButtonStyle(fill: .white, text: ArchiveStyle.done))
                                 .accessibilityIdentifier("completion-remove")
                         }
-                        Button(canDelete ? "Keep on iPhone" : "Done", action: close)
+                        Button(canDelete ? "Keep on \(Device.name)" : "Done", action: close)
                             .font(.headline)
                             .frame(maxWidth: .infinity, minHeight: 48)
                             .contentShape(Rectangle())

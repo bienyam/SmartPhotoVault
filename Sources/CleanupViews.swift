@@ -140,7 +140,7 @@ struct DuplicatesListView: View {
     var body: some View {
         List {
             if groups.isEmpty {
-                Text("No exact duplicates found among the photos and videos on this iPhone.")
+                Text("No exact duplicates found among the photos and videos on this \(Device.name).")
                     .foregroundStyle(.secondary)
             }
             ForEach(groups) { group in

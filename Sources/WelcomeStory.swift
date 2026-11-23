@@ -139,7 +139,7 @@ private struct ScanBeat: View {
             }
             StoryCopy(kicker: "One scan",
                       headline: "TidyAway finds what you don't need.",
-                      lead: "On your iPhone, in seconds. Nothing leaves your phone.")
+                      lead: "On your \(Device.name), in seconds. Nothing leaves your phone.")
                 .padding(.bottom, 92)
         }
         .onAppear {
@@ -224,13 +224,13 @@ private struct PayoffBeat: View {
                             .font(.largeTitle.bold())
                             .fixedSize(horizontal: false, vertical: true)
                             .accessibilityAddTraits(.isHeader)
-                        Text("TidyAway shows what is filling your iPhone and iCloud, then helps you clear it without losing a photo.")
+                        Text("TidyAway shows what is filling your \(Device.name) and iCloud, then helps you clear it without losing a photo.")
                             .font(.body)
                             .fixedSize(horizontal: false, vertical: true)
                             .foregroundStyle(.white.opacity(0.85))
                     }
                     VStack(alignment: .leading, spacing: 10) {
-                        promise("The check runs on your iPhone. Your photos stay put.")
+                        promise("The check runs on your \(Device.name). Your photos stay put.")
                         promise("Nothing is removed until you approve it.")
                         promise("Every change is logged and can be traced.")
                     }

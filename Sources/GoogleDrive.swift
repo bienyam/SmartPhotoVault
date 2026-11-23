@@ -117,7 +117,7 @@ enum GoogleDriveError: LocalizedError, Equatable {
         case .notConnected: "Connect Google Drive first."
         case .server(let code): "Google Drive answered with an error (\(code)). Try again in a moment."
         case .verification: "The copy in Google Drive didn't match the original, so it wasn't counted as archived."
-        case .noSpace: "This iPhone doesn't have enough free space to prepare this item for upload."
+        case .noSpace: "This \(Device.name) doesn't have enough free space to prepare this item for upload."
         }
     }
 }

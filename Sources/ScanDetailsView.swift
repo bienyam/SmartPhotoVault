@@ -17,7 +17,7 @@ struct ScanDetailsView: View {
                     Text("Only the photos you selected for TidyAway are included.").foregroundStyle(Brand.caution)
                 }
                 LabeledContent("Items checked", value: snapshot.assets.count.formatted())
-                LabeledContent("Read in full on this iPhone", value: snapshot.verifiedCount.formatted())
+                LabeledContent("Read in full on this \(Device.name)", value: snapshot.verifiedCount.formatted())
                 LabeledContent("Not read (in iCloud or unreadable)", value: unreadable.count.formatted())
                 LabeledContent("Exact duplicate groups", value: snapshot.groups.count.formatted())
                 LabeledContent("Extra copies (estimate)", value: snapshot.candidateBytes.fileSize)

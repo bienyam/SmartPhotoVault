@@ -128,7 +128,7 @@ struct DriveHelpView: View {
     @Environment(\.dismiss) private var dismiss
 
     private let path: [LocalizedStringKey] = [
-        "Plug the drive into your iPhone. (An iPhone with Lightning needs Apple's camera adapter.)",
+        "Plug the drive into your \(Device.name). (An \(Device.name) with Lightning needs Apple's camera adapter.)",
         "Tap **Choose archive folder in Files**.",
         "Tap **Browse** at the bottom. If you don't see **Locations**, tap **Browse** again.",
         "Under **Locations**, tap your drive.",
@@ -137,7 +137,7 @@ struct DriveHelpView: View {
     private let fixes: [(icon: String, title: String, text: String)] = [
         ("bolt.fill", "It needs more power", "Hard drives that spin, and some SSDs, need their own power. Try a powered USB hub."),
         ("cable.connector", "The cable only charges", "Some USB-C cables don't carry data. Try the cable that came with the drive."),
-        ("square.split.2x1", "It has more than one partition", "iPhone only shows drives with a single data partition."),
+        ("square.split.2x1", "It has more than one partition", "\(Device.name) only shows drives with a single data partition."),
         ("pc", "It's formatted for Windows (NTFS)", "Apple doesn't list NTFS as supported, so it may not appear, or may be read-only. Formats that work: exFAT, APFS, Mac OS Extended, FAT32 (no file over 4 GB)."),
         ("lock.fill", "It's locked", "Open the Files app, tap the drive, and enter its password. Then come back.")
     ]
@@ -157,7 +157,7 @@ struct DriveHelpView: View {
                         }
                         .accessibilityElement(children: .combine)
                     }
-                    Text("iPhone doesn't let apps find drives by themselves, so you choose it there once. After that TidyAway shows it here.")
+                    Text("\(Device.name) doesn't let apps find drives by themselves, so you choose it there once. After that TidyAway shows it here.")
                         .font(.footnote).foregroundStyle(ArchiveStyle.muted)
                     Text("Still not there?").font(.title2.bold()).padding(.top, 6)
                     ForEach(fixes.indices, id: \.self) { index in
@@ -171,7 +171,7 @@ struct DriveHelpView: View {
                         }
                         .accessibilityElement(children: .combine)
                     }
-                    Label("Changing a drive's format erases everything on it. Copy what you need first. iPhones with USB-C can erase a drive in Files: touch and hold it, then tap Erase. With Lightning, use a computer.",
+                    Label("Changing a drive's format erases everything on it. Copy what you need first. \(Device.name)s with USB-C can erase a drive in Files: touch and hold it, then tap Erase. With Lightning, use a computer.",
                           systemImage: "exclamationmark.triangle")
                         .font(.subheadline).foregroundStyle(Brand.caution)
                 }
