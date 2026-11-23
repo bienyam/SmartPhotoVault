@@ -17,6 +17,8 @@ struct SmartGroup: Identifiable {
     let notYet: Int
     /// Small print under the title, such as the date of a named moment.
     var when: String? = nil
+    /// For look-alike sets: the photo that stays on the iPhone with each set, shown but never moved.
+    var sets: [KeepSet] = []
 
     var section: Section {
         switch kind {

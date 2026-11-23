@@ -102,3 +102,32 @@ final class FreeUpGroupsTests: XCTestCase {
         XCTAssertEqual(pick?.sets.first?.keep.id, "a")
     }
 }
+
+final class ArchiveKeptPhotoTests: XCTestCase {
+    func testArchiveLookAlikeGroupShowsTheKeptPhotoButNeverMovesIt() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        func photo(_ id: String, _ seconds: Double) -> AssetRecord {
+            AssetRecord(id: id, filename: "\(id).heic", mediaType: PHAssetMediaType.image.rawValue, favorite: false,
+                        createdAt: now.addingTimeInterval(-seconds),
+                        resources: [ResourceFingerprint(type: PHAssetResourceType.photo.rawValue, digest: id, bytes: 1_000)],
+                        issue: nil, isScreenshot: false, albumIDs: [])
+        }
+        let shots = (0..<6).map { photo("s\($0)", 100 - Double($0)) }
+        var insights: [String: PhotoInsight] = [:]
+        for (index, shot) in shots.enumerated() {
+            var value = PhotoInsight(id: shot.id)
+            value.sharpness = shot.id == "s2" ? 900 : 100
+            value.brightness = 120
+            value.sameAs = index == 0 ? nil : shots[index - 1].id
+            insights[shot.id] = value
+        }
+        let snapshot = ScanSnapshot(date: now, limitedAccess: false, includedCloudDownloads: false, assets: shots)
+        let group = SmartGrouper.groups(in: snapshot, insights: insights, facts: [:], now: now).first { $0.kind == .sameShots }
+        XCTAssertNotNil(group)
+        XCTAssertEqual(group?.sets.first?.keep.id, "s2", "The sharpest stays and is shown.")
+        XCTAssertFalse(group?.records.contains { $0.id == "s2" } ?? true, "The kept photo is never moved.")
+        let parts = group.map { SkimPart.parts(of: $0) } ?? []
+        XCTAssertEqual(parts.first?.keep?.id, "s2")
+        XCTAssertFalse(parts.flatMap(\.records).contains { $0.id == "s2" })
+    }
+}
