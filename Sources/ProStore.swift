@@ -61,7 +61,7 @@ final class ProStore: ObservableObject {
         checking = true
         // Tester builds (TESTER_ACCESS, never the App Review build) unlock Pro for everyone except a
         // real App Store customer. If Apple's record can't be read, a tester build still unlocks.
-        testerAccess = TesterAccess.enabled && !(await Self.isAppStoreCustomer())
+        if TesterAccess.enabled { testerAccess = !(await Self.isAppStoreCustomer()) }
         await refresh()
         await loadProducts()
         checking = false
