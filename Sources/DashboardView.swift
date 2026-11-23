@@ -9,6 +9,10 @@ struct FreeUpView: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var storage = DeviceStorage.current()
     @State private var showRecentlyDeleted = false
+    @ObservedObject private var insights = InsightModel.shared
+    @State private var section = FreeUpSection.forYou
+    /// Smart groups from on-device recognition, remade as results come in.
+    @State private var smart: [CleanupGroup] = []
 
     var body: some View {
         NavigationStack {
@@ -49,6 +53,7 @@ struct FreeUpView: View {
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active { storage = DeviceStorage.current() }
             }
+            .task(id: "\(insights.revision)-\(model.rescue?.snapshot.assets.count ?? 0)-\(model.isScanning)") { await remakeSmart() }
         }
     }
 
@@ -210,36 +215,177 @@ struct FreeUpView: View {
 
     @ViewBuilder
     private func finds(_ rescue: RescueSummary) -> some View {
-        FindTag(kind: .safe)
-        NavigationLink { duplicatesList } label: {
-            ArchiveCard(title: "Duplicates",
-                        detail: rescue.duplicateCopies == 0 ? "None" : "\(rescue.duplicateCopies.formatted()) extra \(rescue.duplicateCopies == 1 ? "copy" : "copies") · \(rescue.duplicateBytes.fileSize)",
-                        coverID: rescue.duplicateGroups.first?.assets.first?.id)
+        sectionPills
+        switch section {
+        case .forYou:
+            if let pick = CleanupGrouper.suggestion(from: smart) { suggestion(pick) }
+            smartSections
+            heading("By type")
+            typeCards(rescue)
+        case .smart:
+            smartSections
+            if smart.isEmpty && !insights.running {
+                Text("No smart groups yet. They appear as TidyAway looks through your photos.")
+                    .font(.subheadline).foregroundStyle(ArchiveStyle.muted)
+            }
+        case .byType:
+            typeCards(rescue)
         }
-        .find("row-duplicates")
+    }
+
+    private var sectionPills: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(FreeUpSection.allCases, id: \.self) { value in
+                    let on = section == value
+                    Button(value.rawValue) { section = value }
+                        .font(.subheadline.weight(.bold))
+                        .padding(.horizontal, 14)
+                        .frame(minHeight: 44)
+                        .foregroundStyle(on ? ArchiveStyle.onSelected : ArchiveStyle.ink)
+                        .background(on ? ArchiveStyle.selected : Color.clear, in: Capsule())
+                        .overlay(Capsule().stroke(on ? Color.clear : ArchiveStyle.border, lineWidth: 1.5))
+                        .contentShape(Capsule())
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(on ? .isSelected : [])
+                        .accessibilityIdentifier("freeup-\(value)")
+                }
+            }
+        }
+    }
+
+    private func heading(_ text: String) -> some View {
+        Text(text).font(.title3.weight(.heavy)).foregroundStyle(ArchiveStyle.ink)
+            .padding(.top, 6)
+            .accessibilityAddTraits(.isHeader)
+    }
+
+    /// One suggestion that combines the safest smart groups, so the first decision is one tap.
+    private func suggestion(_ pick: CleanupGroup) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Label("Suggested for you", systemImage: "sparkles")
+                    .font(.caption.weight(.heavy))
+                    .foregroundStyle(Color(red: 1, green: 0.541, blue: 0.361))
+                Spacer()
+                CardInfo(title: "Suggested for you", text: pick.info)
+            }
+            Text(pick.title).font(.title2.bold())
+            Text(pick.why).font(.footnote).foregroundStyle(.white.opacity(0.78))
+            NavigationLink { smartList(pick) } label: {
+                Text("Review \(pick.items.count.formatted()) \(pick.items.count == 1 ? "item" : "items")")
+                    .font(.headline)
+                    .foregroundStyle(Color(red: 0.078, green: 0.086, blue: 0.122))
+                    .padding(.horizontal, 16)
+                    .frame(minHeight: 48)
+                    .background(Color(red: 1, green: 0.541, blue: 0.361), in: RoundedRectangle(cornerRadius: 14))
+            }
+            .accessibilityIdentifier("smart-for-you")
+        }
+        .foregroundStyle(.white)
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(LinearGradient(colors: [Color(red: 0.17, green: 0.18, blue: 0.27), Color(red: 0.078, green: 0.086, blue: 0.122)],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing),
+                    in: RoundedRectangle(cornerRadius: 22))
+    }
+
+    @ViewBuilder
+    private var smartSections: some View {
+        ForEach([CleanupGroup.Tier.safe, .probably], id: \.self) { tier in
+            let list = smart.filter { $0.tier == tier }
+            if !list.isEmpty {
+                Text(tier.rawValue.uppercased())
+                    .font(.caption.weight(.heavy)).tracking(0.7)
+                    .foregroundStyle(ArchiveStyle.muted)
+                    .padding(.top, 4)
+                LazyVGrid(columns: typeSize.isAccessibilitySize ? [GridItem(.flexible())] : [GridItem(.flexible(), spacing: 10), GridItem(.flexible())], spacing: 10) {
+                    ForEach(list) { smartCard($0) }
+                }
+            }
+        }
+        if insights.running {
+            Label("Smart groups grow as TidyAway looks through your photos: \(insights.done.formatted()) of \(insights.total.formatted()). On this \(Device.name) only.",
+                  systemImage: "sparkles")
+                .font(.footnote).foregroundStyle(ArchiveStyle.muted)
+        }
+    }
+
+    private func smartCard(_ group: CleanupGroup) -> some View {
+        ZStack(alignment: .topTrailing) {
+            NavigationLink { smartList(group) } label: {
+                ArchiveCard(title: group.title,
+                            detail: "\(group.items.count.formatted()) · \(group.bytes.fileSize)",
+                            coverID: group.coverID, why: group.why, symbol: group.symbol)
+            }
+            .find("smart-\(group.id)")
+            CardInfo(title: group.title, text: group.info)
+        }
+    }
+
+    private func smartList(_ group: CleanupGroup) -> some View {
+        CleanupListView(title: group.id == "for-you" ? "Suggested for you" : group.title, guidance: group.info,
+                        items: group.items, source: group.id == "for-you" ? "Suggested for you" : group.title,
+                        allowsRemoval: true, model: model, sets: group.sets)
+    }
+
+    /// Remakes the smart groups from the scan and the recognition results, off the main thread.
+    private func remakeSmart() async {
+        guard !model.isScanning, !model.isDemo, let snapshot = model.rescue?.snapshot else { return }
+        insights.start(snapshot.assets)
+        let found = insights.insights
+        let made = await Task.detached(priority: .utility) {
+            let facts = AssetFacts.all(for: snapshot.assets)
+            return CleanupGrouper.groups(in: snapshot, insights: found, facts: facts)
+        }.value
+        smart = made
+    }
+
+    /// Today's finds by type, each with what it holds.
+    @ViewBuilder
+    private func typeCards(_ rescue: RescueSummary) -> some View {
+        FindTag(kind: .safe)
+        ZStack(alignment: .topTrailing) {
+            NavigationLink { duplicatesList } label: {
+                ArchiveCard(title: "Duplicates",
+                            detail: rescue.duplicateCopies == 0 ? "None" : "\(rescue.duplicateCopies.formatted()) extra \(rescue.duplicateCopies == 1 ? "copy" : "copies") · \(rescue.duplicateBytes.fileSize)",
+                            coverID: rescue.duplicateGroups.first?.assets.first?.id)
+            }
+            .find("row-duplicates")
+            CardInfo(title: "Duplicates", text: "Exact copies, byte for byte. In each set one copy stays, shown first with a lock; it can't be selected and Select all never includes it. Favorites are kept. Nothing is selected until you choose.")
+        }
         FindTag(kind: .look)
         // Not a lazy grid: every find exists from the start, also for VoiceOver.
         let pair = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 10)) : AnyLayout(HStackLayout(spacing: 10))
         pair {
-            NavigationLink { videosList(rescue) } label: {
-                ArchiveCard(title: "Large videos",
-                            detail: rescue.videos.isEmpty ? "None" : split(rescue.videoBytes, rescue.videoICloudBytes),
-                            coverID: rescue.videos.first?.id)
+            ZStack(alignment: .topTrailing) {
+                NavigationLink { videosList(rescue) } label: {
+                    ArchiveCard(title: "Large videos",
+                                detail: rescue.videos.isEmpty ? "None" : split(rescue.videoBytes, rescue.videoICloudBytes),
+                                coverID: rescue.videos.first?.id)
+                }
+                .find("row-videos")
+                CardInfo(title: "Large videos", text: "The videos on this \(Device.name), largest first. Every video in the list can be selected; nothing is selected until you choose. Favorites are kept.")
             }
-            .find("row-videos")
-            NavigationLink { screenshotsList(rescue) } label: {
-                ArchiveCard(title: "Screenshots",
-                            detail: rescue.screenshots.items.isEmpty ? "None" : split(rescue.screenshots.localBytes, rescue.screenshots.iCloudBytes),
-                            coverID: rescue.screenshots.items.first?.id)
+            ZStack(alignment: .topTrailing) {
+                NavigationLink { screenshotsList(rescue) } label: {
+                    ArchiveCard(title: "Screenshots",
+                                detail: rescue.screenshots.items.isEmpty ? "None" : split(rescue.screenshots.localBytes, rescue.screenshots.iCloudBytes),
+                                coverID: rescue.screenshots.items.first?.id)
+                }
+                .find("row-screenshots")
+                CardInfo(title: "Screenshots", text: CleanCategory.screenshots.guidance)
             }
-            .find("row-screenshots")
         }
         FindTag(kind: .decide)
-        NavigationLink { MoreTypesView(types: rescue.otherTypes, model: model) } label: {
-            ArchiveCard(title: "More types", detail: rescue.otherBytes.fileSize,
-                        coverID: rescue.otherTypes.first { !$0.items.isEmpty }?.items.first?.id)
+        ZStack(alignment: .topTrailing) {
+            NavigationLink { MoreTypesView(types: rescue.otherTypes, model: model) } label: {
+                ArchiveCard(title: "More types", detail: rescue.otherBytes.fileSize,
+                            coverID: rescue.otherTypes.first { !$0.items.isEmpty }?.items.first?.id)
+            }
+            .find("row-more")
+            CardInfo(title: "More types", text: "GIFs, bursts, Live Photos, slo-mo and other kinds of items, each in its own list. Nothing is selected until you choose.")
         }
-        .find("row-more")
     }
 
     private var duplicatesList: some View { DuplicatesListView(model: model) }
@@ -558,5 +704,19 @@ struct HelpPrivacyView: View {
         }
         .navigationTitle("Help & privacy")
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+enum FreeUpSection: String, CaseIterable { case forYou = "For you", smart = "Smart picks", byType = "By type" }
+
+/// The info button on a picture card: what the group holds, what is selected and what is kept.
+struct CardInfo: View {
+    let title: String
+    let text: String
+
+    var body: some View {
+        InfoButton(title: title, text: text)
+            .foregroundStyle(.white)
+            .shadow(color: .black.opacity(0.4), radius: 3)
     }
 }
