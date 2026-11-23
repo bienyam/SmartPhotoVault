@@ -213,19 +213,31 @@ enum VerifiedArchive {
         // With Optimize iPhone Storage on, the original is often only in iCloud. Archiving needs the
         // full original, so let Photos download it; it streams straight into the archive copy.
         options.isNetworkAccessAllowed = true
+        let activity = ArchiveActivity()
+        options.progressHandler = { fraction in
+            activity.touch()
+            ArchiveLive.shared.downloading(id, fraction)
+        }
         let completion = DispatchSemaphore(value: 0)
         let manager = PHAssetResourceManager.default()
         let request = manager.requestData(for: resource, options: options) { data in
+            activity.touch()
             writer.append(data)
         } completionHandler: { error in
             writer.finish(error)
             completion.signal()
         }
-        // Videos can be large, and iCloud downloads or a home server may be slow, so allow plenty of time.
-        let limit: DispatchTimeInterval = asset.mediaType == .video ? .seconds(3600) : .seconds(600)
-        if completion.wait(timeout: .now() + limit) == .timedOut {
-            writer.finish(ArchiveError.unavailable)
-            manager.cancelDataRequest(request)
+        defer { ArchiveLive.shared.downloading(id, nil) }
+        // Videos can be large and iCloud or a home server may be slow, so a working copy gets plenty
+        // of time. One that receives nothing at all for a while is stuck, and gives up so the run moves on.
+        let limit: TimeInterval = asset.mediaType == .video ? 3600 : 600
+        let started = Date()
+        while completion.wait(timeout: .now() + 2) == .timedOut {
+            if activity.silentFor > ArchiveActivity.stallLimit || Date().timeIntervalSince(started) > limit {
+                writer.finish(ArchiveError.iCloudDownload)
+                manager.cancelDataRequest(request)
+                break
+            }
         }
         do {
             return try writer.result()
@@ -381,6 +393,43 @@ private final class ArchiveHasher: @unchecked Sendable {
     }
 }
 
+/// When a copy last received anything, so a stuck one can be told from a slow one.
+final class ArchiveActivity: @unchecked Sendable {
+    /// No data and no download progress for this long means the copy is stuck.
+    static let stallLimit: TimeInterval = 180
+    private let lock = NSLock()
+    private var last = Date()
+
+    func touch() { lock.lock(); last = Date(); lock.unlock() }
+
+    var silentFor: TimeInterval {
+        lock.lock(); defer { lock.unlock() }
+        return Date().timeIntervalSince(last)
+    }
+}
+
+/// What a copy run is doing right now, for the progress screen: bytes written so far, and items
+/// still downloading from iCloud with how far along they are. Safe to use from any thread.
+final class ArchiveLive: @unchecked Sendable {
+    static let shared = ArchiveLive()
+    private let lock = NSLock()
+    private var written: Int64 = 0
+    private var downloads: [String: Double] = [:]
+
+    func reset() { lock.lock(); written = 0; downloads = [:]; lock.unlock() }
+    func wrote(_ count: Int) { lock.lock(); written += Int64(count); lock.unlock() }
+    /// Pass nil when the item is done.
+    func downloading(_ id: String, _ fraction: Double?) {
+        lock.lock(); downloads[id] = fraction; lock.unlock()
+    }
+
+    var now: (written: Int64, downloading: Int, fraction: Double) {
+        lock.lock(); defer { lock.unlock() }
+        let average = downloads.isEmpty ? 0 : downloads.values.reduce(0, +) / Double(downloads.count)
+        return (written, downloads.count, average)
+    }
+}
+
 private final class ArchiveWriter: @unchecked Sendable {
     private let lock = NSLock()
     private let handle: FileHandle
@@ -408,6 +457,7 @@ private final class ArchiveWriter: @unchecked Sendable {
             try handle.write(contentsOf: data)
             hash.update(data: data)
             bytes += Int64(data.count)
+            ArchiveLive.shared.wrote(data.count)
         } catch {
             self.error = error
         }
