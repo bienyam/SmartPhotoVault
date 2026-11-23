@@ -25,3 +25,14 @@ final class ArchiveLiveTests: XCTestCase {
         XCTAssertLessThan(ArchiveActivity.stallLimit, 600, "A stuck item must give up well before the old 10-minute wait.")
     }
 }
+
+final class ArchiveLiveUploadTests: XCTestCase {
+    func testUploadedBytesAreCountedAndReset() {
+        let live = ArchiveLive()
+        live.uploaded(10 * 1024 * 1024)
+        live.uploaded(5)
+        XCTAssertEqual(live.uploadedBytes, 10 * 1024 * 1024 + 5)
+        live.reset()
+        XCTAssertEqual(live.uploadedBytes, 0)
+    }
+}
