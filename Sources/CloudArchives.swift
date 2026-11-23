@@ -85,8 +85,8 @@ enum CloudService: String, Codable, CaseIterable, Sendable {
 
 /// Filled in once the owner has registered TidyAway with Microsoft and Dropbox.
 enum CloudKeys {
-    static let oneDriveClientID = ""
-    static let dropboxAppKey = ""
+    static let oneDriveClientID = "886a3a65-1b14-470d-912f-95093b62372f"
+    static let dropboxAppKey = "g6nafhzmh277qey"
 }
 
 enum CloudError: LocalizedError, Equatable {

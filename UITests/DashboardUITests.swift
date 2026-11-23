@@ -256,6 +256,28 @@ final class DashboardUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Choose archive folder in Files"].exists)
     }
 
+    func testOneDriveOffersASignIn() { cloudOffersASignIn("OneDrive") }
+
+    func testDropboxOffersASignIn() { cloudOffersASignIn("Dropbox") }
+
+    private func cloudOffersASignIn(_ name: String) {
+        let app = launch()
+        app.tabBars.buttons["Archive"].tap()
+        let picker = app.buttons["storage-location"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 10))
+        reveal(picker, in: app)
+        picker.tap()
+        let tile = app.buttons[name].firstMatch
+        reveal(tile, in: app)
+        XCTAssertTrue(tile.waitForExistence(timeout: 5), "\(name) is offered once TidyAway is registered there.")
+        tile.tap()
+        let connect = app.buttons["cloud-connect"]
+        reveal(connect, in: app)
+        XCTAssertTrue(connect.waitForExistence(timeout: 5), "\(name) offers a sign-in, not a folder list.")
+        XCTAssertFalse(app.buttons["Choose archive folder in Files"].exists)
+        keepScreenshot(of: app, named: "\(name) destination")
+    }
+
     /// Regression guard: every archive destination that has shipped stays available.
     func testEveryArchiveDestinationIsStillOffered() {
         let app = launch()
