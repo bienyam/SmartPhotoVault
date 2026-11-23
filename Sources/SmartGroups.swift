@@ -4,17 +4,28 @@ import UniformTypeIdentifiers
 
 /// A ready-made set of photos and videos to archive in one go, with a reason people can check.
 struct SmartGroup: Identifiable {
-    enum Kind: String { case event, trip, largeVideos, oldVideos, album }
+    enum Kind: String { case event, trip, largeVideos, oldVideos, album, sameShots, topic, videos, pick }
+    enum Section: String, CaseIterable { case forYou = "For you", moments = "Moments", topics = "Topics", videos = "Videos" }
 
     let id: String
     let kind: Kind
-    let title: String
-    let reason: String
+    var title: String
+    var reason: String
     /// What can be archived now, in the order to look through it.
     let records: [AssetRecord]
     /// Items that belong here but can't be archived yet (Live Photos, edits, other formats).
     let notYet: Int
+    /// Small print under the title, such as the date of a named moment.
+    var when: String? = nil
 
+    var section: Section {
+        switch kind {
+        case .event, .trip, .album: .moments
+        case .topic: .topics
+        case .largeVideos, .oldVideos, .videos: .videos
+        case .sameShots, .pick: .forYou
+        }
+    }
     var bytes: Int64 { records.reduce(0) { $0 + $1.displayBytes } }
     var total: Int { records.count + notYet }
 }

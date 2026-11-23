@@ -64,7 +64,9 @@ struct ArchiveTabView: View {
     @State private var compact = false
 
     private var snapshot: ScanSnapshot? {
-        if ProcessInfo.processInfo.arguments.contains("--demo-archive") { return DemoLibrary.archiveSnapshot }
+        if ProcessInfo.processInfo.arguments.contains("--demo-archive") {
+            return DemoLibrary.archiveSnapshot
+        }
         return model.isDemo ? nil : model.snapshot
     }
 
@@ -92,7 +94,10 @@ struct ArchiveTabView: View {
             .navigationTitle("Archive")
             .navigationBarTitleDisplayMode(.inline)
         }
-        .onAppear(perform: count)
+        .onAppear {
+            if ProcessInfo.processInfo.arguments.contains("--demo-archive") { InsightModel.shared.show(DemoLibrary.archiveInsights) }
+            count()
+        }
         .onChange(of: mode) {
             compact = false
             count()

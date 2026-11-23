@@ -114,7 +114,7 @@ struct GroupSkimView: View {
             try? await Task.sleep(nanoseconds: 250_000_000)
             if !Task.isCancelled, visible > seen { seen = visible }
         }
-        .navigationTitle(group.title)
+        .navigationTitle(group.kind == .pick ? "Your pick" : group.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
