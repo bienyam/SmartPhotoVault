@@ -67,9 +67,26 @@ struct CleanupListView: View {
         }
         .safeAreaInset(edge: .bottom) {
             if allowsRemoval && !items.isEmpty {
-                RemovalBar(count: selectedRecords.count, bytes: selectedBytes,
-                           fullText: RemovalDisclosure.items(count: selectedRecords.count, from: source),
-                           working: working, message: message, agreed: $agreed, delete: delete)
+                VStack(spacing: 0) {
+                    if !selectedRecords.isEmpty {
+                        // Copy them off first: archiving removes nothing, and the copy screen checks everything.
+                        Button {
+                            ArchiveBasket.shared.send(selectedRecords)
+                        } label: {
+                            Label("Archive \(selectedRecords.count.formatted()) first · \(selectedBytes.fileSize)",
+                                  systemImage: "externaldrive.badge.plus")
+                        }
+                        .buttonStyle(ArchiveOutlineStyle())
+                        .disabled(working)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 10)
+                        .background(.regularMaterial)
+                        .accessibilityIdentifier("archive-selected")
+                    }
+                    RemovalBar(count: selectedRecords.count, bytes: selectedBytes,
+                               fullText: RemovalDisclosure.items(count: selectedRecords.count, from: source),
+                               working: working, message: message, agreed: $agreed, delete: delete)
+                }
             }
         }
         .sheet(item: $result) { RescueResultView(result: $0) }
