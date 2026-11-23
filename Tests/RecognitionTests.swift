@@ -1,5 +1,6 @@
 import CoreGraphics
 import Photos
+import Vision
 import XCTest
 @testable import SmartPhotoVault
 
@@ -138,6 +139,45 @@ final class RecognitionTests: XCTestCase {
             for x in stride(from: 0, to: 256, by: 16) { context.fill(CGRect(x: x, y: 0, width: 8, height: 256)) }
         }
         XCTAssertGreaterThan(InsightReader.sharpness(of: sharp), InsightReader.sharpness(of: flat) + 10)
+    }
+
+    func testEveryLabelWeGroupByIsOneTheIPhoneKnows() throws {
+        let supported = Set(try VNClassifyImageRequest().supportedIdentifiers())
+        print("VISION-TAXONOMY \(supported.count): " + supported.sorted().joined(separator: ","))
+        XCTAssertEqual(Recognition.known.subtracting(supported).sorted(), [])
+    }
+
+    func testTooDarkPhotosFormAGroupButNeverFavorites() throws {
+        var photos = (0..<6).map { photo("d\($0)", old + Double($0) * 60) }
+        photos.append(photo("dfav", old + 1_000, favorite: true))
+        photos.append(photo("bright", old + 2_000))
+        var insights: [String: PhotoInsight] = [:]
+        for record in photos { insights[record.id] = PhotoInsight(id: record.id, brightness: record.id == "bright" ? 120 : 4) }
+        insights["d5"] = PhotoInsight(id: "d5")
+        func dark() -> SmartGroup? { SmartGrouper.groups(in: snapshot(photos), insights: insights, facts: [:], now: now).first { $0.id == "topic-dark" } }
+        XCTAssertEqual(try XCTUnwrap(dark()).records.map(\.id), ["d0", "d1", "d2", "d3", "d4"], "Not measured yet, a favorite, or bright: left out.")
+        insights["d0"] = PhotoInsight(id: "d0", brightness: 80)
+        XCTAssertNil(dark(), "Four is too few.")
+    }
+
+    func testBrightnessTellsBlackFromDaylight() throws {
+        func image(_ gray: CGFloat) throws -> CGImage {
+            let context = try XCTUnwrap(CGContext(data: nil, width: 64, height: 64, bitsPerComponent: 8, bytesPerRow: 0,
+                                                  space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue))
+            context.setFillColor(gray: gray, alpha: 1)
+            context.fill(CGRect(x: 0, y: 0, width: 64, height: 64))
+            return try XCTUnwrap(context.makeImage())
+        }
+        XCTAssertLessThan(InsightReader.brightness(of: try image(0.02)), SmartGrouper.darkLevel)
+        XCTAssertGreaterThan(InsightReader.brightness(of: try image(0.5)), 100)
+    }
+
+    func testReminderPicturesNeedFewerToFormAGroup() {
+        let photos = (0..<8).map { photo("park\($0)", old + Double($0) * 90_000) }
+        let insights = Dictionary(uniqueKeysWithValues: photos.map { ($0.id, PhotoInsight(id: $0.id, labels: ["parking_lot"])) })
+        let groups = SmartGrouper.groups(in: snapshot(photos), insights: insights, facts: [:], now: now)
+        XCTAssertEqual(groups.first { $0.id == "topic-parking" }?.records.count, 8)
+        XCTAssertNil(SmartGrouper.groups(in: snapshot(Array(photos.prefix(7))), insights: insights, facts: [:], now: now).first { $0.id == "topic-parking" })
     }
 
     func testOnlyLabelsWeGroupByAreKept() {

@@ -44,8 +44,8 @@ struct ArchiveCompletion: Identifiable {
     }
 }
 
-/// Removes originals from Apple Photos after a verified archive. Every copy is read back in full and
-/// compared with its original first, and checked once more at the moment of deleting. Then the usual
+/// Removes originals from Apple Photos after a verified archive. Every copy must still be on its
+/// destination at exactly the size of its original, and is checked once more at the moment of deleting. Then the usual
 /// sign-off and Apple's own confirmation. Favorites are never removed.
 struct ArchivedRemovalView: View {
     let done: ArchiveCompletion
@@ -78,13 +78,13 @@ struct ArchivedRemovalView: View {
                 Text("\(done.count) \(done.count == 1 ? "item was" : "items were") copied to \(done.place) and checked against the originals.")
                 if checking {
                     ProgressView(value: Double(checked), total: Double(max(total, 1))) {
-                        Text("Checking every copy again: \(checked) of \(total)")
+                        Text("Checking every copy: \(checked) of \(total)")
                     }
                     .accessibilityIdentifier("archive-recheck")
-                    Text("Each copy is read back in full and compared with its original. Keep this open.")
+                    Text("Each copy must still be there, the same size as its original to the byte. Keep this open.")
                         .font(.footnote).foregroundStyle(.secondary)
                 } else if !proofs.isEmpty {
-                    Label("\(proofs.count) \(proofs.count == 1 ? "copy is an exact match" : "copies are exact matches")", systemImage: "checkmark.shield.fill")
+                    Label("\(proofs.count) \(proofs.count == 1 ? "copy matches its original" : "copies match their originals"), byte for byte in size", systemImage: "checkmark.shield.fill")
                         .foregroundStyle(Brand.safe)
                         .accessibilityIdentifier("archive-recheck-ok")
                 } else {
@@ -132,7 +132,7 @@ struct ArchivedRemovalView: View {
         .task(id: round) { await check() }
     }
 
-    /// Reads every copy and every original in full. Only exact matches may be deleted.
+    /// Checks every copy, a few at a time. Only confirmed copies may have their originals deleted.
     private func check() async {
         let candidates = done.removable
         checking = true
@@ -149,17 +149,32 @@ struct ArchivedRemovalView: View {
         }
         var exact: [ArchiveProof] = []
         var kept: [Staying] = []
-        for item in candidates {
-            guard !Task.isCancelled, case let .photo(id, _) = item.source else { break }
-            do {
-                exact.append(try await ArchiveProver.prove(photoID: id, record: done.copies[item.id], wifi: wifi))
-            } catch {
-                kept.append(Staying(id: item.id, name: item.name, reason: error.localizedDescription))
+        let network = wifi
+        let copies = done.copies
+        await withTaskGroup(of: (ArchiveItem, Result<ArchiveProof, Error>).self) { group in
+            var waiting = candidates[...]
+            var running = 0
+            while true {
+                while running < 6, !Task.isCancelled, let item = waiting.popFirst() {
+                    guard case let .photo(id, _) = item.source else { continue }
+                    running += 1
+                    let record = copies[item.id]
+                    group.addTask {
+                        (item, await Result(awaiting: { try await ArchiveProver.prove(photoID: id, record: record, wifi: network) }))
+                    }
+                }
+                guard let next = await group.next() else { break }
+                let (item, result) = next
+                running -= 1
+                switch result {
+                case .success(let proof): exact.append(proof)
+                case .failure(let error): kept.append(Staying(id: item.id, name: item.name, reason: error.localizedDescription))
+                }
+                checked += 1
             }
-            checked += 1
         }
         guard !Task.isCancelled else { return }
-        try? InventoryStore.openDefault().log("Checked \(candidates.count) archive copies in full before removal: \(exact.count) exact, \(kept.count) kept on this iPhone.")
+        try? InventoryStore.openDefault().log("Checked \(candidates.count) archive copies before removal: \(exact.count) confirmed, \(kept.count) kept on this iPhone.")
         proofs = exact
         staying = kept
         checkedAt = Date()

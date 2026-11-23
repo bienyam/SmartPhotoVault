@@ -163,7 +163,8 @@ struct AssetCover: View {
         guard access == .authorized || access == .limited,
               let asset = PHAsset.fetchAssets(withLocalIdentifiers: [assetID], options: nil).firstObject else { return }
         let options = PHImageRequestOptions()
-        options.isNetworkAccessAllowed = false
+        // Photos kept in iCloud may fetch a small preview, as they do in Photos.
+        options.isNetworkAccessAllowed = true
         options.deliveryMode = .opportunistic
         options.resizeMode = .fast
         request = PHImageManager.default().requestImage(for: asset, targetSize: CGSize(width: side, height: side),

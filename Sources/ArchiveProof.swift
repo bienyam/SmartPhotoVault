@@ -36,19 +36,17 @@ enum ArchiveProofError: LocalizedError, Equatable {
     }
 }
 
-/// Checks archive copies before originals may be deleted. Every copy was already checked while it was
-/// made. `prove` reads the whole copy back from the destination and the whole original from Photos, and
-/// both must match the fingerprint taken when archiving. `confirm` runs right before the delete and
-/// makes sure nothing changed since `prove`. Any error means the original stays.
+/// Checks archive copies before originals may be deleted. Each copy was checked while it was made: the
+/// original was fingerprinted as it streamed, and the destination had to hold exactly as many bytes.
+/// `prove` makes sure the copy is still there, off this iPhone, at exactly the size recorded (on Google
+/// Drive also Drive's own SHA-256), and that the original hasn't changed since. `confirm` repeats that
+/// right before the delete. Any error means the original stays. (Owner, 2026-11-22: size to the byte,
+/// not a full read-back, so freeing space stays fast.)
 enum ArchiveProver {
     static func prove(photoID: String, record: ArchivedRecord?, wifi: ArchiveWiFi) async throws -> ArchiveProof {
         guard let record else { throw ArchiveProofError.notRecorded }
         let modified = try originalModificationDate(photoID)
-        let stamp = try await checkCopy(record, wifi: wifi)
-        let original = try await Task.detached(priority: .userInitiated) {
-            try VerifiedArchive.originalFingerprint(photoID)
-        }.value
-        guard original == fingerprint(of: record) else { throw ArchiveProofError.originalChanged }
+        let stamp = try await currentStamp(record, wifi: wifi)
         return ArchiveProof(photoID: photoID, record: record, copy: stamp, originalModified: modified)
     }
 
@@ -56,19 +54,24 @@ enum ArchiveProver {
         guard try originalModificationDate(proof.photoID) == proof.originalModified else {
             throw ArchiveProofError.originalChanged
         }
-        let now: CopyStamp
-        if let fileID = proof.record.driveFileID {
+        guard try await currentStamp(proof.record, wifi: wifi) == proof.copy else { throw ArchiveProofError.changedSinceCheck }
+    }
+
+    /// The copy as the destination describes it now. It must exist, be off this iPhone and be exactly the
+    /// recorded size; a Drive copy must also carry the recorded SHA-256 when Drive reports one.
+    private static func currentStamp(_ record: ArchivedRecord, wifi: ArchiveWiFi) async throws -> CopyStamp {
+        if let fileID = record.driveFileID {
             let token = try await GoogleDriveAccount.shared.accessToken()
-            now = try Self.stamp(of: try await GoogleDriveClient.storedFile(fileID, token: token), for: proof.record)
-        } else {
-            let folder = try Self.folder(of: proof.record)
-            let name = proof.record.name
-            let wifiCheck: ArchiveWiFi? = proof.record.viaHomeServer ? wifi : nil
-            now = try await Task.detached(priority: .userInitiated) {
-                try VerifiedArchive.copyStamp(named: name, in: folder, wifi: wifiCheck)
-            }.value
+            return try Self.stamp(of: try await GoogleDriveClient.storedFile(fileID, token: token), for: record)
         }
-        guard now == proof.copy else { throw ArchiveProofError.changedSinceCheck }
+        let folder = try Self.folder(of: record)
+        let name = record.name
+        let wifiCheck: ArchiveWiFi? = record.viaHomeServer ? wifi : nil
+        let stamp = try await Task.detached(priority: .userInitiated) {
+            try VerifiedArchive.copyStamp(named: name, in: folder, wifi: wifiCheck)
+        }.value
+        guard stamp.bytes == record.bytes else { throw ArchiveProofError.copyDiffers }
+        return stamp
     }
 
     /// Drive must still hold the file, outside the bin, with the same size and, when Drive gives one,
@@ -84,25 +87,6 @@ enum ArchiveProver {
 
     static func fingerprint(of record: ArchivedRecord) -> ArchiveFingerprint {
         ArchiveFingerprint(bytes: record.bytes, digest: record.digest.lowercased())
-    }
-
-    private static func checkCopy(_ record: ArchivedRecord, wifi: ArchiveWiFi) async throws -> CopyStamp {
-        if let fileID = record.driveFileID {
-            let token = try await GoogleDriveAccount.shared.accessToken()
-            let stamp = try Self.stamp(of: try await GoogleDriveClient.storedFile(fileID, token: token), for: record)
-            // Drive's own checksum matches; also read the file back and compare every byte.
-            guard try await DriveReadBack.fingerprint(fileID, token: token) == fingerprint(of: record) else {
-                throw ArchiveProofError.copyDiffers
-            }
-            return stamp
-        }
-        let folder = try Self.folder(of: record)
-        let name = record.name
-        let expected = fingerprint(of: record)
-        let wifiCheck: ArchiveWiFi? = record.viaHomeServer ? wifi : nil
-        return try await Task.detached(priority: .userInitiated) {
-            try VerifiedArchive.checkCopy(named: name, in: folder, expected: expected, wifi: wifiCheck)
-        }.value
     }
 
     private static func folder(of record: ArchivedRecord) throws -> URL {
@@ -170,5 +154,11 @@ final class DriveReadBack: NSObject, URLSessionDataDelegate, @unchecked Sendable
                 bytes: bytes, digest: hasher.finalize().map { String(format: "%02x", $0) }.joined()))
         }
         continuation = nil
+    }
+}
+
+extension Result where Failure == Error {
+    init(awaiting work: () async throws -> Success) async {
+        do { self = .success(try await work()) } catch { self = .failure(error) }
     }
 }

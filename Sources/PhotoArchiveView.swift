@@ -534,10 +534,7 @@ struct PhotoArchiveView: View {
 
     private var nextBar: some View {
         HStack(spacing: 10) {
-            Button("Clear") {
-                items = []
-                archiveConsent = false
-            }
+            Button("Clear", action: startOver)
             .font(.subheadline.weight(.bold)).foregroundStyle(ArchiveStyle.link).frame(minWidth: 56, minHeight: 44)
             .accessibilityIdentifier("archive-clear")
             Button("Next · \(items.count.formatted()) \(items.count == 1 ? "item" : "items")\(selectedBytes > 0 ? " · \(formattedBytes(selectedBytes))" : "")") {
@@ -556,6 +553,7 @@ struct PhotoArchiveView: View {
     private func groupScreen(_ id: String) -> some View {
         if let group = groups.first(where: { $0.id == id }) ?? picks.values.first(where: { $0.id == id }) ?? albumGroup(id) {
             GroupSkimView(group: group) { records in
+                startOver()
                 add(records)
                 path.append(ArchiveRoute.copy)
             }
@@ -617,11 +615,21 @@ struct PhotoArchiveView: View {
         let records = basket.take()
         guard !records.isEmpty, !busy else { return }
         let ready = records.filter(SmartGrouper.canArchive)
+        startOver()
         add(ready)
         let left = records.count - ready.count
         message = left == 0 ? nil : "\(left.formatted()) of these can't be archived yet: Live Photos, slo-mo, edited items and some formats."
         path = NavigationPath()
         if !items.isEmpty { path.append(ArchiveRoute.copy) }
+    }
+
+    /// Empties the selection, so what is chosen next is all that is copied.
+    private func startOver() {
+        items = []
+        measuredBytes = [:]
+        checkedPhotos = [:]
+        archiveConsent = false
+        message = nil
     }
 
     /// Adds a whole group. The scan already knows each item's size and, for local ones, its fingerprint.
@@ -959,6 +967,13 @@ struct PhotoArchiveView: View {
                     }
                 }
                 .accessibilityIdentifier("copy-review")
+                Button(role: .destructive) {
+                    startOver()
+                    path = NavigationPath()
+                } label: {
+                    Label("Clear selection and start over", systemImage: "xmark.circle")
+                }
+                .accessibilityIdentifier("copy-clear")
             }
         }
         .scrollContentBackground(.hidden)
@@ -1143,6 +1158,9 @@ struct PhotoArchiveView: View {
         ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
 
+    /// Items copied side by side. Photos may be downloading from iCloud while others are written.
+    static let copiesAtOnce = 3
+
     private func measureSelection() {
         let selection = items.filter { bytes(for: $0) == nil }
         busy = true
@@ -1312,16 +1330,26 @@ struct PhotoArchiveView: View {
             do {
                 let folderID = try await GoogleDriveClient.archiveFolder(token: try await account.accessToken())
                 driveFolder = folderID
-                for item in selection {
-                    if run.stopping { break }
-                    run.currentID = Self.photoID(item)
-                    do {
+                await withTaskGroup(of: (ArchiveItem, Result<(fileID: String, fingerprint: ArchiveFingerprint), Error>).self) { group in
+                var waiting = selection[...]
+                var running = 0
+                while true {
+                    while running < Self.copiesAtOnce, !run.stopping, let item = waiting.popFirst() {
+                        run.currentID = Self.photoID(item)
+                        running += 1
                         // A fresh token per item; each item streams straight from Photos or Files to
                         // Drive in small pieces, so no full copy needs room on this iPhone.
-                        let token = try await account.accessToken()
-                        let uploaded = try await Task.detached(priority: .userInitiated) {
-                            try GoogleDriveClient.streamUpload(item, folderID: folderID, token: token)
-                        }.value
+                        let token = try? await account.accessToken()
+                        group.addTask {
+                            guard let token else { return (item, .failure(GoogleDriveError.notConnected)) }
+                            return (item, Result { try GoogleDriveClient.streamUpload(item, folderID: folderID, token: token) })
+                        }
+                    }
+                    guard let next = await group.next() else { break }
+                    let (item, outcome) = next
+                    running -= 1
+                    do {
+                        let uploaded = try outcome.get()
                         let record = ArchivedRecord(id: UUID().uuidString, name: item.name,
                                                     folderName: "Google Drive", bytes: uploaded.fingerprint.bytes,
                                                     digest: uploaded.fingerprint.digest, date: Date(),
@@ -1337,6 +1365,7 @@ struct PhotoArchiveView: View {
                         problems.append("\(item.name) — \(error.localizedDescription)")
                     }
                     run.tried += 1
+                }
                 }
             } catch {
                 problems.append(error.localizedDescription)
@@ -1383,12 +1412,19 @@ struct PhotoArchiveView: View {
             var problems: [String] = []
             var copies: [String: ArchivedRecord] = [:]
             let bookmark = Self.bookmark(for: destination)
-            for item in selection {
-                if run.stopping { break }
-                run.currentID = Self.photoID(item)
-                let result = await Task.detached(priority: .userInitiated) {
-                    Result { try VerifiedArchive.copy(item, to: destination, wifi: home ? wifiCheck : nil) }
-                }.value
+            let check: ArchiveWiFi? = home ? wifiCheck : nil
+            await withTaskGroup(of: (ArchiveItem, Result<ArchiveReceipt, Error>).self) { group in
+            var waiting = selection[...]
+            var running = 0
+            while true {
+                while running < Self.copiesAtOnce, !run.stopping, let item = waiting.popFirst() {
+                    run.currentID = Self.photoID(item)
+                    running += 1
+                    group.addTask { (item, Result { try VerifiedArchive.copy(item, to: destination, wifi: check) }) }
+                }
+                guard let next = await group.next() else { break }
+                let (item, result) = next
+                running -= 1
                 switch result {
                 case let .success(receipt):
                     successes.append(receipt)
@@ -1404,6 +1440,7 @@ struct PhotoArchiveView: View {
                     problems.append("\(item.name) — \(error.localizedDescription)")
                 }
                 run.tried += 1
+            }
             }
             let copied = Set(successes.map(\.id))
             receipts.removeAll { copied.contains($0.id) }

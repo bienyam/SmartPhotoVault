@@ -35,18 +35,31 @@ enum Recognition {
         let name: String
         let labels: Set<String>
         let words: String
+        /// Fewer is enough for things nobody means to keep, like a parking spot.
+        var minimum = SmartGrouper.topicMinimum
     }
 
+    /// Every label here is checked against the iPhone's own list by a test. The first ones are the
+    /// pictures people take as a reminder and forget: papers, screens, cards, parking, shopping.
     static let topics: [Topic] = [
-        Topic(id: "papers", name: "Receipts and papers", labels: ["receipt", "document"], words: "receipts or documents"),
-        Topic(id: "whiteboards", name: "Whiteboards", labels: ["whiteboard"], words: "whiteboards"),
-        Topic(id: "food", name: "Food", labels: ["food"], words: "food"),
+        Topic(id: "papers", name: "Receipts and papers", labels: ["receipt", "document", "printed_page", "newspaper", "checkbook"], words: "receipts or documents"),
+        Topic(id: "notes", name: "Notes and handwriting", labels: ["handwriting", "sticky_note"], words: "handwritten notes", minimum: 8),
+        Topic(id: "whiteboards", name: "Whiteboards and slides", labels: ["whiteboard", "chalkboard", "flipchart", "diagram", "chart"], words: "whiteboards, slides or charts", minimum: 8),
+        Topic(id: "screens", name: "Photos of screens", labels: ["computer_monitor", "television", "laptop", "screenshot"], words: "a screen", minimum: 8),
+        Topic(id: "cards", name: "Cards, tickets and IDs", labels: ["credit_card", "gift_card", "ticket", "passport"], words: "cards, tickets or IDs", minimum: 5),
+        Topic(id: "parking", name: "Parking spots and signs", labels: ["parking_lot", "license_plate", "street_sign", "sign"], words: "parking or signs", minimum: 8),
+        Topic(id: "shopping", name: "Shopping", labels: ["interior_shop", "shopping_cart", "storefront", "shoes"], words: "shops or things to buy", minimum: 8),
+        Topic(id: "drawings", name: "Drawings and saved images", labels: ["illustrations", "graffiti"], words: "drawings or illustrations"),
+        Topic(id: "food", name: "Food and drinks", labels: ["food", "dessert", "coffee", "cocktail", "wine", "beer"], words: "food or drinks"),
         Topic(id: "pets", name: "Pets", labels: ["dog", "cat", "adult_cat"], words: "dogs or cats"),
         Topic(id: "scenery", name: "Sunsets and scenery", labels: ["sunset_sunrise", "mountain"], words: "sunsets or mountains"),
         Topic(id: "flowers", name: "Flowers", labels: ["flower"], words: "flowers"),
         Topic(id: "cars", name: "Cars", labels: ["car", "sportscar"], words: "cars"),
         Topic(id: "art", name: "Art", labels: ["art"], words: "art")
     ]
+
+    /// Pictures taken as a reminder: the easiest to let go of.
+    static let reminders: Set<String> = Set(topics.filter { ["papers", "notes", "whiteboards", "screens", "parking", "shopping"].contains($0.id) }.flatMap(\.labels))
 
     /// The only labels that are kept.
     static let known: Set<String> = moments.reduce(into: Set(topics.flatMap(\.labels))) { $0.formUnion($1.labels) }
@@ -146,11 +159,30 @@ extension SmartGrouper {
                 .filter { !$0.favorite && !topic.labels.isDisjoint(with: insights[$0.id]?.labels ?? []) }
                 .sorted { ($0.createdAt ?? .distantPast, $0.id) < ($1.createdAt ?? .distantPast, $1.id) }
             let ready = all.filter(canArchive)
-            guard ready.count >= topicMinimum else { return nil }
+            guard ready.count >= topic.minimum else { return nil }
             return SmartGroup(id: "topic-\(topic.id)", kind: .topic, title: topic.name, reason: "Looks like \(topic.words)",
                               records: ready, notYet: all.count - ready.count)
         }
+        .appending(darkShots(in: assets, insights: insights))
         .sorted { $0.bytes > $1.bytes }
+    }
+
+    /// Below this average light a photo shows next to nothing: taken in a pocket, a bag or the dark.
+    static let darkLevel = 14.0
+
+    /// Photos too dark to see anything in. Almost always taken by accident.
+    private static func darkShots(in assets: [AssetRecord], insights: [String: PhotoInsight]) -> SmartGroup? {
+        let all = assets
+            .filter { record in
+                guard record.mediaType == PHAssetMediaType.image.rawValue, !record.favorite,
+                      let light = insights[record.id]?.brightness else { return false }
+                return light < darkLevel
+            }
+            .sorted { ($0.createdAt ?? .distantPast, $0.id) < ($1.createdAt ?? .distantPast, $1.id) }
+        let ready = all.filter(canArchive)
+        guard ready.count >= 5 else { return nil }
+        return SmartGroup(id: "topic-dark", kind: .topic, title: "Too dark to see", reason: "Almost black, often taken by accident",
+                          records: ready, notYet: all.count - ready.count)
     }
 
     // MARK: - Videos
@@ -183,7 +215,7 @@ extension SmartGrouper {
         var score = min(Double(record.displayBytes) / 100_000_000, 5)
         if days > 730 { score += 2 }
         if extra { score += 3 }
-        if let labels = insight?.labels, !Set(["receipt", "document", "whiteboard"]).isDisjoint(with: labels) { score += 2 }
+        if let labels = insight?.labels, !Recognition.reminders.isDisjoint(with: labels) { score += 2 }
         if (facts?.duration ?? 0) > 300 { score += 1 }
         if days < 90 { score -= 4 }
         if facts?.edited == true { score -= 4 }
@@ -219,5 +251,12 @@ extension SmartGrouper {
         return SmartGroup(id: "pick-\(gigabytes)", kind: .pick, title: "Your pick: \(bytes.fileSize)",
                           reason: "Big, old or nearly identical. No favorites, nothing recent",
                           records: chosen, notYet: 0, when: parts.joined(separator: ", "))
+    }
+}
+
+private extension Array {
+    func appending(_ element: Element?) -> [Element] {
+        guard let element else { return self }
+        return self + [element]
     }
 }

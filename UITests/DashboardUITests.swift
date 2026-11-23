@@ -466,6 +466,12 @@ final class DashboardUITests: XCTestCase {
         XCTAssertTrue(summary.label.hasPrefix("1 item"), summary.label)
         XCTAssertTrue(app.buttons["Drive plugged into this iPhone"].firstMatch.exists, "Every destination is offered.")
         keepScreenshot(of: app, named: "Archive copy from Free up")
+        let clear = app.buttons["copy-clear"]
+        reveal(clear, in: app)
+        clear.tap()
+        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: summary)
+        waitForExpectations(timeout: 5)
+        XCTAssertFalse(app.buttons["archive-next"].exists, "Cleared: nothing left selected.")
     }
 
     private func keepScreenshot(of app: XCUIApplication, named name: String) {
