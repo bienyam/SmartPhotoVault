@@ -448,6 +448,26 @@ final class DashboardUITests: XCTestCase {
         XCTAssertTrue(card.waitForExistence(timeout: 5))
     }
 
+    func testFreeUpSelectionGoesStraightToArchiveCopy() {
+        let app = launchWithSamples()
+        let videos = app.buttons["row-videos"]
+        reveal(videos, in: app)
+        videos.tap()
+        XCTAssertTrue(app.navigationBars["Large videos"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["archive-selected"].exists, "Nothing selected, nothing to archive.")
+        app.buttons["select-sample-11"].tap()
+        let archive = app.buttons["archive-selected"]
+        XCTAssertTrue(archive.waitForExistence(timeout: 5), "Selected items can be archived from here.")
+        keepScreenshot(of: app, named: "Free up archive selected")
+        archive.tap()
+        XCTAssertTrue(app.tabBars.buttons["Archive"].waitForExistence(timeout: 5))
+        let summary = app.staticTexts["copy-summary"]
+        XCTAssertTrue(summary.waitForExistence(timeout: 10), "Archive opens on its copy screen.")
+        XCTAssertTrue(summary.label.hasPrefix("1 item"), summary.label)
+        XCTAssertTrue(app.buttons["Drive plugged into this iPhone"].firstMatch.exists, "Every destination is offered.")
+        keepScreenshot(of: app, named: "Archive copy from Free up")
+    }
+
     private func keepScreenshot(of app: XCUIApplication, named name: String) {
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = name

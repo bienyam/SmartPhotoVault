@@ -22,8 +22,10 @@ final class ProStore: ObservableObject {
     @Published private(set) var checking = true
     @Published private(set) var busy = false
     @Published var notice: String?
+    /// True in TestFlight builds while `TesterAccess` is on: every Pro feature works, nothing is bought.
+    @Published private(set) var testerAccess = false
 
-    var unlocked: Bool { plan != .none }
+    var unlocked: Bool { plan != .none || testerAccess }
     private var updates: Task<Void, Never>?
 
     init() {
@@ -50,6 +52,12 @@ final class ProStore: ObservableObject {
 
     func start() async {
         checking = true
+        if TesterAccess.enabled, let app = try? await AppTransaction.shared {
+            switch app {
+            case .verified(let transaction), .unverified(let transaction, _):
+                testerAccess = transaction.environment == .sandbox
+            }
+        }
         await refresh()
         await loadProducts()
         checking = false
@@ -147,6 +155,11 @@ struct ProPurchaseControls: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            if pro.testerAccess, pro.plan == .none {
+                Label("Test build: every Pro feature is on. Nothing to buy.", systemImage: "checkmark.seal.fill")
+                    .foregroundStyle(Brand.safe)
+                    .accessibilityIdentifier("pro-tester")
+            }
             // Never block on the App Store: the buttons work while the check finishes.
             switch pro.plan {
             case .lifetime:

@@ -2,7 +2,11 @@ import SwiftUI
 
 /// App shell: a first-launch welcome, then the tab bar.
 struct RootView: View {
+    enum Tab: Hashable { case freeUp, archive, more }
+
     @StateObject private var model = DashboardModel()
+    @ObservedObject private var basket = ArchiveBasket.shared
+    @State private var tab = Tab.freeUp
     @AppStorage("hasSeenWelcome") private var hasSeenWelcome = false
     @State private var forceWelcome = ProcessInfo.processInfo.arguments.contains("--reset-welcome")
     @Environment(\.colorScheme) private var colorScheme
@@ -31,14 +35,19 @@ struct RootView: View {
     }
 
     private var tabs: some View {
-        TabView {
+        TabView(selection: $tab) {
             FreeUpView(model: model)
                 .tabItem { Label("Free up", systemImage: "sparkles") }
+                .tag(Tab.freeUp)
             ArchiveTabView(model: model)
                 .tabItem { Label("Archive", systemImage: "archivebox") }
+                .tag(Tab.archive)
             MoreView(model: model)
                 .tabItem { Label("More", systemImage: "ellipsis.circle") }
+                .tag(Tab.more)
         }
+        // Photos chosen in a Free up list go straight to Archive's copy screen.
+        .onChange(of: basket.request) { tab = .archive }
         .task {
             if ProcessInfo.processInfo.arguments.contains("--demo") { model.showDemo() }
         }
@@ -56,6 +65,7 @@ struct RootView: View {
 /// Archive in one tab: Move out makes verified copies, Get back restores them.
 struct ArchiveTabView: View {
     @ObservedObject var model: DashboardModel
+    @ObservedObject private var basket = ArchiveBasket.shared
     @State private var mode = ArchiveMode.moveOut
     @State private var path = NavigationPath()
     @State private var locked = false
@@ -94,7 +104,9 @@ struct ArchiveTabView: View {
             .navigationTitle("Archive")
             .navigationBarTitleDisplayMode(.inline)
         }
+        .onChange(of: basket.request) { mode = .moveOut }
         .onAppear {
+            if !basket.pending.isEmpty { mode = .moveOut }
             if ProcessInfo.processInfo.arguments.contains("--demo-archive") { InsightModel.shared.show(DemoLibrary.archiveInsights) }
             count()
         }

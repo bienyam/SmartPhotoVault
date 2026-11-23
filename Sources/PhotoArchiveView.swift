@@ -147,6 +147,7 @@ struct PhotoArchiveView: View {
     @State private var goal: Int64 = 10
     @State private var picks: [Int64: SmartGroup] = [:]
     @ObservedObject private var insights = InsightModel.shared
+    @ObservedObject private var basket = ArchiveBasket.shared
     @StateObject private var run = ArchiveRun()
     @StateObject private var drive = DriveModel()
     @State private var showDriveHelp = false
@@ -262,6 +263,8 @@ struct PhotoArchiveView: View {
             place = nil
         }
         .onChange(of: busy) { locked = busy }
+        .onChange(of: basket.request) { takeBasket() }
+        .onAppear(perform: takeBasket)
         .task(id: groupKey) { await findGroups() }
         .fileImporter(isPresented: $showFiles, allowedContentTypes: [.data], allowsMultipleSelection: true, onCompletion: addFiles)
         .onChange(of: photoSelection) { _, selection in addPhotos(selection) }
@@ -607,6 +610,18 @@ struct PhotoArchiveView: View {
         readyBytes = found.0.flatMap(\.records).reduce(Int64(0)) { counted.insert($1.id).inserted ? $0 + $1.displayBytes : $0 }
         findingGroups = false
         insights.start(snapshot.assets)
+    }
+
+    /// Photos sent from a Free up list: added to the selection, straight to the copy screen.
+    private func takeBasket() {
+        let records = basket.take()
+        guard !records.isEmpty, !busy else { return }
+        let ready = records.filter(SmartGrouper.canArchive)
+        add(ready)
+        let left = records.count - ready.count
+        message = left == 0 ? nil : "\(left.formatted()) of these can't be archived yet: Live Photos, slo-mo, edited items and some formats."
+        path = NavigationPath()
+        if !items.isEmpty { path.append(ArchiveRoute.copy) }
     }
 
     /// Adds a whole group. The scan already knows each item's size and, for local ones, its fingerprint.
