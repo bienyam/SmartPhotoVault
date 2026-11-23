@@ -356,3 +356,31 @@ struct OnlineFolderPicker: View {
         }
     }
 }
+
+/// Whether the person can open a copy themselves, which removal after archiving needs.
+enum CopyVisibility {
+    /// Only OneDrive copies are in doubt: ones in its app folder may not be shown in work and school accounts.
+    @MainActor
+    static func canBeSeen(_ record: ArchivedRecord) async -> Bool {
+        guard record.cloud == .oneDrive, let id = record.driveFileID else { return true }
+        guard let token = try? await CloudAccount.shared(.oneDrive).accessToken(),
+              let path = await oneDriveFolder(of: id, token: token) else { return false }
+        return isVisibleOneDrive(path)
+    }
+
+    /// A copy is visible when it is in My files › TidyAway or a folder inside it.
+    static func isVisibleOneDrive(_ parentPath: String) -> Bool {
+        parentPath == "/drive/root:/TidyAway" || parentPath.hasPrefix("/drive/root:/TidyAway/")
+    }
+
+    private static func oneDriveFolder(of id: String, token: String) async -> String? {
+        var request = URLRequest(url: URL(string: "https://graph.microsoft.com/v1.0/me/drive/items/\(id)?$select=parentReference")!)
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        struct Item: Decodable { struct Parent: Decodable { let path: String? }; let parentReference: Parent? }
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              (response as? HTTPURLResponse)?.statusCode == 200,
+              let item = try? JSONDecoder().decode(Item.self, from: data) else { return nil }
+        return item.parentReference?.path
+    }
+}

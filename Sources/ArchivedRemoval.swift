@@ -62,7 +62,16 @@ struct ArchivedRemovalView: View {
     @State private var checkedAt = Date()
     @State private var round = 0
     @State private var wifi = ArchiveWiFi()
+    /// Bringing one copy back and checking it against its original. Removal waits for it.
+    @State private var test = RestoreTest.notYet
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
+
+    enum RestoreTest: Equatable {
+        case notYet, running, passed(String), failed(String)
+    }
+
+    private var tested: Bool { if case .passed = test { true } else { false } }
 
     private struct Staying: Identifiable {
         let id: String
@@ -84,9 +93,7 @@ struct ArchivedRemovalView: View {
                     Text("Each copy must still be there, the same size as its original to the byte. Keep this open.")
                         .font(.footnote).foregroundStyle(.secondary)
                 } else if !proofs.isEmpty {
-                    Label("\(proofs.count) \(proofs.count == 1 ? "copy matches its original" : "copies match their originals"), byte for byte in size", systemImage: "checkmark.shield.fill")
-                        .foregroundStyle(Brand.safe)
-                        .accessibilityIdentifier("archive-recheck-ok")
+                    checklist
                 } else {
                     Text("Nothing can be deleted right now. Your originals stay on this \(Device.name).")
                 }
@@ -117,9 +124,16 @@ struct ArchivedRemovalView: View {
             ToolbarItem(placement: .cancellationAction) { Button("Not now") { dismiss() }.disabled(working) }
         }
         .safeAreaInset(edge: .bottom) {
-            if !checking, !proofs.isEmpty {
+            if !checking, !proofs.isEmpty, !tested {
+                Button(test == .running ? "Bringing one back…" : "Test bringing one back") { Task { await bringOneBack() } }
+                    .buttonStyle(ArchiveButtonStyle())
+                    .disabled(test == .running)
+                    .padding(16)
+                    .background(.regularMaterial)
+                    .accessibilityIdentifier("archive-restore-test")
+            } else if !checking, !proofs.isEmpty {
                 RemovalBar(count: proofs.count, bytes: bytes,
-                           fullText: "I authorize TidyAway to delete \(proofs.count) selected items from Apple Photos. If iCloud Photos is on, these items will also be deleted from iCloud Photos and synced devices. Apple normally keeps deleted items in Recently Deleted for up to 30 days unless they're permanently deleted sooner. A verified full-resolution copy remains in \(done.place), last checked \(checkedAt.formatted(date: .omitted, time: .shortened)). This leaves one full-resolution copy. If that copy is lost, you could lose these items permanently.",
+                           fullText: "I opened \(done.place) and I can see these copies. I authorize TidyAway to delete \(proofs.count) selected items from Apple Photos. If iCloud Photos is on, these items will also be deleted from iCloud Photos and synced devices. Apple normally keeps deleted items in Recently Deleted for up to 30 days unless they're permanently deleted sooner. A verified full-resolution copy remains in \(done.place), last checked \(checkedAt.formatted(date: .omitted, time: .shortened)). This leaves one full-resolution copy. If that copy is lost, you could lose these items permanently.",
                            working: working, message: message, agreed: $agreed, delete: remove)
             } else if let message {
                 Text(message).font(.subheadline).foregroundStyle(Brand.caution)
@@ -128,7 +142,9 @@ struct ArchivedRemovalView: View {
             }
         }
         .interactiveDismissDisabled(working)
-        .sheet(item: $result, onDismiss: { dismiss() }) { RescueResultView(result: $0) }
+        .sheet(item: $result, onDismiss: { dismiss() }) {
+            RescueResultView(result: $0, note: "Look at your copies in \(done.place) before you empty Recently Deleted. Until then, the originals can still be recovered there for 30 days.")
+        }
         .task(id: round) { await check() }
     }
 
@@ -137,6 +153,7 @@ struct ArchivedRemovalView: View {
         let candidates = done.removable
         checking = true
         agreed = false
+        test = .notYet
         proofs = []
         staying = []
         checked = 0
@@ -174,6 +191,18 @@ struct ArchivedRemovalView: View {
             }
         }
         guard !Task.isCancelled else { return }
+        // A copy that is confirmed but kept where the person can't see it (OneDrive's hidden app folder
+        // in work and school accounts) is not enough: its original stays.
+        var visible: [ArchiveProof] = []
+        for proof in exact {
+            if await CopyVisibility.canBeSeen(proof.record) {
+                visible.append(proof)
+            } else {
+                kept.append(Staying(id: proof.photoID, name: proof.record.name,
+                                    reason: "Its copy is in OneDrive's app folder (Apps › TidyAway), which OneDrive doesn't always show. Get back can still bring it back. New copies go to My files › TidyAway, where you can see them."))
+            }
+        }
+        exact = visible
         try? InventoryStore.openDefault().log("Checked \(candidates.count) archive copies before removal: \(exact.count) confirmed, \(kept.count) kept on this \(Device.name).")
         proofs = exact
         staying = kept
@@ -181,10 +210,72 @@ struct ArchivedRemovalView: View {
         checking = false
     }
 
+    /// The four checks, ticked as they pass.
+    @ViewBuilder
+    private var checklist: some View {
+        check(true, "Copied, byte for byte",
+              "\(proofs.count) of \(total): each copy is there and the same size as its original")
+        VStack(alignment: .leading, spacing: 4) {
+            check(true, "Where they are", done.place)
+            if let link = openLink {
+                Button("Open \(done.place) ↗") { openURL(link) }
+                    .font(.footnote.weight(.semibold))
+                    .padding(.leading, 34)
+                    .accessibilityIdentifier("archive-open-place")
+            }
+        }
+        switch test {
+        case .passed(let name):
+            check(true, "One brought back and checked", "\(name) matched its original exactly")
+        case .failed(let reason):
+            check(false, "Bring one back to test", reason, problem: true)
+        default:
+            check(false, "Bring one back to test", "TidyAway downloads the smallest copy and checks it against its original")
+        }
+        check(tested, "Your OK", "You confirm you can see the copies, then Apple asks too")
+    }
+
+    private func check(_ done: Bool, _ title: String, _ detail: String, problem: Bool = false) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: done ? "checkmark.circle.fill" : problem ? "exclamationmark.circle.fill" : "circle")
+                .font(.title3)
+                .foregroundStyle(done ? Brand.safe : problem ? Brand.caution : Color.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.subheadline.weight(.semibold))
+                Text(detail).font(.footnote).foregroundStyle(.secondary)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(done ? "Done" : "Not yet")
+    }
+
+    /// The service's page for the place the copies went, when it has one.
+    private var openLink: URL? {
+        guard let record = proofs.first?.record else { return nil }
+        if record.cloud == .dropbox { return URL(string: "https://www.dropbox.com/home/Apps/TidyAway") }
+        if record.cloud == .oneDrive { return URL(string: "https://onedrive.live.com/") }
+        if let id = record.driveFileID { return URL(string: "https://drive.google.com/file/d/\(id)/view") }
+        return nil
+    }
+
+    /// Downloads the smallest confirmed copy and compares it with its original's fingerprint.
+    private func bringOneBack() async {
+        guard let proof = proofs.min(by: { $0.record.bytes < $1.record.bytes }) else { return }
+        test = .running
+        do {
+            let url = try await ArchiveRestore.verifiedCopy(proof.record, wifi: wifi)
+            try? FileManager.default.removeItem(at: url)
+            test = .passed(proof.record.name)
+            try? InventoryStore.openDefault().log("Test restore from \(done.place) matched its original.")
+        } catch {
+            test = .failed("Couldn't bring it back: \(error.localizedDescription) Your originals stay until this works.")
+        }
+    }
+
     private func remove() {
         let approved = proofs
         let approvedBytes = bytes
-        guard agreed, !working, !checking, !approved.isEmpty else { return }
+        guard agreed, tested, !working, !checking, !approved.isEmpty else { return }
         working = true
         message = nil
         Task {
@@ -206,6 +297,7 @@ struct ArchivedRemovalView: View {
             agreed = false
             switch outcome {
             case let .removed(count, bytes): result = RemovedResult(count: count, bytes: bytes)
+                try? InventoryStore.openDefault().log("Removed \(count) archived items from Photos after a test restore from \(done.place) matched its original.")
             case .cancelled: message = "Cancelled. Nothing was removed."
             case .sample: message = "Sample data. Nothing was removed."
             case .blocked(let reason): message = reason

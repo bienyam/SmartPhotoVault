@@ -49,3 +49,13 @@ final class OneDriveMyFilesTests: XCTestCase {
         XCTAssertNotEqual(decoded.scopeVersion, OneDriveClient.scopeVersion)
     }
 }
+
+final class CopyVisibilityTests: XCTestCase {
+    func testOnlyMyFilesTidyAwayCountsAsVisibleInOneDrive() {
+        XCTAssertTrue(CopyVisibility.isVisibleOneDrive("/drive/root:/TidyAway"))
+        XCTAssertTrue(CopyVisibility.isVisibleOneDrive("/drive/root:/TidyAway/2024 Beach trip"))
+        XCTAssertFalse(CopyVisibility.isVisibleOneDrive("/drive/root:/Apps/TidyAway"), "The app folder may be hidden in work accounts.")
+        XCTAssertFalse(CopyVisibility.isVisibleOneDrive("/drive/root:/TidyAwayOther"))
+        XCTAssertFalse(CopyVisibility.isVisibleOneDrive(""))
+    }
+}
