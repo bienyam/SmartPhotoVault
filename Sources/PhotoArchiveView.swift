@@ -1159,7 +1159,7 @@ struct PhotoArchiveView: View {
     }
 
     /// Items copied side by side. Photos may be downloading from iCloud while others are written.
-    static let copiesAtOnce = 3
+    static let copiesAtOnce = 6
 
     private func measureSelection() {
         let selection = items.filter { bytes(for: $0) == nil }
@@ -1322,6 +1322,7 @@ struct PhotoArchiveView: View {
         showRun = true
         UIApplication.shared.isIdleTimerDisabled = true
         Task {
+            let started = Date()
             var records: [ArchivedRecord] = []
             var copies: [String: ArchivedRecord] = [:]
             var problems: [String] = []
@@ -1379,7 +1380,7 @@ struct PhotoArchiveView: View {
                                                                        place: "Google Drive", driveFolderID: driveFolder, copies: copies)
             run.outcome = ArchiveOutcome(completion: completion, failures: problems,
                                          left: run.stopping ? selection.count - run.tried : 0, place: "Google Drive")
-            recordOutcome("Archive copy to Google Drive \(operation) completed. Verified \(records.count) of \(selection.count) items.")
+            recordOutcome("Archive copy to Google Drive \(operation) completed. Verified \(records.count) of \(selection.count) items in \(Self.seconds(since: started)).")
             UIApplication.shared.isIdleTimerDisabled = false
             busy = false
         }
@@ -1408,6 +1409,7 @@ struct PhotoArchiveView: View {
         showRun = true
         UIApplication.shared.isIdleTimerDisabled = true
         Task {
+            let started = Date()
             var successes: [ArchiveReceipt] = []
             var problems: [String] = []
             var copies: [String: ArchivedRecord] = [:]
@@ -1420,7 +1422,7 @@ struct PhotoArchiveView: View {
                 while running < Self.copiesAtOnce, !run.stopping, let item = waiting.popFirst() {
                     run.currentID = Self.photoID(item)
                     running += 1
-                    group.addTask { (item, Result { try VerifiedArchive.copy(item, to: destination, wifi: check) }) }
+                    group.addTask { (item, Result { try VerifiedArchive.copy(item, to: destination, wifi: check, flush: false) }) }
                 }
                 guard let next = await group.next() else { break }
                 let (item, result) = next
@@ -1442,6 +1444,16 @@ struct PhotoArchiveView: View {
                 run.tried += 1
             }
             }
+            // One flush for the whole batch. Until the drive confirms it, nothing may be deleted.
+            if let last = successes.last {
+                let flushed = await Task.detached(priority: .userInitiated) {
+                    (try? VerifiedArchive.flushDrive(last.url, in: destination)) != nil
+                }.value
+                if !flushed {
+                    copies = [:]
+                    problems.append("The drive didn't confirm it saved everything, so nothing can be deleted yet. The copies are on the drive; check them from the drive panel.")
+                }
+            }
             let copied = Set(successes.map(\.id))
             receipts.removeAll { copied.contains($0.id) }
             receipts.append(contentsOf: successes)
@@ -1455,7 +1467,7 @@ struct PhotoArchiveView: View {
                 measuredBytes[id] = nil
                 checkedPhotos[id] = nil
             }
-            recordOutcome("Archive copy \(operation) completed. Verified \(copied.count) of \(selection.count) items.")
+            recordOutcome("Archive copy \(operation) completed. Verified \(copied.count) of \(selection.count) items in \(Self.seconds(since: started)).")
             let completion = copied.isEmpty ? nil : ArchiveCompletion(items: selection.filter { copied.contains($0.id) },
                                                                       bytes: successes.reduce(0) { $0 + $1.fingerprint.bytes },
                                                                       place: destination.lastPathComponent, driveFolderID: nil, copies: copies)
@@ -1562,6 +1574,10 @@ struct PhotoArchiveView: View {
             message = "The app could not save your authorization. Try again."
             return nil
         }
+    }
+
+    static func seconds(since start: Date) -> String {
+        Duration.seconds(Date().timeIntervalSince(start)).formatted(.units(allowed: [.minutes, .seconds], width: .abbreviated))
     }
 
     private func recordOutcome(_ entry: String) {

@@ -53,7 +53,9 @@ enum ArchiveError: LocalizedError {
 }
 
 enum VerifiedArchive {
-    static func copy(_ item: ArchiveItem, to folder: URL, wifi: ArchiveWiFi? = nil) throws -> ArchiveReceipt {
+    /// `flush: false` leaves the drive's write cache alone; the caller must then call `flushDrive` once
+    /// after the whole batch, before any original may be deleted.
+    static func copy(_ item: ArchiveItem, to folder: URL, wifi: ArchiveWiFi? = nil, flush: Bool = true) throws -> ArchiveReceipt {
         try wifi?.requireConnection()
         return try scoped(folder) {
             guard !item.name.isEmpty, item.name != ".", item.name != "..",
@@ -64,13 +66,13 @@ enum VerifiedArchive {
             case let .file(source):
                 fingerprint = try scoped(source) {
                     try coordinateCopy(from: source, to: destination) { input, output in
-                        try writeVerified(to: output, wifi: wifi) { try copyFile(input, to: $0, wifi: wifi) }
+                        try writeVerified(to: output, wifi: wifi) { try copyFile(input, to: $0, wifi: wifi, flush: flush) }
                     }
                 }
             case let .photo(id, expected):
                 fingerprint = try coordinateWrite(to: destination) { output in
                     try writeVerified(to: output, wifi: wifi) { temporary in
-                        let result = try copyPhoto(id, to: temporary, wifi: wifi)
+                        let result = try copyPhoto(id, to: temporary, wifi: wifi, flush: flush)
                         if let expected, result != ArchiveFingerprint(bytes: expected.bytes, digest: expected.digest) {
                             throw ArchiveError.verification
                         }
@@ -202,11 +204,11 @@ enum VerifiedArchive {
         return !["/File Provider Storage", "/CloudStorage/", "/Containers/"].contains { path.contains($0) }
     }
 
-    private static func copyPhoto(_ id: String, to temporary: URL, wifi: ArchiveWiFi?) throws -> ArchiveFingerprint {
+    private static func copyPhoto(_ id: String, to temporary: URL, wifi: ArchiveWiFi?, flush: Bool) throws -> ArchiveFingerprint {
         guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject,
               let resource = original(for: asset) else { throw ArchiveError.unsupportedPhoto }
 
-        let writer = try ArchiveWriter(url: temporary, wifi: wifi)
+        let writer = try ArchiveWriter(url: temporary, wifi: wifi, flush: flush)
         let options = PHAssetResourceRequestOptions()
         // With Optimize iPhone Storage on, the original is often only in iCloud. Archiving needs the
         // full original, so let Photos download it; it streams straight into the archive copy.
@@ -232,10 +234,10 @@ enum VerifiedArchive {
         }
     }
 
-    private static func copyFile(_ source: URL, to temporary: URL, wifi: ArchiveWiFi?) throws -> ArchiveFingerprint {
+    private static func copyFile(_ source: URL, to temporary: URL, wifi: ArchiveWiFi?, flush: Bool = true) throws -> ArchiveFingerprint {
         let attributes = try source.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
         guard attributes.isRegularFile == true, attributes.isSymbolicLink != true else { throw ArchiveError.missingFile }
-        let writer = try ArchiveWriter(url: temporary, wifi: wifi)
+        let writer = try ArchiveWriter(url: temporary, wifi: wifi, flush: flush)
         do {
             let original = try read(source, wifi: wifi) { writer.append($0) }
             writer.finish(nil)
@@ -259,6 +261,19 @@ enum VerifiedArchive {
         try wifi?.requireConnection()
         try files.moveItem(at: temporary, to: destination)
         return source
+    }
+
+    /// Makes the drive write out everything it is holding in its cache. One call covers every file
+    /// copied to that drive, so a batch is flushed once at the end instead of after each file.
+    static func flushDrive(_ file: URL, in folder: URL) throws {
+        try scoped(folder) {
+            let descriptor = open(file.path, O_RDONLY)
+            guard descriptor >= 0 else { throw ArchiveError.unavailable }
+            defer { close(descriptor) }
+            if fcntl(descriptor, F_FULLFSYNC) == -1, fsync(descriptor) == -1, errno != ENOTSUP, errno != EINVAL {
+                throw ArchiveError.unavailable
+            }
+        }
     }
 
     /// The size the destination reports for a file, fresh rather than remembered.
@@ -375,8 +390,11 @@ private final class ArchiveWriter: @unchecked Sendable {
     private var error: Error?
     private var closed = false
 
-    init(url: URL, wifi: ArchiveWiFi?) throws {
+    private let flush: Bool
+
+    init(url: URL, wifi: ArchiveWiFi?, flush: Bool = true) throws {
         self.wifi = wifi
+        self.flush = flush
         guard FileManager.default.createFile(atPath: url.path, contents: nil) else { throw ArchiveError.unavailable }
         handle = try FileHandle(forWritingTo: url)
     }
@@ -402,7 +420,7 @@ private final class ArchiveWriter: @unchecked Sendable {
         closed = true
         error = error ?? failure
         // Push the bytes out to the drive itself before they are read back and checked.
-        if error == nil, fcntl(handle.fileDescriptor, F_FULLFSYNC) == -1, fsync(handle.fileDescriptor) == -1,
+        if flush, error == nil, fcntl(handle.fileDescriptor, F_FULLFSYNC) == -1, fsync(handle.fileDescriptor) == -1,
            errno != ENOTSUP, errno != EINVAL {
             error = ArchiveError.unavailable
         }
