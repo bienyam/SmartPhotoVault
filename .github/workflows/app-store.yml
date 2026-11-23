@@ -26,26 +26,19 @@ jobs:
     # Store pictures only, so on request rather than on every push: it held a runner for 8 to 17 minutes.
     if: ${{ github.event_name == 'workflow_dispatch' && !inputs.upload }}
     runs-on: macos-26
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Build the simulator app
+      - name: Capture App Store pictures on iPhone and iPad
         run: |
           brew install xcodegen
           xcodegen generate
-          xcodebuild build -project SmartPhotoVault.xcodeproj -scheme SmartPhotoVault \
-            -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
-            -derivedDataPath build/ScreenshotBuild CODE_SIGNING_ALLOWED=NO
-      - name: Capture sample results on iPhone and iPad
-        run: |
           mkdir -p build/store-screenshots
-          app=build/ScreenshotBuild/Build/Products/Release-iphonesimulator/SmartPhotoVault.app
           devices="$(xcrun simctl list devices available -j)"
-
           capture() {
-            local name_pattern="$1" filename="$2" device_id
+            local name_pattern="$1" label="$2" device_id
             device_id="$(python3 -c '
           import json, re, sys
           devices = json.load(sys.stdin)["devices"]
@@ -57,17 +50,23 @@ jobs:
           sys.exit("No matching simulator: " + sys.argv[1])
           ' "$name_pattern" <<< "$devices")"
             xcrun simctl bootstatus "$device_id" -b
-            xcrun simctl status_bar "$device_id" override --time '9:41' \
-              --dataNetwork wifi --wifiMode active --wifiBars 3 --batteryState discharging --batteryLevel 100
-            xcrun simctl install "$device_id" "$app"
-            xcrun simctl launch "$device_id" com.bienyam.SmartPhotoVault --demo
-            sleep 3
-            xcrun simctl io "$device_id" screenshot "build/store-screenshots/$filename"
+            xcrun simctl status_bar "$device_id" override --time '9:41'               --dataNetwork wifi --wifiMode active --wifiBars 3 --batteryState discharging --batteryLevel 100
+            xcodebuild test -project SmartPhotoVault.xcodeproj -scheme SmartPhotoVault               -destination "platform=iOS Simulator,id=$device_id"               -only-testing:SmartPhotoVaultUITests/StoreScreenshotsUITests               -resultBundlePath "build/Store-$label.xcresult" CODE_SIGNING_ALLOWED=NO
+            xcrun xcresulttool export attachments --path "build/Store-$label.xcresult" --output-path "build/attachments-$label"
+            python3 - "build/attachments-$label" "$label" <<'PY'
+          import json, pathlib, shutil, sys
+          folder, label = pathlib.Path(sys.argv[1]), sys.argv[2]
+          for test in json.loads((folder / "manifest.json").read_text()):
+              for item in test.get("attachments", []):
+                  name = item.get("suggestedHumanReadableName", "")
+                  if name.startswith("store-"):
+                      shutil.copy(folder / item["exportedFileName"], f"build/store-screenshots/{label}-{name.split('_')[0]}.png")
+          PY
             xcrun simctl shutdown "$device_id"
           }
-
-          capture 'iPhone (16|17|18) Pro' iPhone.png
-          capture 'iPad (Pro|Air) 13-inch.*' iPad.png
+          capture 'iPhone (16|17|18) Pro Max' iPhone
+          capture 'iPad (Pro|Air) 13-inch.*' iPad
+          ls build/store-screenshots
           sips -g pixelWidth -g pixelHeight build/store-screenshots/*.png
       - uses: actions/upload-artifact@v4
         with:

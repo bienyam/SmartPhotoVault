@@ -25,5 +25,5 @@ final class ArchiveBasket: ObservableObject {
 enum TesterAccess {
     /// MUST be false in the build sent to App Review: Apple reviews in the same test environment as
     /// TestFlight, and a reviewer has to be able to see and buy Pro. Tracked in the App Review checklist.
-    static let enabled = true
+    static let enabled = false
 }
