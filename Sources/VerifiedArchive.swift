@@ -492,8 +492,10 @@ final class ArchiveLive: @unchecked Sendable {
     private var written: Int64 = 0
     private var sent: Int64 = 0
     private var downloads: [String: Double] = [:]
+    /// Items already done or given up, whose late progress reports are ignored.
+    private var finished: Set<String> = []
 
-    func reset() { lock.lock(); written = 0; sent = 0; downloads = [:]; lock.unlock() }
+    func reset() { lock.lock(); written = 0; sent = 0; downloads = [:]; finished = []; lock.unlock() }
     func wrote(_ count: Int) { lock.lock(); written += Int64(count); lock.unlock() }
     /// Bytes accepted by OneDrive or Dropbox.
     func uploaded(_ count: Int) { lock.lock(); sent += Int64(count); lock.unlock() }
@@ -504,7 +506,14 @@ final class ArchiveLive: @unchecked Sendable {
     }
     /// Pass nil when the item is done.
     func downloading(_ id: String, _ fraction: Double?) {
-        lock.lock(); downloads[id] = fraction; lock.unlock()
+        lock.lock(); defer { lock.unlock() }
+        if let fraction {
+            guard !finished.contains(id) else { return }
+            downloads[id] = fraction
+        } else {
+            downloads[id] = nil
+            finished.insert(id)
+        }
     }
 
     var now: (written: Int64, downloading: Int, fraction: Double) {

@@ -1425,6 +1425,7 @@ struct PhotoArchiveView: View {
                         if Self.save(record) { copies[item.id] = record } else { problems.append(Self.notSaved(item)) }
                     case .failure(let error):
                         problems.append("\(item.name) — \(error.localizedDescription)")
+                        run.failed(error)
                     }
                     run.tried += 1
                 }
@@ -1505,6 +1506,7 @@ struct PhotoArchiveView: View {
                         if Self.save(record) { copies[item.id] = record } else { problems.append(Self.notSaved(item)) }
                     } catch {
                         problems.append("\(item.name) — \(error.localizedDescription)")
+                        run.failed(error)
                     }
                     run.tried += 1
                 }
@@ -1581,6 +1583,7 @@ struct PhotoArchiveView: View {
                     if Self.save(record) { copies[item.id] = record } else { problems.append(Self.notSaved(item)) }
                 case let .failure(error):
                     problems.append("\(item.name) — \(error.localizedDescription)")
+                    run.failed(error)
                 }
                 run.tried += 1
             }

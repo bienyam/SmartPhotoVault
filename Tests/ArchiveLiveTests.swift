@@ -55,3 +55,29 @@ final class ArchiveActivityProgressTests: XCTestCase {
         XCTAssertLessThan(ArchiveActivity.firstTryLimit, ArchiveActivity.stallLimit)
     }
 }
+
+@MainActor
+final class ArchiveRunStatsTests: XCTestCase {
+    func testLateProgressNeverBringsAFinishedItemBack() {
+        let live = ArchiveLive()
+        live.downloading("a", 0.3)
+        live.downloading("a", nil)
+        live.downloading("a", 0.0)
+        XCTAssertEqual(live.now.downloading, 0, "A report after an item is done must not count it as downloading again.")
+    }
+
+    func testFailuresAreCountedByPlainReason() {
+        let run = ArchiveRun()
+        run.start(35)
+        run.failed(ArchiveError.iCloudDownload)
+        run.failed(ArchiveError.iCloudDownload)
+        run.failed(NSError(domain: NSCocoaErrorDomain, code: NSFileWriteOutOfSpaceError))
+        run.failed(CloudError.server("OneDrive", 503))
+        XCTAssertEqual(run.failures, 4)
+        XCTAssertEqual(run.reasons["iCloud didn't send them"], 2)
+        XCTAssertEqual(run.reasons.keys.filter { $0.hasPrefix("Not enough space") }.count, 1)
+        XCTAssertEqual(run.reasons["OneDrive didn't accept them"], 1)
+        run.start(10)
+        XCTAssertEqual(run.failures, 0)
+    }
+}
