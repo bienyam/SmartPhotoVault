@@ -200,9 +200,9 @@ enum CloudStream {
 
     // MARK: - OneDrive
 
-    static func oneDrive(_ item: ArchiveItem, total: Int64, token: String)
+    static func oneDrive(_ item: ArchiveItem, total: Int64, token: String, folder: OnlineFolder = .root)
         throws -> (stored: Stored, fingerprint: ArchiveFingerprint, local: String) {
-        let encoded = item.name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/:"))) ?? item.name
+        let encoded = OnlineFolders.graphPath(OnlineFolders.joined(folder, item.name))
         var start = URLRequest(url: URL(string: "https://graph.microsoft.com/v1.0/me/drive/special/approot:/\(encoded):/createUploadSession")!)
         start.httpMethod = "POST"
         start.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -253,7 +253,7 @@ enum CloudStream {
 
     // MARK: - Dropbox
 
-    static func dropbox(_ item: ArchiveItem, token: String)
+    static func dropbox(_ item: ArchiveItem, token: String, folder: OnlineFolder = .root)
         throws -> (id: String, name: String, size: Int64, hash: String?, fingerprint: ArchiveFingerprint, local: String) {
         func request(_ endpoint: String, arg: [String: Any]) -> URLRequest {
             var request = URLRequest(url: URL(string: "https://content.dropboxapi.com/2/files/\(endpoint)")!)
@@ -276,7 +276,7 @@ enum CloudStream {
         feed(item, into: pieces)
         let result = try pieces.finish()
         // Never overwrite: a file with the same name is added beside it under a new name.
-        let commit: [String: Any] = ["path": "/\(item.name)", "mode": "add", "autorename": true, "mute": true]
+        let commit: [String: Any] = ["path": "/" + OnlineFolders.joined(folder, item.name), "mode": "add", "autorename": true, "mute": true]
         let done = try send(request("upload_session/finish",
                                     arg: ["cursor": ["session_id": session, "offset": result.fingerprint.bytes], "commit": commit]),
                             body: Data())

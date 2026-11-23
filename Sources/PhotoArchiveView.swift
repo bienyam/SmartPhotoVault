@@ -154,6 +154,10 @@ struct PhotoArchiveView: View {
     @State private var restoreFolder: URL?
     @State private var showFiles = false
     @State private var showArchiveFolder = false
+    /// The online service whose folder picker is open.
+    @State private var pickingFolder: OnlinePlace?
+    /// Changes when a folder is picked, so the shown path updates.
+    @State private var folderChoice = 0
     @State private var showRestoreFolder = false
     @State private var showDetails = false
     @State private var showRunDetails = false
@@ -277,6 +281,13 @@ struct PhotoArchiveView: View {
         .fullScreenCover(isPresented: $showRun) { runCover }
         .sheet(isPresented: $showDetails) { detailsSheet }
         .sheet(isPresented: $showPro) { proSheet($showPro) }
+        .sheet(item: $pickingFolder) { place in
+            OnlineFolderPicker(place: place, token: folderToken(place)) { folder in
+                OnlineFolders.choose(folder, for: place)
+                folderChoice += 1
+                archiveConsent = false
+            }
+        }
         .onAppear { refreshArchivedBytes() }
         .onChange(of: snapshot?.date) {
             // A new scan can drop albums or places, so start the album and place choices fresh.
@@ -801,8 +812,7 @@ struct PhotoArchiveView: View {
             Label("Connected as \(email)", systemImage: "checkmark.circle")
                 .foregroundStyle(Brand.safe)
                 .accessibilityIdentifier("google-connected")
-            Text("Copies go to the \"\(GoogleDriveConfig.folderName)\" folder in your Google Drive.")
-                .font(.footnote).foregroundStyle(.secondary)
+            savingTo(.google)
             Button("Disconnect Google Drive", role: .destructive) { Task { await google.disconnect() } }
                 .font(.footnote)
         } else {
@@ -823,6 +833,40 @@ struct PhotoArchiveView: View {
 
     private func account(_ service: CloudService) -> CloudAccount { service == .oneDrive ? oneDrive : dropbox }
 
+    /// Where copies will be saved, with buttons to choose or make a folder and to open it.
+    @ViewBuilder
+    private func savingTo(_ place: OnlinePlace) -> some View {
+        let folder = OnlineFolders.chosen(place)
+        VStack(alignment: .leading, spacing: 6) {
+            Label {
+                Text("Saving to ").foregroundStyle(.secondary) + Text(folder.shown(in: place)).bold()
+            } icon: {
+                Image(systemName: "folder.fill").foregroundStyle(ArchiveStyle.link)
+            }
+            .font(.footnote)
+            .id(folderChoice)
+            .accessibilityIdentifier("online-folder-path")
+            HStack(spacing: 16) {
+                Button { pickingFolder = place } label: {
+                    Label("Choose or create folder", systemImage: "folder.badge.plus")
+                }
+                .accessibilityIdentifier("online-folder-choose")
+                if let link = OnlineFolders.link(folder, place: place) {
+                    Link(destination: link) { Label("Open in \(place.name)", systemImage: "arrow.up.right.square") }
+                }
+            }
+            .font(.footnote.weight(.semibold))
+        }
+    }
+
+    private func folderToken(_ place: OnlinePlace) -> () async throws -> String {
+        switch place {
+        case .google: { [google] in try await google.accessToken() }
+        case .oneDrive: { [oneDrive] in try await oneDrive.accessToken() }
+        case .dropbox: { [dropbox] in try await dropbox.accessToken() }
+        }
+    }
+
     @ViewBuilder
     private func cloudConnection(_ account: CloudAccount) -> some View {
         let name = account.service.name
@@ -830,8 +874,7 @@ struct PhotoArchiveView: View {
             Label("Connected as \(account.name ?? name)", systemImage: "checkmark.circle")
                 .foregroundStyle(Brand.safe)
                 .accessibilityIdentifier("cloud-connected")
-            Text("Copies go to \(account.service.folderDescription).")
-                .font(.footnote).foregroundStyle(.secondary)
+            savingTo(OnlinePlace(account.service))
             Button("Disconnect \(name)", role: .destructive) { Task { await account.disconnect() } }
                 .font(.footnote)
         } else {
@@ -997,10 +1040,10 @@ struct PhotoArchiveView: View {
 
     private var consentText: String {
         if let service = toCloud {
-            return "I authorize copying these items to \(service.name) (\(account(service).name ?? service.name)), in \(service.folderDescription). Source items stay where they are and this step frees no space."
+            return "I authorize copying these items to \(service.name) (\(account(service).name ?? service.name)), in \(OnlineFolders.chosen(OnlinePlace(service)).shown(in: OnlinePlace(service))). Source items stay where they are and this step frees no space."
         }
         return toGoogle
-            ? "I authorize copying these items to Google Drive (\(google.email ?? "")), in the TidyAway Archive folder. Source items stay where they are and this step frees no space."
+            ? "I authorize copying these items to Google Drive (\(google.email ?? "")), in \(OnlineFolders.chosen(.google).shown(in: .google)). Source items stay where they are and this step frees no space."
             : "I authorize copying these items to this folder. Files providers may download selected files and sync these copies. Source items stay where they are and this step frees no space."
     }
 
@@ -1389,6 +1432,7 @@ struct PhotoArchiveView: View {
         run.start(selection.count)
         showRun = true
         UIApplication.shared.isIdleTimerDisabled = true
+        let folder = OnlineFolders.chosen(OnlinePlace(service))
         Task {
             let started = Date()
             var records: [ArchivedRecord] = []
@@ -1405,7 +1449,7 @@ struct PhotoArchiveView: View {
                         let token = try? await account.accessToken()
                         group.addTask {
                             guard let token else { return (item, .failure(CloudError.notConnected(service.name))) }
-                            return (item, await Result(awaiting: { try await CloudArchive.upload(item, to: service, token: token) }))
+                            return (item, await Result(awaiting: { try await CloudArchive.upload(item, to: service, token: token, folder: folder) }))
                         }
                     }
                     guard let next = await group.next() else { break }
@@ -1413,7 +1457,7 @@ struct PhotoArchiveView: View {
                     running -= 1
                     switch outcome {
                     case .success(let uploaded):
-                        let record = ArchivedRecord(id: UUID().uuidString, name: uploaded.name, folderName: service.name,
+                        let record = ArchivedRecord(id: UUID().uuidString, name: uploaded.name, folderName: folder.label(in: OnlinePlace(service)),
                                                     bytes: uploaded.fingerprint.bytes, digest: uploaded.fingerprint.digest, date: Date(),
                                                     viaHomeServer: false, folderBookmark: nil, driveFileID: uploaded.fileID,
                                                     photoID: Self.photoID(item), cloud: service, cloudHash: uploaded.serviceHash)
@@ -1470,7 +1514,8 @@ struct PhotoArchiveView: View {
             var copiedItems: [ArchiveItem] = []
             var driveFolder: String?
             do {
-                let folderID = try await GoogleDriveClient.archiveFolder(token: try await account.accessToken())
+                let chosen = OnlineFolders.chosen(.google)
+                let folderID = chosen.isRoot ? try await GoogleDriveClient.archiveFolder(token: try await account.accessToken()) : chosen.id
                 driveFolder = folderID
                 await withTaskGroup(of: (ArchiveItem, Result<(fileID: String, fingerprint: ArchiveFingerprint), Error>).self) { group in
                 var waiting = selection[...]
@@ -1493,7 +1538,7 @@ struct PhotoArchiveView: View {
                     do {
                         let uploaded = try outcome.get()
                         let record = ArchivedRecord(id: UUID().uuidString, name: item.name,
-                                                    folderName: "Google Drive", bytes: uploaded.fingerprint.bytes,
+                                                    folderName: chosen.label(in: .google), bytes: uploaded.fingerprint.bytes,
                                                     digest: uploaded.fingerprint.digest, date: Date(),
                                                     viaHomeServer: false, folderBookmark: nil, driveFileID: uploaded.fileID,
                                                     photoID: Self.photoID(item))

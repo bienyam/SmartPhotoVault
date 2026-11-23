@@ -397,19 +397,19 @@ enum CloudArchive {
     /// Streams the item straight to the service in pieces as Photos hands them over, so no copy needs
     /// room on the iPhone, then matches the service's fingerprint of what it stored. OneDrive needs the
     /// size up front; when it isn't known, or the item turns out a different size, it goes the older way.
-    static func upload(_ item: ArchiveItem, to service: CloudService, token: String) async throws -> CloudUpload {
+    static func upload(_ item: ArchiveItem, to service: CloudService, token: String, folder: OnlineFolder = .root) async throws -> CloudUpload {
         do {
-            return try await streamed(item, to: service, token: token)
+            return try await streamed(item, to: service, token: token, folder: folder)
         } catch CloudStreamError.sizeChanged {
-            return try await throughFile(item, to: service, token: token)
+            return try await throughFile(item, to: service, token: token, folder: folder)
         }
     }
 
-    private static func streamed(_ item: ArchiveItem, to service: CloudService, token: String) async throws -> CloudUpload {
+    private static func streamed(_ item: ArchiveItem, to service: CloudService, token: String, folder: OnlineFolder) async throws -> CloudUpload {
         switch service {
         case .oneDrive:
             guard let total = CloudStream.knownSize(of: item), total > 0 else { throw CloudStreamError.sizeChanged }
-            let sent = try await Task.detached(priority: .userInitiated) { try CloudStream.oneDrive(item, total: total, token: token) }.value
+            let sent = try await Task.detached(priority: .userInitiated) { try CloudStream.oneDrive(item, total: total, token: token, folder: folder) }.value
             try check(item, sent.fingerprint)
             // OneDrive may need a moment to fingerprint a new file.
             var stored = try await OneDriveClient.stored(sent.stored.id, token: token)
@@ -422,7 +422,7 @@ enum CloudArchive {
             guard sameHash(hash, sent.local, service: service) else { throw CloudError.verification(service.name) }
             return CloudUpload(fileID: sent.stored.id, name: sent.stored.name ?? item.name, fingerprint: sent.fingerprint, serviceHash: sent.local)
         case .dropbox:
-            let sent = try await Task.detached(priority: .userInitiated) { try CloudStream.dropbox(item, token: token) }.value
+            let sent = try await Task.detached(priority: .userInitiated) { try CloudStream.dropbox(item, token: token, folder: folder) }.value
             try check(item, sent.fingerprint)
             guard sent.size == sent.fingerprint.bytes else { throw CloudError.verification(service.name) }
             guard let hash = sent.hash else { throw CloudError.notConfirmedYet(service.name) }
@@ -440,7 +440,7 @@ enum CloudArchive {
     }
 
     /// The older way: a temporary copy on the iPhone, then the upload. Needs room for the item.
-    private static func throughFile(_ item: ArchiveItem, to service: CloudService, token: String) async throws -> CloudUpload {
+    private static func throughFile(_ item: ArchiveItem, to service: CloudService, token: String, folder: OnlineFolder) async throws -> CloudUpload {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("TidyAwayUpload-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
@@ -449,8 +449,8 @@ enum CloudArchive {
         }.value
         let result: (id: String, name: String, hash: String?, size: Int64, local: String)
         switch service {
-        case .oneDrive: result = try await OneDriveClient.upload(local.url, name: item.name, token: token)
-        case .dropbox: result = try await DropboxClient.upload(local.url, name: item.name, token: token)
+        case .oneDrive: result = try await OneDriveClient.upload(local.url, name: item.name, token: token, folder: folder)
+        case .dropbox: result = try await DropboxClient.upload(local.url, name: item.name, token: token, folder: folder)
         }
         guard result.size == local.fingerprint.bytes else { throw CloudError.verification(service.name) }
         guard let hash = result.hash else { throw CloudError.notConfirmedYet(service.name) }
@@ -527,9 +527,9 @@ enum OneDriveClient {
         let file: File?
     }
 
-    static func upload(_ file: URL, name: String, token: String) async throws -> (id: String, name: String, hash: String?, size: Int64, local: String) {
+    static func upload(_ file: URL, name: String, token: String, folder: OnlineFolder = .root) async throws -> (id: String, name: String, hash: String?, size: Int64, local: String) {
         let total = try VerifiedArchive.storedSize(of: file)
-        let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/:"))) ?? name
+        let encoded = OnlineFolders.graphPath(OnlineFolders.joined(folder, name))
         var start = URLRequest(url: URL(string: "https://graph.microsoft.com/v1.0/me/drive/special/approot:/\(encoded):/createUploadSession")!)
         start.httpMethod = "POST"
         start.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -603,7 +603,7 @@ enum DropboxClient {
         return out
     }
 
-    static func upload(_ file: URL, name: String, token: String) async throws -> (id: String, name: String, hash: String?, size: Int64, local: String) {
+    static func upload(_ file: URL, name: String, token: String, folder: OnlineFolder = .root) async throws -> (id: String, name: String, hash: String?, size: Int64, local: String) {
         let total = try VerifiedArchive.storedSize(of: file)
         var content = DropboxContentHash()
         var sessionID: String?
@@ -638,7 +638,7 @@ enum DropboxClient {
             sessionID = try JSONDecoder().decode(Started.self, from: reply).session_id
         }
         // Never overwrite: a file with the same name is added beside it under a new name.
-        let commit: [String: Any] = ["path": "/\(name)", "mode": "add", "autorename": true, "mute": true]
+        let commit: [String: Any] = ["path": "/" + OnlineFolders.joined(folder, name), "mode": "add", "autorename": true, "mute": true]
         let (code, reply) = try await CloudArchive.send(request("upload_session/finish",
                                                                 arg: ["cursor": ["session_id": sessionID!, "offset": total], "commit": commit]),
                                                         body: Data(), service: .dropbox)
