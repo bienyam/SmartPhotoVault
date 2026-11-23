@@ -85,7 +85,8 @@ private struct MomentBeat: View {
             BottomShade()
             VStack {
                 StorageBanner()
-                    .offset(y: bannerIn ? 0 : -220)
+                    .scaleEffect(bannerIn ? 1 : 0.85)
+                    .opacity(bannerIn ? 1 : 0)
                     .padding(.horizontal, 14)
                     .padding(.top, 52)
                 Spacer()
@@ -322,7 +323,8 @@ private struct BottomShade: View {
     }
 }
 
-/// Illustration of the moment the camera stops. Branded, so it never passes for a real iOS alert.
+/// Illustration of the moment the camera stops. TidyAway's own words and look, and it pops in
+/// over the photo rather than sliding down like a notification, so it never passes for an iOS alert.
 private struct StorageBanner: View {
     var body: some View {
         HStack(spacing: 12) {
@@ -332,9 +334,9 @@ private struct StorageBanner: View {
                 .frame(width: 40, height: 40)
                 .background(Brand.primary, in: RoundedRectangle(cornerRadius: 10))
             VStack(alignment: .leading, spacing: 2) {
-                // The words people see when the camera stops, in TidyAway's own look and with no buttons.
-                Text("Cannot Take Photo").font(.subheadline.bold())
-                Text("There is not enough available storage to take a photo.")
+                // Told in TidyAway's voice, not a copy of Apple's alert text, and with no buttons.
+                Text("Storage full").font(.subheadline.bold())
+                Text("No room left for this photo.")
                     .font(.footnote).foregroundStyle(.white.opacity(0.9))
                     .fixedSize(horizontal: false, vertical: true)
             }
