@@ -119,11 +119,11 @@ struct ArchivedView: View {
 
     private func card(_ day: ArchiveDay) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            let pictures = day.records.compactMap(\.photoID).prefix(4)
+            let pictures = day.records.prefix(4)
             if !pictures.isEmpty {
                 HStack(spacing: 4) {
-                    ForEach(Array(pictures), id: \.self) { id in
-                        AssetCover(assetID: id, side: 240)
+                    ForEach(Array(pictures)) { record in
+                        ArchivedThumb(record: record, side: 240)
                             .frame(height: 72)
                             .clipShape(RoundedRectangle(cornerRadius: 10))
                     }
@@ -142,6 +142,8 @@ struct ArchivedView: View {
     private func reload() {
         records = (try? InventoryStore.openDefault().archived()) ?? []
         loaded = true
+        // Keep pictures of archived photos that are still in the library, for after they're removed.
+        ArchiveThumbnails.rememberSoon(records.compactMap(\.photoID))
         if let year, !years.contains(year) { self.year = nil }
     }
 }
@@ -177,14 +179,9 @@ struct ArchivedDayView: View {
                             Image(systemName: selected.contains(record.id) ? "checkmark.circle.fill" : "circle")
                                 .font(.title2)
                                 .foregroundStyle(selected.contains(record.id) ? Brand.primary : Color.secondary)
-                            if let id = record.photoID {
-                                AssetCover(assetID: id, side: 140)
-                                    .frame(width: 48, height: 48)
-                                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                            } else {
-                                Image(systemName: Self.isVideo(record.name) ? "video" : "photo")
-                                    .foregroundStyle(.secondary).frame(width: 24)
-                            }
+                            ArchivedThumb(record: record, side: 140)
+                                .frame(width: 48, height: 48)
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(record.name).foregroundStyle(.primary).lineLimit(1)
                                 Text("\(record.bytes.fileSize) · \(record.folderName) · \(record.date.formatted(date: .omitted, time: .shortened))")
