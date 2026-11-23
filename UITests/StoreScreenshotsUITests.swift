@@ -28,7 +28,7 @@ final class StoreScreenshotsUITests: XCTestCase {
 
         // 3. A list to pick from, with what is selected.
         let videos = app.buttons["row-videos"]
-        for _ in 0..<6 where !(videos.exists && videos.isHittable) { app.swipeUp(velocity: .slow) }
+        reveal(videos, in: app)
         videos.tap()
         XCTAssertTrue(app.navigationBars["Large videos"].waitForExistence(timeout: 5))
         let pick = app.buttons["select-sample-11"]
@@ -74,6 +74,17 @@ final class StoreScreenshotsUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["TidyAway Pro"].waitForExistence(timeout: 10))
         sleep(3)
         keep(app, "store-review-pro")
+    }
+
+    /// Scrolls until the element is clear of the floating bottom button, as the dashboard tests do.
+    private func reveal(_ element: XCUIElement, in app: XCUIApplication) {
+        for _ in 0..<12 {
+            let bar = app.buttons["review-next"]
+            let clear = !bar.exists || (element.exists && element.frame.maxY < bar.frame.minY - 8)
+            if element.exists && element.isHittable && clear { return }
+            let list = app.collectionViews.firstMatch
+            if list.exists { list.swipeUp(velocity: .slow) } else { app.swipeUp(velocity: .slow) }
+        }
     }
 
     private func keep(_ app: XCUIApplication, _ name: String) {
