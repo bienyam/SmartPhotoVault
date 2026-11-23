@@ -10,6 +10,35 @@ final class ArchiveRun: ObservableObject {
     @Published var currentID: String?
     @Published var stopping = false
     @Published var outcome: ArchiveOutcome?
+    /// Failures so far, counted by a short reason, so the screen can say why while the run goes on.
+    @Published var reasons: [String: Int] = [:]
+
+    var failures: Int { reasons.values.reduce(0, +) }
+
+    func failed(_ error: Error) { reasons[Self.reason(for: error), default: 0] += 1 }
+
+    /// A few plain words for why an item couldn't be copied.
+    static func reason(for error: Error) -> String {
+        switch error {
+        case ArchiveError.iCloudDownload: return "iCloud didn't send them"
+        case ArchiveError.unsupportedPhoto: return "Kind not supported yet (Live Photos, edits)"
+        case ArchiveError.verification, CloudError.verification, GoogleDriveError.verification: return "The copy didn't match the original"
+        case CloudError.notConfirmedYet: return "Not confirmed by the service yet"
+        case CloudError.server(let name, _): return "\(name) didn't accept them"
+        case GoogleDriveError.server: return "Google Drive didn't accept them"
+        case ArchiveError.wifi: return "Wi-Fi to the file server dropped"
+        case ArchiveError.unavailable, ArchiveError.missingFile: return "The destination couldn't be reached"
+        case GoogleDriveError.noSpace: return "Not enough space on this \(Device.name)"
+        case is URLError: return "The connection dropped"
+        default:
+            let error = error as NSError
+            if (error.domain == NSCocoaErrorDomain && error.code == NSFileWriteOutOfSpaceError)
+                || (error.domain == NSPOSIXErrorDomain && error.code == Int(ENOSPC)) {
+                return "Not enough space on this \(Device.name)"
+            }
+            return "Other problem (details at the end)"
+        }
+    }
 
     func start(_ count: Int) {
         total = count
@@ -19,6 +48,7 @@ final class ArchiveRun: ObservableObject {
         currentID = nil
         stopping = false
         outcome = nil
+        reasons = [:]
         ArchiveLive.shared.reset()
     }
 }
@@ -55,11 +85,23 @@ struct ArchiveProgressView: View {
             }
             .frame(width: 240, height: 240)
             .accessibilityHidden(true)
-            Text("\(run.copied.formatted()) of \(run.total.formatted())")
+            Text("\(run.tried.formatted()) of \(run.total.formatted())")
                 .font(.largeTitle.bold()).monospacedDigit()
                 .accessibilityIdentifier("archive-progress")
-            Text("copied and checked · \(run.bytes.fileSize)")
+            Text("done · \(run.copied.formatted()) copied and checked (\(run.bytes.fileSize))\(run.failures > 0 ? " · \(run.failures.formatted()) failed" : "")")
                 .foregroundStyle(ArchiveStyle.muted)
+                .multilineTextAlignment(.center)
+                .accessibilityIdentifier("archive-progress-split")
+            if run.failures > 0 {
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(run.reasons.sorted { $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value }, id: \.key) { reason, count in
+                        Label("\(count.formatted()) · \(reason)", systemImage: "exclamationmark.circle.fill")
+                    }
+                }
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(Brand.caution)
+                .accessibilityIdentifier("archive-failure-reasons")
+            }
             // Live activity, so a long first item never looks like nothing is happening.
             TimelineView(.periodic(from: .now, by: 1)) { _ in
                 let live = ArchiveLive.shared.now
@@ -81,8 +123,9 @@ struct ArchiveProgressView: View {
                 .monospacedDigit()
             }
             if run.tried > run.copied {
-                Text("\((run.tried - run.copied).formatted()) couldn't be copied. Details at the end.")
-                    .font(.footnote).foregroundStyle(Brand.caution)
+                Text("Failed items stay on your \(Device.name) and stay selected to try again. Details at the end.")
+                    .font(.footnote).foregroundStyle(ArchiveStyle.muted)
+                    .multilineTextAlignment(.center)
             }
             Text(usesDrive ? "Keep TidyAway open and stay online." : "Keep TidyAway open. Keep your drive plugged in or your server in reach.")
                 .font(.subheadline).foregroundStyle(ArchiveStyle.muted)
