@@ -143,7 +143,10 @@ struct PhotoArchiveView: View {
     @State private var showRun = false
     @State private var groups: [SmartGroup] = []
     @State private var findingGroups = false
-    @State private var showAllGroups = false
+    @State private var section = SmartGroup.Section.forYou
+    @State private var goal: Int64 = 10
+    @State private var picks: [Int64: SmartGroup] = [:]
+    @ObservedObject private var insights = InsightModel.shared
     @StateObject private var run = ArchiveRun()
     @StateObject private var drive = DriveModel()
     @State private var showDriveHelp = false
@@ -269,44 +272,37 @@ struct PhotoArchiveView: View {
 
     // MARK: - Home
 
-    private var groupKey: String { "\(snapshot?.date.timeIntervalSince1970 ?? 0)-\(snapshot?.assets.count ?? 0)" }
+    private var groupKey: String {
+        "\(snapshot?.date.timeIntervalSince1970 ?? 0)-\(snapshot?.assets.count ?? 0)-\(insights.revision)"
+    }
 
-    /// The biggest few events and trips, then the video groups.
-    private var featured: [SmartGroup] {
-        let moments = groups.filter { $0.kind == .event || $0.kind == .trip }
-        return Array(moments.prefix(3)) + groups.filter { $0.kind == .largeVideos || $0.kind == .oldVideos }
+    /// What the chosen section shows. For you leads with same-shot extras and the biggest videos.
+    private var shownGroups: [SmartGroup] {
+        guard section == .forYou else { return groups.filter { $0.section == section } }
+        return groups.filter { $0.kind == .sameShots } + groups.filter { $0.kind == .largeVideos }
+            + Array(groups.filter { $0.kind == .event || $0.kind == .trip }.prefix(2))
     }
 
     @ViewBuilder
     private var groupsSection: some View {
-        HStack(spacing: 8) {
-            Text("Ready to move in one go").font(.title3.weight(.heavy)).foregroundStyle(ArchiveStyle.ink)
-                .accessibilityAddTraits(.isHeader)
-            if !pro.unlocked {
-                Text("PRO").font(.caption.weight(.heavy))
-                    .foregroundStyle(ArchiveStyle.onAction)
-                    .padding(.horizontal, 8).padding(.vertical, 3)
-                    .background(ArchiveStyle.action, in: RoundedRectangle(cornerRadius: 8))
-            }
-        }
         if let snapshot, !snapshot.includedCloudDownloads {
-            let shown = showAllGroups ? groups : featured
+            sectionPills
+            if section == .forYou { goalPicker }
             if findingGroups {
                 ProgressView("Finding groups…")
-            } else if let first = shown.first {
-                groupButton(first, tall: true)
-                LazyVGrid(columns: typeSize.isAccessibilitySize ? [GridItem(.flexible())] : [GridItem(.flexible(), spacing: 10), GridItem(.flexible())], spacing: 10) {
-                    ForEach(shown.dropFirst()) { groupButton($0, tall: false) }
-                }
-                if groups.count > featured.count {
-                    Button(showAllGroups ? "Show fewer" : "Show all \(groups.count.formatted()) groups") { showAllGroups.toggle() }
-                        .font(.subheadline.weight(.bold)).foregroundStyle(ArchiveStyle.link).frame(minHeight: 44)
-                        .accessibilityIdentifier("archive-all-groups")
-                }
             } else {
-                Text("No ready-made groups in your last scan. Pick photos below, or use Filter.")
-                    .foregroundStyle(ArchiveStyle.muted)
+                let shown = shownGroups
+                if section == .forYou {
+                    if !shown.isEmpty { heading("Or start here") }
+                    cards(shown)
+                } else if let first = shown.first {
+                    groupButton(first, tall: true)
+                    cards(Array(shown.dropFirst()))
+                } else {
+                    Text(emptyText).foregroundStyle(ArchiveStyle.muted)
+                }
             }
+            recognitionNote
             if snapshot.albums != nil {
                 HStack(spacing: 10) {
                     Button { if pro.unlocked { path.append(ArchiveRoute.albums) } else { showPro = true } } label: {
@@ -322,8 +318,117 @@ struct PhotoArchiveView: View {
             } else {
                 Text("Scan again to also choose by album or place.").font(.footnote).foregroundStyle(ArchiveStyle.muted)
             }
-        } else if let model {
-            ArchiveScanCard(model: model)
+        } else {
+            heading("Ready to move in one go")
+            if let model { ArchiveScanCard(model: model) }
+        }
+    }
+
+    private func heading(_ text: String) -> some View {
+        HStack(spacing: 8) {
+            Text(text).font(.title3.weight(.heavy)).foregroundStyle(ArchiveStyle.ink)
+                .accessibilityAddTraits(.isHeader)
+            if !pro.unlocked {
+                Text("PRO").font(.caption.weight(.heavy))
+                    .foregroundStyle(ArchiveStyle.onAction)
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(ArchiveStyle.action, in: RoundedRectangle(cornerRadius: 8))
+            }
+        }
+    }
+
+    private var sectionPills: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(SmartGroup.Section.allCases, id: \.self) { value in
+                    let on = section == value
+                    Button(value.rawValue) { section = value }
+                        .font(.subheadline.weight(.bold))
+                        .padding(.horizontal, 14)
+                        .frame(minHeight: 44)
+                        .foregroundStyle(on ? ArchiveStyle.onSelected : ArchiveStyle.ink)
+                        .background(on ? ArchiveStyle.selected : Color.clear, in: Capsule())
+                        .overlay(Capsule().stroke(on ? Color.clear : ArchiveStyle.border, lineWidth: 1.5))
+                        .contentShape(Capsule())
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(on ? .isSelected : [])
+                        .accessibilityIdentifier("section-\(value)")
+                }
+            }
+        }
+    }
+
+    private func cards(_ list: [SmartGroup]) -> some View {
+        LazyVGrid(columns: typeSize.isAccessibilitySize ? [GridItem(.flexible())] : [GridItem(.flexible(), spacing: 10), GridItem(.flexible())], spacing: 10) {
+            ForEach(list) { groupButton($0, tall: false) }
+        }
+    }
+
+    /// Say how much space is needed; get one pick that reaches it.
+    @ViewBuilder
+    private var goalPicker: some View {
+        heading("How much space do you need?")
+        HStack(spacing: 8) {
+            ForEach(SmartGrouper.goals, id: \.self) { value in
+                let on = goal == value
+                Button("\(value) GB") { goal = value }
+                    .font(.title3.weight(.heavy))
+                    .frame(maxWidth: .infinity, minHeight: 52)
+                    .foregroundStyle(on ? ArchiveStyle.onSelected : ArchiveStyle.ink)
+                    .background(on ? ArchiveStyle.selected : Color.clear, in: RoundedRectangle(cornerRadius: 16))
+                    .overlay(RoundedRectangle(cornerRadius: 16).stroke(on ? Color.clear : ArchiveStyle.border, lineWidth: 1.5))
+                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(on ? .isSelected : [])
+                    .accessibilityIdentifier("goal-\(value)")
+            }
+        }
+        if let pick = picks[goal] {
+            groupButton(pick, tall: true)
+            if pick.bytes < goal * 1_000_000_000 {
+                Text("That's everything TidyAway would pick. Favorites, recent photos and your albums are left out.")
+                    .font(.footnote).foregroundStyle(ArchiveStyle.muted)
+            }
+        } else if !findingGroups {
+            Text("Nothing to pick. Favorites, recent photos and your albums are left out.")
+                .font(.footnote).foregroundStyle(ArchiveStyle.muted)
+        }
+    }
+
+    private var emptyText: String {
+        switch section {
+        case .topics: insights.running ? "Topics appear as TidyAway looks through your photos." : "No topics with enough photos yet."
+        case .moments: "No events in your last scan. Pick photos below, or use Filter."
+        case .videos: "No large, long or old videos in your last scan."
+        case .forYou: ""
+        }
+    }
+
+    /// What recognition is doing. It runs while TidyAway is open and never sends anything.
+    @ViewBuilder
+    private var recognitionNote: some View {
+        if insights.running, insights.total > 0 {
+            VStack(alignment: .leading, spacing: 6) {
+                ProgressView(value: Double(insights.done), total: Double(max(insights.total, 1))) {
+                    Text(insights.resting ? "Resting. It continues when your iPhone is cooler and not saving power."
+                         : "Looking at what's in your photos: \(insights.done.formatted()) of \(insights.total.formatted())")
+                        .font(.footnote)
+                }
+                Text("On your iPhone only. Nothing is sent. Groups get better as it goes.").font(.footnote).foregroundStyle(ArchiveStyle.muted)
+            }
+            .padding(12)
+            .background(Brand.surface, in: RoundedRectangle(cornerRadius: 14))
+            .accessibilityIdentifier("recognition-progress")
+        } else if section == .topics || section == .moments {
+            HStack(spacing: 2) {
+                Text("Recognized on your iPhone. Nothing is sent.")
+                    .font(.footnote.weight(.bold))
+                    .foregroundStyle(ArchiveStyle.safeText)
+                    .padding(.horizontal, 12).padding(.vertical, 7)
+                    .background(ArchiveStyle.safeBack, in: Capsule())
+                InfoButton(title: "How groups are made",
+                           text: "TidyAway uses the image recognition built into your iPhone to see what pictures show, such as a beach or a receipt. It can be wrong, so every group says why and opens for you to check. It keeps the labels, never a picture, and can't tell who is in a photo.")
+            }
         }
     }
 
@@ -332,7 +437,7 @@ struct PhotoArchiveView: View {
             if pro.unlocked { path.append(ArchiveRoute.group(group.id)) } else { showPro = true }
         } label: {
             ArchiveCard(title: group.title,
-                        detail: "\(group.records.count.formatted()) \(group.records.count == 1 ? "item" : "items") · \(group.bytes.fileSize)",
+                        detail: "\(group.records.count.formatted()) \(group.records.count == 1 ? "item" : "items")\(group.kind == .pick ? "" : " · \(group.bytes.fileSize)")\(group.when.map { "\n\($0)" } ?? "")",
                         coverID: group.records.first?.id, tall: tall)
         }
         .buttonStyle(.plain)
@@ -446,7 +551,7 @@ struct PhotoArchiveView: View {
 
     @ViewBuilder
     private func groupScreen(_ id: String) -> some View {
-        if let group = groups.first(where: { $0.id == id }) ?? albumGroup(id) {
+        if let group = groups.first(where: { $0.id == id }) ?? picks.values.first(where: { $0.id == id }) ?? albumGroup(id) {
             GroupSkimView(group: group) { records in
                 add(records)
                 path.append(ArchiveRoute.copy)
@@ -480,16 +585,28 @@ struct PhotoArchiveView: View {
     private func findGroups() async {
         guard let snapshot, !snapshot.includedCloudDownloads else {
             groups = []
+            picks = [:]
             readyBytes = 0
             return
         }
         findingGroups = groups.isEmpty
-        let found = await Task.detached(priority: .userInitiated) { SmartGrouper.groups(in: snapshot) }.value
+        let known = insights.insights
+        let found = await Task.detached(priority: .userInitiated) { () -> ([SmartGroup], [Int64: SmartGroup]) in
+            let facts = AssetFacts.all(for: snapshot.assets)
+            let groups = SmartGrouper.groups(in: snapshot, insights: known, facts: facts)
+            var picks: [Int64: SmartGroup] = [:]
+            for goal in SmartGrouper.goals {
+                picks[goal] = SmartGrouper.pick(goal: goal, in: snapshot.assets, insights: known, facts: facts)
+            }
+            return (groups, picks)
+        }.value
         guard !Task.isCancelled else { return }
-        groups = found
+        groups = found.0
+        picks = found.1
         var counted = Set<String>()
-        readyBytes = found.flatMap(\.records).reduce(Int64(0)) { counted.insert($1.id).inserted ? $0 + $1.displayBytes : $0 }
+        readyBytes = found.0.flatMap(\.records).reduce(Int64(0)) { counted.insert($1.id).inserted ? $0 + $1.displayBytes : $0 }
         findingGroups = false
+        insights.start(snapshot.assets)
     }
 
     /// Adds a whole group. The scan already knows each item's size and, for local ones, its fingerprint.

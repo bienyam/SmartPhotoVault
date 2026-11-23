@@ -24,6 +24,23 @@ enum DemoLibrary {
                             albums: [AlbumInfo(id: "album", title: "Family")])
     }
 
+    /// Made-up recognition for the sample items above.
+    static var archiveInsights: [String: PhotoInsight] {
+        var result: [String: PhotoInsight] = [:]
+        for index in 0..<48 {
+            let id = "sample-party\(index)"
+            result[id] = PhotoInsight(id: id, labels: index % 12 == 0 ? ["birthday_cake"] : ["food"], sharpness: Double(index % 7),
+                                      sameAs: index > 0 && index < 10 ? "sample-party\(index - 1)" : nil)
+        }
+        for day in 0..<4 {
+            for index in 0..<30 {
+                let id = "sample-trip\(day)-\(index)"
+                result[id] = PhotoInsight(id: id, labels: index % 3 == 0 ? ["beach"] : [])
+            }
+        }
+        return result
+    }
+
     static var snapshot: ScanSnapshot {
         func resource(_ contents: String, type: Int = 1) -> ResourceFingerprint {
             let data = Data(contents.utf8)

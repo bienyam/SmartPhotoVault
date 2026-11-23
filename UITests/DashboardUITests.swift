@@ -293,8 +293,21 @@ final class DashboardUITests: XCTestCase {
         let group = app.buttons["group-large-videos"]
         XCTAssertTrue(group.waitForExistence(timeout: 15), "Very large videos is offered.")
         keepScreenshot(of: app, named: "Archive groups")
+        XCTAssertTrue(app.buttons["group-pick-10"].exists, "A pick for 10 GB is ready.")
+        app.buttons["goal-5"].tap()
+        XCTAssertTrue(app.buttons["group-pick-5"].waitForExistence(timeout: 5), "Choosing a goal changes the pick.")
+        app.buttons["section-topics"].tap()
+        XCTAssertTrue(app.buttons["group-topic-food"].waitForExistence(timeout: 5), "Food is a topic.")
+        keepScreenshot(of: app, named: "Archive topics")
+        app.buttons["section-videos"].tap()
+        XCTAssertTrue(app.buttons["group-large-videos"].waitForExistence(timeout: 5))
+        app.buttons["section-moments"].tap()
         let trip = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'group-trip'")).firstMatch
-        XCTAssertTrue(trip.exists, "The trip is offered.")
+        XCTAssertTrue(trip.waitForExistence(timeout: 5), "The trip is offered.")
+        XCTAssertTrue(trip.label.contains("Beach trip"), "Named by what it shows. \(trip.label)")
+        let party = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'group-event'")).firstMatch
+        XCTAssertTrue(party.label.contains("Birthday party"), party.label)
+        keepScreenshot(of: app, named: "Archive moments")
         trip.tap()
         let next = app.buttons["skim-next"]
         XCTAssertTrue(next.waitForExistence(timeout: 10))
