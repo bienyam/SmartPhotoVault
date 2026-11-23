@@ -31,9 +31,8 @@ final class ProStore: ObservableObject {
     @Published private(set) var testerAccess = false
 
     var unlocked: Bool { plan != .none || testerAccess }
-    /// What the screens show. Testers see Pro the way a free user does (PRO badges, locks, prices)
-    /// while `unlocked` still lets every feature through.
-    var looksUnlocked: Bool { plan != .none }
+    /// What the screens show. Testers are shown as Pro, the same as a paying customer.
+    var looksUnlocked: Bool { unlocked }
     private var updates: Task<Void, Never>?
 
     init() {
@@ -60,12 +59,9 @@ final class ProStore: ObservableObject {
 
     func start() async {
         checking = true
-        if TesterAccess.enabled, let app = try? await AppTransaction.shared {
-            switch app {
-            case .verified(let transaction), .unverified(let transaction, _):
-                testerAccess = transaction.environment == .sandbox
-            }
-        }
+        // Tester builds (TESTER_ACCESS, never the App Review build) unlock Pro for everyone except a
+        // real App Store customer. If Apple's record can't be read, a tester build still unlocks.
+        testerAccess = TesterAccess.enabled && !(await Self.isAppStoreCustomer())
         await refresh()
         await loadProducts()
         checking = false
@@ -144,6 +140,15 @@ final class ProStore: ObservableObject {
         }
     }
 
+    /// True only when Apple's record says this copy came from the App Store itself.
+    private static func isAppStoreCustomer() async -> Bool {
+        guard let app = try? await AppTransaction.shared else { return false }
+        switch app {
+        case .verified(let transaction), .unverified(let transaction, _):
+            return transaction.environment == .production
+        }
+    }
+
     /// The plan a verified purchase leads to. Lifetime is never downgraded by a subscription.
     static func plan(after productID: String, current: Plan) -> Plan {
         if productID == lifetimeID || current == .lifetime { return .lifetime }
@@ -195,6 +200,11 @@ struct ProPurchaseControls: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            if pro.testerAccess, pro.plan == .none {
+                Label("Pro is on for testers. Buying below is free in TestFlight.", systemImage: "checkmark.seal.fill")
+                    .foregroundStyle(Brand.safe)
+                    .accessibilityIdentifier("pro-tester")
+            }
             // Never block on the App Store: the buttons work while the check finishes.
             switch pro.plan {
             case .lifetime:
