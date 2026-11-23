@@ -36,3 +36,22 @@ final class ArchiveLiveUploadTests: XCTestCase {
         XCTAssertEqual(live.uploadedBytes, 0)
     }
 }
+
+final class ArchiveActivityProgressTests: XCTestCase {
+    func testRepeatedZeroPercentIsNotProgressButRealProgressIs() throws {
+        let activity = ArchiveActivity()
+        Thread.sleep(forTimeInterval: 0.3)
+        activity.progressed(0)
+        activity.progressed(0)
+        XCTAssertGreaterThan(activity.silentFor, 0.25, "Photos repeating 0% must not keep a stuck copy alive.")
+        activity.progressed(0.1)
+        XCTAssertLessThan(activity.silentFor, 0.2, "A download that moves forward counts as activity.")
+        XCTAssertFalse(activity.gotData)
+        activity.received()
+        XCTAssertTrue(activity.gotData)
+    }
+
+    func testTheFirstWayGivesUpBeforeTheSecondWayIsTried() {
+        XCTAssertLessThan(ArchiveActivity.firstTryLimit, ArchiveActivity.stallLimit)
+    }
+}

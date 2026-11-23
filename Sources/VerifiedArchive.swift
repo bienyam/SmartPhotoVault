@@ -46,7 +46,7 @@ enum ArchiveError: LocalizedError {
         case .verification: "The copied bytes did not match the original."
         case .sameFolder: "Choose a different folder to test restoring a copy."
         case .unavailable: "The selected location could not be opened."
-        case .iCloudDownload: "This item is stored in iCloud and couldn't be downloaded. Check your internet connection and try again."
+        case .iCloudDownload: "iCloud didn't send this item. Use Wi-Fi, turn off Low Power Mode, and if you're not on Wi-Fi turn on Settings › Photos › Cellular Data. Then try again."
         case .wifi: "Join the same Wi-Fi network as your home server and try again."
         }
     }
@@ -207,43 +207,90 @@ enum VerifiedArchive {
     private static func copyPhoto(_ id: String, to temporary: URL, wifi: ArchiveWiFi?, flush: Bool) throws -> ArchiveFingerprint {
         guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject,
               let resource = original(for: asset) else { throw ArchiveError.unsupportedPhoto }
+        defer { ArchiveLive.shared.downloading(id, nil) }
+        // Videos can be large and iCloud or a home server may be slow, so a working copy gets plenty of time.
+        let limit: TimeInterval = asset.mediaType == .video ? 3600 : 600
+        // First way: stream the original straight into the copy. With Optimize iPhone Storage on,
+        // Photos downloads it from iCloud as it goes.
+        switch try stream(resource, id: id, to: temporary, wifi: wifi, flush: flush,
+                          quiet: ArchiveActivity.firstTryLimit, limit: limit) {
+        case let .done(fingerprint):
+            return fingerprint
+        case let .stalled(receivedSome):
+            // Photos sometimes queues an iCloud download and never starts it. For a photo that sent
+            // nothing at all, ask Photos for the original a second way before giving up.
+            guard !receivedSome, asset.mediaType == .image else { throw ArchiveError.iCloudDownload }
+            return try originalImage(asset, id: id, to: temporary, wifi: wifi, flush: flush, limit: limit)
+        }
+    }
 
+    private enum StreamResult { case done(ArchiveFingerprint), stalled(receivedSome: Bool) }
+
+    private static func stream(_ resource: PHAssetResource, id: String, to temporary: URL, wifi: ArchiveWiFi?, flush: Bool,
+                               quiet: TimeInterval, limit: TimeInterval) throws -> StreamResult {
         let writer = try ArchiveWriter(url: temporary, wifi: wifi, flush: flush)
         let options = PHAssetResourceRequestOptions()
-        // With Optimize iPhone Storage on, the original is often only in iCloud. Archiving needs the
-        // full original, so let Photos download it; it streams straight into the archive copy.
         options.isNetworkAccessAllowed = true
         let activity = ArchiveActivity()
         options.progressHandler = { fraction in
-            activity.touch()
+            activity.progressed(fraction)
             ArchiveLive.shared.downloading(id, fraction)
         }
         let completion = DispatchSemaphore(value: 0)
         let manager = PHAssetResourceManager.default()
         let request = manager.requestData(for: resource, options: options) { data in
-            activity.touch()
+            activity.received()
             writer.append(data)
         } completionHandler: { error in
             writer.finish(error)
             completion.signal()
         }
-        defer { ArchiveLive.shared.downloading(id, nil) }
-        // Videos can be large and iCloud or a home server may be slow, so a working copy gets plenty
-        // of time. One that receives nothing at all for a while is stuck, and gives up so the run moves on.
-        let limit: TimeInterval = asset.mediaType == .video ? 3600 : 600
         let started = Date()
         while completion.wait(timeout: .now() + 2) == .timedOut {
-            if activity.silentFor > ArchiveActivity.stallLimit || Date().timeIntervalSince(started) > limit {
+            // Only real progress counts: Photos can report 0% over and over without downloading anything.
+            if activity.silentFor > quiet || Date().timeIntervalSince(started) > limit {
                 writer.finish(ArchiveError.iCloudDownload)
                 manager.cancelDataRequest(request)
-                break
+                return .stalled(receivedSome: activity.gotData)
             }
         }
         do {
-            return try writer.result()
+            return .done(try writer.result())
         } catch let error as NSError where error.domain == PHPhotosErrorDomain {
             throw ArchiveError.iCloudDownload
         }
+    }
+
+    /// The second way: Photos' image download, which fetches the unedited original from iCloud.
+    private static func originalImage(_ asset: PHAsset, id: String, to temporary: URL, wifi: ArchiveWiFi?, flush: Bool,
+                                      limit: TimeInterval) throws -> ArchiveFingerprint {
+        let options = PHImageRequestOptions()
+        options.version = .original
+        options.deliveryMode = .highQualityFormat
+        options.isNetworkAccessAllowed = true
+        let activity = ArchiveActivity()
+        options.progressHandler = { progress, _, _, _ in
+            activity.progressed(progress)
+            ArchiveLive.shared.downloading(id, progress)
+        }
+        let box = ArchiveImageBox()
+        let completion = DispatchSemaphore(value: 0)
+        let request = PHImageManager.default().requestImageDataAndOrientation(for: asset, options: options) { data, _, _, info in
+            box.set(data, error: info?[PHImageErrorKey] as? Error)
+            completion.signal()
+        }
+        let started = Date()
+        while completion.wait(timeout: .now() + 2) == .timedOut {
+            if activity.silentFor > ArchiveActivity.stallLimit || Date().timeIntervalSince(started) > limit {
+                PHImageManager.default().cancelImageRequest(request)
+                throw ArchiveError.iCloudDownload
+            }
+        }
+        guard let data = box.data, !data.isEmpty else { throw ArchiveError.iCloudDownload }
+        let writer = try ArchiveWriter(url: temporary, wifi: wifi, flush: flush)
+        writer.append(data)
+        writer.finish(nil)
+        return try writer.result()
     }
 
     private static func copyFile(_ source: URL, to temporary: URL, wifi: ArchiveWiFi?, flush: Bool = true) throws -> ArchiveFingerprint {
@@ -397,15 +444,42 @@ private final class ArchiveHasher: @unchecked Sendable {
 final class ArchiveActivity: @unchecked Sendable {
     /// No data and no download progress for this long means the copy is stuck.
     static let stallLimit: TimeInterval = 180
+    /// The first way of reading a photo gets less time before the second way is tried.
+    static let firstTryLimit: TimeInterval = 60
     private let lock = NSLock()
     private var last = Date()
+    private var fraction = 0.0
+    private var data = false
 
     func touch() { lock.lock(); last = Date(); lock.unlock() }
+
+    /// Counts only when the download moved forward; a repeated 0% is not progress.
+    func progressed(_ value: Double) {
+        lock.lock(); defer { lock.unlock() }
+        if value > fraction + 0.0001 { fraction = value; last = Date() }
+    }
+
+    func received() { lock.lock(); data = true; last = Date(); lock.unlock() }
+
+    var gotData: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return data
+    }
 
     var silentFor: TimeInterval {
         lock.lock(); defer { lock.unlock() }
         return Date().timeIntervalSince(last)
     }
+}
+
+/// Holds what Photos hands back on another thread until the copy reads it.
+final class ArchiveImageBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Data?
+    private var failure: Error?
+
+    func set(_ data: Data?, error: Error?) { lock.lock(); value = data; failure = error; lock.unlock() }
+    var data: Data? { lock.lock(); defer { lock.unlock() }; return value }
 }
 
 /// What a copy run is doing right now, for the progress screen: bytes written so far, and items
