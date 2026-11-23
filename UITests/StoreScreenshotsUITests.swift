@@ -41,7 +41,7 @@ final class StoreScreenshotsUITests: XCTestCase {
         app = XCUIApplication()
         app.launchArguments += ["--skip-welcome", "--demo-archive", "--pro", "--ui-fast"]
         app.launch()
-        app.tabBars.buttons["Archive"].tap()
+        openTab("Archive", in: app)
         XCTAssertTrue(app.buttons["group-large-videos"].waitForExistence(timeout: 15))
         sleep(1)
         keep(app, "store-04-archive")
@@ -67,7 +67,7 @@ final class StoreScreenshotsUITests: XCTestCase {
         app = XCUIApplication()
         app.launchArguments += ["--skip-welcome", "--ui-fast"]
         app.launch()
-        app.tabBars.buttons["More"].tap()
+        openTab("More", in: app)
         let pro = app.buttons["more-pro"]
         XCTAssertTrue(pro.waitForExistence(timeout: 10))
         pro.tap()
@@ -85,6 +85,12 @@ final class StoreScreenshotsUITests: XCTestCase {
             let list = app.collectionViews.firstMatch
             if list.exists { list.swipeUp(velocity: .slow) } else { app.swipeUp(velocity: .slow) }
         }
+    }
+
+    /// iPhone shows a tab bar; iPad shows the tabs as buttons along the top.
+    private func openTab(_ name: String, in app: XCUIApplication) {
+        let bar = app.tabBars.buttons[name]
+        if bar.waitForExistence(timeout: 3) { bar.tap() } else { app.buttons[name].firstMatch.tap() }
     }
 
     private func keep(_ app: XCUIApplication, _ name: String) {
