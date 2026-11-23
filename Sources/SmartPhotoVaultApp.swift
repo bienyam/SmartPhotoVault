@@ -6,7 +6,7 @@ struct SmartPhotoVaultApp: App {
     @StateObject private var pro = ProStore()
 
     /// UI tests that tap through every screen don't wait for animations.
-    private let fast = ProcessInfo.processInfo.arguments.contains("--ui-fast")
+    private let fast = LaunchFlags.has("--ui-fast")
 
     init() {
         if fast { UIView.setAnimationsEnabled(false) }
