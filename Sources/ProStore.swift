@@ -2,7 +2,7 @@ import StoreKit
 import SwiftUI
 
 /// The one source of truth for TidyAway Pro, shared by every screen.
-/// Pro comes two ways: a monthly subscription or a one-time lifetime unlock.
+/// Pro comes three ways: a monthly or yearly subscription, or a one-time lifetime unlock.
 /// It listens for purchase updates from launch, so Ask to Buy approvals, renewals, purchases on
 /// another device, Family Sharing, expiry and refunds are picked up even when the Pro screen isn't open.
 @MainActor
@@ -10,14 +10,19 @@ final class ProStore: ObservableObject {
     /// One-time lifetime unlock. Kept from the original product so existing setup still matches.
     static let lifetimeID = "com.bienyam.SmartPhotoVault.storagepro"
     static let monthlyID = "com.bienyam.SmartPhotoVault.pro.monthly"
-    static let productIDs: Set<String> = [lifetimeID, monthlyID]
+    static let yearlyID = "com.bienyam.SmartPhotoVault.pro.yearly"
+    static let subscriptionIDs: Set<String> = [monthlyID, yearlyID]
+    static let productIDs: Set<String> = [lifetimeID, monthlyID, yearlyID]
     /// Free archive allowance before Pro is needed.
     nonisolated static let freeArchiveBytes: Int64 = 5_000_000_000
 
-    enum Plan: Equatable { case none, monthly, lifetime }
+    enum Plan: Equatable { case none, monthly, yearly, lifetime }
 
     @Published private(set) var plan: Plan = .none
     @Published private(set) var monthly: Product?
+    @Published private(set) var yearly: Product?
+    /// True when this Apple Account can still get the subscriptions' introductory offer (the free trial).
+    @Published private(set) var trialEligible = false
     @Published private(set) var lifetime: Product?
     @Published private(set) var checking = true
     @Published private(set) var busy = false
@@ -63,16 +68,16 @@ final class ProStore: ObservableObject {
         checking = false
     }
 
-    /// Lifetime wins over monthly. A subscription counts only while it hasn't expired or been revoked.
+    /// Lifetime wins over a subscription. A subscription counts only while it hasn't expired or been revoked.
     func refresh() async {
         var found = Plan.none
         for await result in StoreKit.Transaction.currentEntitlements {
             guard case .verified(let transaction) = result, transaction.revocationDate == nil else { continue }
             if transaction.productID == Self.lifetimeID {
                 found = .lifetime
-            } else if transaction.productID == Self.monthlyID, found == .none,
+            } else if Self.subscriptionIDs.contains(transaction.productID), found == .none,
                       (transaction.expirationDate ?? .distantFuture) > Date() {
-                found = .monthly
+                found = transaction.productID == Self.yearlyID ? .yearly : .monthly
             }
         }
         plan = found
@@ -82,8 +87,13 @@ final class ProStore: ObservableObject {
         do {
             let products = try await Product.products(for: Self.productIDs)
             monthly = products.first { $0.id == Self.monthlyID }
+            yearly = products.first { $0.id == Self.yearlyID }
             lifetime = products.first { $0.id == Self.lifetimeID }
-            notice = (monthly == nil && lifetime == nil) ? "Pro isn't available right now. Try again in a moment." : nil
+            // Eligibility is per subscription group, so either subscription answers it.
+            if let subscription = (monthly ?? yearly)?.subscription {
+                trialEligible = await subscription.isEligibleForIntroOffer
+            }
+            notice = (monthly == nil && yearly == nil && lifetime == nil) ? "Pro isn't available right now. Try again in a moment." : nil
         } catch {
             notice = "Couldn't reach the App Store. Check your connection and try again."
         }
@@ -99,7 +109,8 @@ final class ProStore: ObservableObject {
             case .success(.verified(let transaction)):
                 // Unlock from the verified transaction itself; don't wait for entitlements to catch up.
                 if transaction.revocationDate == nil {
-                    plan = transaction.productID == Self.lifetimeID ? .lifetime : (plan == .lifetime ? .lifetime : .monthly)
+                    plan = Self.plan(after: transaction.productID, current: plan)
+                    trialEligible = false
                 }
                 await transaction.finish()
             case .success(.unverified):
@@ -128,6 +139,32 @@ final class ProStore: ObservableObject {
         } catch {
             notice = "Couldn't restore purchases. Try again later."
         }
+    }
+
+    /// The plan a verified purchase leads to. Lifetime is never downgraded by a subscription.
+    static func plan(after productID: String, current: Plan) -> Plan {
+        if productID == lifetimeID || current == .lifetime { return .lifetime }
+        return productID == yearlyID ? .yearly : .monthly
+    }
+
+    /// The trial line shown under a subscription, such as "3 days free, then $4.99 a month."
+    /// Nil when there is no free-trial offer or this account has already used one.
+    static func trialLine(for product: Product?, eligible: Bool, per unit: String) -> String? {
+        guard eligible, let product, let offer = product.subscription?.introductoryOffer,
+              offer.paymentMode == .freeTrial else { return nil }
+        return "\(trialLength(offer.period.value, offer.period.unit)) free, then \(product.displayPrice) a \(unit)."
+    }
+
+    nonisolated static func trialLength(_ value: Int, _ unit: Product.SubscriptionPeriod.Unit) -> String {
+        let name: String
+        switch unit {
+        case .day: name = "day"
+        case .week: name = "week"
+        case .month: name = "month"
+        case .year: name = "year"
+        @unknown default: name = "day"
+        }
+        return "\(value) \(name)\(value == 1 ? "" : "s")"
     }
 
     /// How much of the free archive allowance a selection would use, and whether it fits.
@@ -166,8 +203,8 @@ struct ProPurchaseControls: View {
                 Label("Pro is unlocked.", systemImage: "checkmark.seal.fill")
                     .foregroundStyle(Brand.safe)
                     .accessibilityIdentifier("pro-unlocked")
-            case .monthly:
-                Label("Pro is unlocked. Monthly plan.", systemImage: "checkmark.seal.fill")
+            case .monthly, .yearly:
+                Label(pro.plan == .yearly ? "Pro is unlocked. Yearly plan." : "Pro is unlocked. Monthly plan.", systemImage: "checkmark.seal.fill")
                     .foregroundStyle(Brand.safe)
                     .accessibilityIdentifier("pro-unlocked")
                 Button("Manage subscription") {
@@ -183,10 +220,16 @@ struct ProPurchaseControls: View {
                 }
             case .none:
                 option(title: pro.monthly.map { "\($0.displayPrice) a month" } ?? "Monthly",
-                       detail: "Cancel anytime.", product: pro.monthly, prominent: false, id: "pro-monthly")
+                       detail: ProStore.trialLine(for: pro.monthly, eligible: pro.trialEligible, per: "month") ?? "Cancel anytime.",
+                       product: pro.monthly, prominent: false, id: "pro-monthly")
+                if pro.yearly != nil {
+                    option(title: pro.yearly.map { "\($0.displayPrice) a year" } ?? "Yearly",
+                           detail: ProStore.trialLine(for: pro.yearly, eligible: pro.trialEligible, per: "year") ?? "Cancel anytime.",
+                           product: pro.yearly, prominent: false, id: "pro-yearly")
+                }
                 option(title: pro.lifetime.map { "\($0.displayPrice) once" } ?? "Lifetime",
                        detail: "Pay once, keep Pro.", product: pro.lifetime, prominent: true, id: "pro-lifetime")
-                Text("The monthly plan renews automatically at \(pro.monthly?.displayPrice ?? "the price shown") a month until you cancel. Cancel at least 24 hours before the end of the month in Settings, your name, Subscriptions. Payment is charged to your Apple Account.")
+                Text(renewalTerms)
                     .font(.footnote).foregroundStyle(.secondary)
                 HStack(spacing: 16) {
                     Button("Terms of Use") { openURL(Self.termsURL) }
@@ -199,12 +242,24 @@ struct ProPurchaseControls: View {
             }
             if let notice = pro.notice {
                 Text(notice).font(.footnote).foregroundStyle(.secondary)
-                if pro.monthly == nil && pro.lifetime == nil && !pro.unlocked {
+                if pro.monthly == nil && pro.yearly == nil && pro.lifetime == nil && !pro.unlocked {
                     Button("Try again") { Task { await pro.loadProducts() } }
                 }
             }
         }
         .buttonStyle(.borderless)
+    }
+
+    /// Apple's required subscription terms, including what happens when a free trial ends.
+    private var renewalTerms: String {
+        let monthly = pro.monthly?.displayPrice ?? "the price shown"
+        var text = "Subscriptions renew automatically at \(monthly) a month"
+        if let yearly = pro.yearly?.displayPrice { text += " or \(yearly) a year" }
+        text += " until you cancel."
+        if pro.trialEligible, (pro.monthly ?? pro.yearly)?.subscription?.introductoryOffer?.paymentMode == .freeTrial {
+            text += " The free trial becomes a paid subscription when it ends unless you cancel before then."
+        }
+        return text + " Cancel at least 24 hours before the end of the current period in Settings, your name, Subscriptions. Payment is charged to your Apple Account."
     }
 
     private func option(title: String, detail: String, product: Product?, prominent: Bool, id: String) -> some View {
