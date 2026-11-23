@@ -203,7 +203,7 @@ enum CloudStream {
     static func oneDrive(_ item: ArchiveItem, total: Int64, token: String, folder: OnlineFolder = .root)
         throws -> (stored: Stored, fingerprint: ArchiveFingerprint, local: String) {
         let encoded = OnlineFolders.graphPath(OnlineFolders.joined(folder, item.name))
-        var start = URLRequest(url: URL(string: "https://graph.microsoft.com/v1.0/me/drive/special/approot:/\(encoded):/createUploadSession")!)
+        var start = URLRequest(url: URL(string: "\(OnlineFolders.oneDriveRoot)/\(encoded):/createUploadSession")!)
         start.httpMethod = "POST"
         start.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         start.setValue("application/json", forHTTPHeaderField: "Content-Type")

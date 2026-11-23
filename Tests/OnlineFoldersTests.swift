@@ -33,3 +33,19 @@ final class OnlineFoldersTests: XCTestCase {
         XCTAssertTrue(OnlineFolders.chosen(.oneDrive, defaults: defaults).isRoot)
     }
 }
+
+final class OneDriveMyFilesTests: XCTestCase {
+    func testOneDriveSavesToAVisibleFolderInMyFiles() {
+        XCTAssertEqual(OnlineFolders.oneDriveRoot, "https://graph.microsoft.com/v1.0/me/drive/root:/TidyAway")
+        XCTAssertEqual(OnlineFolder.root.shown(in: .oneDrive), "OneDrive › My files › TidyAway")
+        XCTAssertTrue(OneDriveClient.scopes.contains("Files.ReadWrite"))
+        XCTAssertFalse(OneDriveClient.scopes.contains("AppFolder"), "Work accounts hide app folders, so OneDrive no longer uses one.")
+    }
+
+    func testOlderSignInsAreAskedToSignInAgain() throws {
+        let old = CloudTokens(accessToken: "a", expiry: .distantFuture, refreshToken: "r", name: nil)
+        XCTAssertNil(old.scopeVersion)
+        let decoded = try JSONDecoder().decode(CloudTokens.self, from: JSONEncoder().encode(old))
+        XCTAssertNotEqual(decoded.scopeVersion, OneDriveClient.scopeVersion)
+    }
+}

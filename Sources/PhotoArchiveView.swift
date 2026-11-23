@@ -124,7 +124,7 @@ struct PhotoArchiveView: View {
             case .google: "Sign in with Google. TidyAway can only see and add the files it puts in a \"TidyAway Archive\" folder."
             case .home: "In Files, connect to your server from Browse → More → Connect to Server, then choose its shared folder. Stay on the same Wi-Fi as your server for copying, verification and restore. This workflow has no background sync."
             case .other: "Choose a folder from another provider in Files, an attached drive, or On My \(Device.name)."
-            case .oneDrive: "Sign in with Microsoft. TidyAway can only see and add files in its own folder, Apps › TidyAway."
+            case .oneDrive: "Sign in with Microsoft. Copies go to a TidyAway folder in My files, where you can see them in OneDrive."
             case .dropbox: "Sign in with Dropbox. TidyAway can only see and add files in its own folder, Apps › TidyAway."
             }
         }
@@ -896,7 +896,14 @@ struct PhotoArchiveView: View {
             }
             .disabled(account.busy)
             .accessibilityIdentifier("cloud-connect")
-            Text("\(name) asks you to allow access. TidyAway can never see, change or delete your other files there.")
+            if account.needsReconnect {
+                Text("Sign in to OneDrive again. TidyAway now saves to My files › TidyAway, so you can see your copies in OneDrive, its search and Media. Copies made before stay reachable in Get back.")
+                    .font(.footnote).foregroundStyle(Brand.caution)
+                    .accessibilityIdentifier("cloud-reconnect")
+            }
+            Text(account.service == .oneDrive
+                 ? "Microsoft asks you to allow access to your files. TidyAway only adds files to its TidyAway folder in My files; it never opens, changes or deletes anything else."
+                 : "\(name) asks you to allow access. TidyAway can never see, change or delete your other files there.")
                 .font(.footnote).foregroundStyle(.secondary)
         }
         if let message = account.message {
@@ -1445,6 +1452,9 @@ struct PhotoArchiveView: View {
         UIApplication.shared.isIdleTimerDisabled = true
         let folder = OnlineFolders.chosen(OnlinePlace(service))
         Task {
+            if service == .oneDrive, let token = try? await account.accessToken() {
+                try? await OnlineFolders.prepareOneDrive(folder, token: token)
+            }
             let started = Date()
             var records: [ArchivedRecord] = []
             var copies: [String: ArchivedRecord] = [:]

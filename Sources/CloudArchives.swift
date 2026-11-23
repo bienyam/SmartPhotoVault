@@ -45,7 +45,7 @@ enum CloudService: String, Codable, CaseIterable, Sendable {
     /// Where the copies go, as people see it in the service's own app.
     var folderDescription: String {
         switch self {
-        case .oneDrive: "Apps › TidyAway in your OneDrive"
+        case .oneDrive: "My files › TidyAway in your OneDrive"
         case .dropbox: "Apps › TidyAway in your Dropbox"
         }
     }
@@ -109,6 +109,8 @@ struct CloudTokens: Codable, Equatable {
     var expiry: Date
     var refreshToken: String
     var name: String?
+    /// Which permission the sign-in was given (OneDrive). Nil for sign-ins made before this was kept.
+    var scopeVersion: Int? = nil
 }
 
 enum CloudKeychain {
@@ -153,7 +155,9 @@ final class CloudAccount: NSObject, ObservableObject, ASWebAuthenticationPresent
     private var tokens: CloudTokens?
     private var session: ASWebAuthenticationSession?
 
-    var connected: Bool { tokens != nil }
+    var connected: Bool { tokens != nil && !needsReconnect }
+    /// A OneDrive sign-in made for the older app-folder permission: copies to My files need a new sign-in.
+    var needsReconnect: Bool { service == .oneDrive && tokens != nil && tokens?.scopeVersion != OneDriveClient.scopeVersion }
 
     private init(_ service: CloudService) {
         self.service = service
@@ -199,7 +203,7 @@ final class CloudAccount: NSObject, ObservableObject, ASWebAuthenticationPresent
     func accessToken() async throws -> String {
         guard var current = tokens else { throw CloudError.notConnected(service.name) }
         if current.expiry.timeIntervalSinceNow > 120 { return current.accessToken }
-        let refreshed = try await CloudTokenService.refresh(service, current.refreshToken)
+        let refreshed = try await CloudTokenService.refresh(service, current.refreshToken, scopeVersion: current.scopeVersion)
         current.accessToken = refreshed.accessToken
         current.expiry = refreshed.expiry
         if let token = refreshed.refreshToken { current.refreshToken = token }
@@ -246,12 +250,15 @@ enum CloudTokenService {
         let response = try await post(service, fields)
         guard let refresh = response.refresh_token else { throw CloudError.signInFailed(service.name) }
         return CloudTokens(accessToken: response.access_token, expiry: Date().addingTimeInterval(response.expires_in),
-                           refreshToken: refresh, name: response.id_token.flatMap(Self.username(from:)))
+                           refreshToken: refresh, name: response.id_token.flatMap(Self.username(from:)),
+                           scopeVersion: service == .oneDrive ? OneDriveClient.scopeVersion : nil)
     }
 
-    static func refresh(_ service: CloudService, _ refreshToken: String) async throws -> (accessToken: String, expiry: Date, refreshToken: String?) {
+    static func refresh(_ service: CloudService, _ refreshToken: String, scopeVersion: Int? = OneDriveClient.scopeVersion) async throws -> (accessToken: String, expiry: Date, refreshToken: String?) {
         var fields = ["refresh_token": refreshToken, "client_id": service.clientID, "grant_type": "refresh_token"]
-        if service == .oneDrive { fields["scope"] = OneDriveClient.scopes }
+        if service == .oneDrive {
+            fields["scope"] = scopeVersion == OneDriveClient.scopeVersion ? OneDriveClient.scopes : OneDriveClient.legacyScopes
+        }
         let response = try await post(service, fields)
         return (response.access_token, Date().addingTimeInterval(response.expires_in), response.refresh_token)
     }
@@ -513,8 +520,14 @@ enum CloudArchive {
 }
 
 enum OneDriveClient {
-    /// Only TidyAway's own app folder (Apps › TidyAway), never the rest of someone's OneDrive.
-    static let scopes = "openid profile offline_access Files.ReadWrite.AppFolder"
+    /// Microsoft's regular file permission. Work and school accounts keep app folders out of sight, so
+    /// TidyAway saves to a normal folder, My files › TidyAway, where copies show in My files, search and
+    /// Media. TidyAway only ever adds files inside that folder; it never opens, changes or deletes others.
+    static let scopes = "openid profile offline_access Files.ReadWrite"
+    /// Raised when the permission changes, so older sign-ins are asked to sign in again.
+    static let scopeVersion = 2
+    /// What sign-ins before version 2 were given; used only to keep them working for Get back.
+    static let legacyScopes = "openid profile offline_access Files.ReadWrite.AppFolder"
 
     private struct Item: Decodable {
         struct File: Decodable {
@@ -530,7 +543,7 @@ enum OneDriveClient {
     static func upload(_ file: URL, name: String, token: String, folder: OnlineFolder = .root) async throws -> (id: String, name: String, hash: String?, size: Int64, local: String) {
         let total = try VerifiedArchive.storedSize(of: file)
         let encoded = OnlineFolders.graphPath(OnlineFolders.joined(folder, name))
-        var start = URLRequest(url: URL(string: "https://graph.microsoft.com/v1.0/me/drive/special/approot:/\(encoded):/createUploadSession")!)
+        var start = URLRequest(url: URL(string: "\(OnlineFolders.oneDriveRoot)/\(encoded):/createUploadSession")!)
         start.httpMethod = "POST"
         start.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         start.setValue("application/json", forHTTPHeaderField: "Content-Type")

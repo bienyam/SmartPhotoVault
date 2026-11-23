@@ -21,7 +21,7 @@ enum OnlinePlace: String, CaseIterable, Sendable, Identifiable {
     var rootPath: String {
         switch self {
         case .google: "Google Drive › \(GoogleDriveConfig.folderName)"
-        case .oneDrive: "OneDrive › Apps › TidyAway"
+        case .oneDrive: "OneDrive › My files › TidyAway"
         case .dropbox: "Dropbox › Apps › TidyAway"
         }
     }
@@ -51,6 +51,23 @@ struct OnlineFolder: Codable, Equatable, Hashable, Identifiable, Sendable {
 }
 
 enum OnlineFolders {
+    /// TidyAway's folder in OneDrive: My files › TidyAway, addressed by path (append "/<path>:/...").
+    static let oneDriveRoot = "https://graph.microsoft.com/v1.0/me/drive/root:/TidyAway"
+
+    /// Makes My files › TidyAway and the chosen folder inside it if they aren't there yet.
+    /// Only ever creates folders; an existing one is left as it is.
+    static func prepareOneDrive(_ folder: OnlineFolder, token: String) async throws {
+        var parent = "https://graph.microsoft.com/v1.0/me/drive/root/children"
+        var path = ""
+        for part in ["TidyAway"] + folder.path.split(separator: "/").map(String.init) {
+            let body = try JSONSerialization.data(withJSONObject: ["name": part, "folder": [String: Any](),
+                                                                   "@microsoft.graph.conflictBehavior": "fail"])
+            let status = try await send(URL(string: parent)!, method: "POST", body: body, token: token, place: .oneDrive)
+            guard (200...201).contains(status) || status == 409 else { throw CloudError.server("OneDrive", status) }
+            path = path.isEmpty ? part : path + "/" + part
+            parent = "https://graph.microsoft.com/v1.0/me/drive/root:/\(graphPath(path)):/children"
+        }
+    }
     // MARK: - The chosen folder
 
     private static func key(_ place: OnlinePlace) -> String { "archive.folder.\(place.rawValue)" }
@@ -90,10 +107,15 @@ enum OnlineFolders {
     static func list(_ place: OnlinePlace, in parent: OnlineFolder, token: String) async throws -> [OnlineFolder] {
         switch place {
         case .oneDrive:
-            let base = "https://graph.microsoft.com/v1.0/me/drive/special/approot"
-            let url = parent.isRoot ? "\(base)/children" : "\(base):/\(graphPath(parent.path)):/children"
+            let base = OnlineFolders.oneDriveRoot
+            let url = parent.isRoot ? "\(base):/children" : "\(base)/\(graphPath(parent.path)):/children"
             struct Page: Decodable { struct Item: Decodable { let name: String; let folder: [String: Int]? }; let value: [Item] }
-            let page: Page = try await get(URL(string: url + "?$select=name,folder&$top=200")!, token: token, place: place)
+            let page: Page
+            do {
+                page = try await get(URL(string: url + "?$select=name,folder&$top=200")!, token: token, place: place)
+            } catch CloudError.server(_, 404) {
+                return []
+            }
             return page.value.filter { $0.folder != nil }
                 .map { OnlineFolder(id: joined(parent, $0.name), path: joined(parent, $0.name)) }
                 .sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
@@ -128,8 +150,9 @@ enum OnlineFolders {
         let path = joined(parent, name)
         switch place {
         case .oneDrive:
-            let base = "https://graph.microsoft.com/v1.0/me/drive/special/approot"
-            let url = parent.isRoot ? "\(base)/children" : "\(base):/\(graphPath(parent.path)):/children"
+            let base = OnlineFolders.oneDriveRoot
+            try await prepareOneDrive(parent, token: token)
+            let url = parent.isRoot ? "\(base):/children" : "\(base)/\(graphPath(parent.path)):/children"
             let body = try JSONSerialization.data(withJSONObject: ["name": name, "folder": [String: Any](),
                                                                    "@microsoft.graph.conflictBehavior": "fail"])
             let status = try await send(URL(string: url)!, method: "POST", body: body, token: token, place: place)
@@ -163,8 +186,8 @@ enum OnlineFolders {
     /// The folder's own web address from OneDrive, wherever the account keeps TidyAway's folder
     /// (work and school accounts can keep it outside My files). Nil when OneDrive doesn't say.
     static func oneDriveWebLink(_ folder: OnlineFolder, token: String) async -> URL? {
-        let base = "https://graph.microsoft.com/v1.0/me/drive/special/approot"
-        let url = folder.isRoot ? base : "\(base):/\(graphPath(folder.path)):"
+        let base = OnlineFolders.oneDriveRoot
+        let url = folder.isRoot ? "\(base):" : "\(base)/\(graphPath(folder.path)):"
         struct Item: Decodable { let webUrl: String? }
         guard let item: Item = try? await get(URL(string: url + "?$select=webUrl")!, token: token, place: .oneDrive),
               let web = item.webUrl else { return nil }
@@ -175,7 +198,7 @@ enum OnlineFolders {
     static func link(_ folder: OnlineFolder, place: OnlinePlace, rootID: String? = nil) -> URL? {
         switch place {
         case .oneDrive:
-            return URL(string: "https://onedrive.live.com/?id=root&qt=apps")
+            return URL(string: "https://onedrive.live.com/")
         case .dropbox:
             let allowed = CharacterSet.urlPathAllowed
             let tail = folder.isRoot ? "" : "/" + (folder.path.addingPercentEncoding(withAllowedCharacters: allowed) ?? folder.path)
@@ -259,7 +282,9 @@ struct OnlineFolderPicker: View {
                         }
                     }
                 } footer: {
-                    Text("TidyAway can only see and add files inside its own folder, so every folder here is inside it.")
+                    Text(place == .oneDrive
+                         ? "TidyAway keeps everything in its own folder in My files and only ever adds files there."
+                         : "TidyAway can only see and add files inside its own folder, so every folder here is inside it.")
                 }
                 Section("Folders here") {
                     if loading {
