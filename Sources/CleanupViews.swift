@@ -287,6 +287,8 @@ struct AssetRow: View {
 /// Shown after a deletion: the space comes back once Recently Deleted is emptied.
 struct RescueResultView: View {
     let result: RemovedResult
+    /// Shown first, such as a reminder to check archive copies before emptying Recently Deleted.
+    var note: String? = nil
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -300,6 +302,12 @@ struct RescueResultView: View {
                     Text("Almost there").font(.largeTitle.bold())
                     Text(DuplicateRemovalOutcome.removedMessage(count: result.count, bytes: result.bytes))
                         .font(.title3)
+                    if let note {
+                        Label(note, systemImage: "exclamationmark.shield.fill")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Brand.caution)
+                            .accessibilityIdentifier("result-note")
+                    }
                     RecentlyDeletedSteps()
                     Text("Until you do, the items stay recoverable there for 30 days, and so does the space they use.")
                         .font(.footnote).foregroundStyle(.secondary)
