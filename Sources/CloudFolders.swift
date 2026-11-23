@@ -160,6 +160,17 @@ enum OnlineFolders {
         }
     }
 
+    /// The folder's own web address from OneDrive, wherever the account keeps TidyAway's folder
+    /// (work and school accounts can keep it outside My files). Nil when OneDrive doesn't say.
+    static func oneDriveWebLink(_ folder: OnlineFolder, token: String) async -> URL? {
+        let base = "https://graph.microsoft.com/v1.0/me/drive/special/approot"
+        let url = folder.isRoot ? base : "\(base):/\(graphPath(folder.path)):"
+        struct Item: Decodable { let webUrl: String? }
+        guard let item: Item = try? await get(URL(string: url + "?$select=webUrl")!, token: token, place: .oneDrive),
+              let web = item.webUrl else { return nil }
+        return URL(string: web)
+    }
+
     /// Opens the folder in the service's website or app.
     static func link(_ folder: OnlineFolder, place: OnlinePlace, rootID: String? = nil) -> URL? {
         switch place {

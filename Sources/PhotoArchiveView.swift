@@ -851,9 +851,20 @@ struct PhotoArchiveView: View {
                     Label("Choose or create folder", systemImage: "folder.badge.plus")
                 }
                 .accessibilityIdentifier("online-folder-choose")
-                if let link = OnlineFolders.link(folder, place: place) {
-                    Link(destination: link) { Label("Open in \(place.name)", systemImage: "arrow.up.right.square") }
+                Button {
+                    Task {
+                        // OneDrive is asked for the folder's real address; the others have fixed ones.
+                        var link = OnlineFolders.link(folder, place: place)
+                        if place == .oneDrive, let token = try? await folderToken(place)(),
+                           let exact = await OnlineFolders.oneDriveWebLink(folder, token: token) {
+                            link = exact
+                        }
+                        if let link { openURL(link) }
+                    }
+                } label: {
+                    Label("Open in \(place.name)", systemImage: "arrow.up.right.square")
                 }
+                .accessibilityIdentifier("online-folder-open")
             }
             .font(.footnote.weight(.semibold))
         }
