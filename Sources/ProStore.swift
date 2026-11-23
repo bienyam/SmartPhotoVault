@@ -26,6 +26,9 @@ final class ProStore: ObservableObject {
     @Published private(set) var testerAccess = false
 
     var unlocked: Bool { plan != .none || testerAccess }
+    /// What the screens show. Testers see Pro the way a free user does (PRO badges, locks, prices)
+    /// while `unlocked` still lets every feature through.
+    var looksUnlocked: Bool { plan != .none }
     private var updates: Task<Void, Never>?
 
     init() {
@@ -155,11 +158,6 @@ struct ProPurchaseControls: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if pro.testerAccess, pro.plan == .none {
-                Label("Test build: every Pro feature is on. Nothing to buy.", systemImage: "checkmark.seal.fill")
-                    .foregroundStyle(Brand.safe)
-                    .accessibilityIdentifier("pro-tester")
-            }
             // Never block on the App Store: the buttons work while the check finishes.
             switch pro.plan {
             case .lifetime:
