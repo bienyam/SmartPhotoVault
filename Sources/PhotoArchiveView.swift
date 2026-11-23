@@ -1436,7 +1436,7 @@ struct PhotoArchiveView: View {
                                                                        place: service.name, driveFolderID: nil, copies: copies)
             run.outcome = ArchiveOutcome(completion: completion, failures: problems,
                                          left: run.stopping ? selection.count - run.tried : 0, place: service.name)
-            recordOutcome("Archive copy to \(service.name) \(operation) completed. Verified \(records.count) of \(selection.count) items in \(Self.seconds(since: started)).")
+            recordOutcome("Archive copy to \(service.name) \(operation) completed. Verified \(records.count) of \(selection.count) items in \(Self.seconds(since: started)), \(Self.throughput(records.reduce(0) { $0 + $1.bytes }, since: started)).")
             UIApplication.shared.isIdleTimerDisabled = false
             busy = false
         }
@@ -1519,7 +1519,7 @@ struct PhotoArchiveView: View {
                                                                        place: "Google Drive", driveFolderID: driveFolder, copies: copies)
             run.outcome = ArchiveOutcome(completion: completion, failures: problems,
                                          left: run.stopping ? selection.count - run.tried : 0, place: "Google Drive")
-            recordOutcome("Archive copy to Google Drive \(operation) completed. Verified \(records.count) of \(selection.count) items in \(Self.seconds(since: started)).")
+            recordOutcome("Archive copy to Google Drive \(operation) completed. Verified \(records.count) of \(selection.count) items in \(Self.seconds(since: started)), \(Self.throughput(records.reduce(0) { $0 + $1.bytes }, since: started)).")
             UIApplication.shared.isIdleTimerDisabled = false
             busy = false
         }
@@ -1606,7 +1606,7 @@ struct PhotoArchiveView: View {
                 measuredBytes[id] = nil
                 checkedPhotos[id] = nil
             }
-            recordOutcome("Archive copy \(operation) completed. Verified \(copied.count) of \(selection.count) items in \(Self.seconds(since: started)).")
+            recordOutcome("Archive copy \(operation) completed. Verified \(copied.count) of \(selection.count) items in \(Self.seconds(since: started)), \(Self.throughput(successes.reduce(0) { $0 + $1.fingerprint.bytes }, since: started)).")
             let completion = copied.isEmpty ? nil : ArchiveCompletion(items: selection.filter { copied.contains($0.id) },
                                                                       bytes: successes.reduce(0) { $0 + $1.fingerprint.bytes },
                                                                       place: destination.lastPathComponent, driveFolderID: nil, copies: copies)
@@ -1717,6 +1717,13 @@ struct PhotoArchiveView: View {
 
     static func seconds(since start: Date) -> String {
         Duration.seconds(Date().timeIntervalSince(start)).formatted(.units(allowed: [.minutes, .seconds], width: .abbreviated))
+    }
+
+    /// "1.2 GB at 18 MB/s": how much was copied and how fast, so a slow archive shows where it stands.
+    static func throughput(_ bytes: Int64, since start: Date, now: Date = Date()) -> String {
+        let seconds = max(now.timeIntervalSince(start), 0.001)
+        let rate = Int64(Double(bytes) / seconds)
+        return "\(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)) at \(ByteCountFormatter.string(fromByteCount: rate, countStyle: .file))/s"
     }
 
     private func recordOutcome(_ entry: String) {
