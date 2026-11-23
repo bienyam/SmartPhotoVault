@@ -8,15 +8,14 @@ struct RootView: View {
     @ObservedObject private var basket = ArchiveBasket.shared
     @State private var tab = Tab.freeUp
     @AppStorage("hasSeenWelcome") private var hasSeenWelcome = false
-    @State private var forceWelcome = ProcessInfo.processInfo.arguments.contains("--reset-welcome")
+    @State private var forceWelcome = LaunchFlags.has("--reset-welcome")
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.scenePhase) private var scenePhase
 
     private let accent = Brand.primary
 
     private var skipWelcome: Bool {
-        let arguments = ProcessInfo.processInfo.arguments
-        return arguments.contains("--skip-welcome") || arguments.contains("--demo")
+        return LaunchFlags.has("--skip-welcome") || LaunchFlags.has("--demo")
     }
 
     private var showWelcome: Bool {
@@ -49,7 +48,7 @@ struct RootView: View {
         // Photos chosen in a Free up list go straight to Archive's copy screen.
         .onChange(of: basket.request) { tab = .archive }
         .task {
-            if ProcessInfo.processInfo.arguments.contains("--demo") { model.showDemo() }
+            if LaunchFlags.has("--demo") { model.showDemo() }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { model.refreshAuthorization() }
@@ -74,7 +73,7 @@ struct ArchiveTabView: View {
     @State private var compact = false
 
     private var snapshot: ScanSnapshot? {
-        if ProcessInfo.processInfo.arguments.contains("--demo-archive") {
+        if LaunchFlags.has("--demo-archive") {
             return DemoLibrary.archiveSnapshot
         }
         return model.isDemo ? nil : model.snapshot
@@ -107,7 +106,7 @@ struct ArchiveTabView: View {
         .onChange(of: basket.request) { mode = .moveOut }
         .onAppear {
             if !basket.pending.isEmpty { mode = .moveOut }
-            if ProcessInfo.processInfo.arguments.contains("--demo-archive") { InsightModel.shared.show(DemoLibrary.archiveInsights) }
+            if LaunchFlags.has("--demo-archive") { InsightModel.shared.show(DemoLibrary.archiveInsights) }
             count()
         }
         .onChange(of: mode) {

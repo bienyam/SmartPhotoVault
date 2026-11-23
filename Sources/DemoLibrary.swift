@@ -42,9 +42,12 @@ enum DemoLibrary {
     }
 
     static var snapshot: ScanSnapshot {
-        func resource(_ contents: String, type: Int = 1) -> ResourceFingerprint {
+        // App Store pictures use sizes like real photos and videos; tests keep the tiny ones they were written for.
+        let lifelike = LaunchFlags.has("--store-pictures")
+        func resource(_ contents: String, type: Int = 1, size: Int64? = nil) -> ResourceFingerprint {
             let data = Data(contents.utf8)
-            return ResourceFingerprint(type: type, digest: SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(), bytes: Int64(data.count))
+            return ResourceFingerprint(type: type, digest: SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(),
+                                       bytes: lifelike ? (size ?? Int64(data.count)) : Int64(data.count))
         }
         func asset(_ id: String, _ name: String, _ favorite: Bool, _ resources: [ResourceFingerprint], issue: String? = nil,
                    mediaType: PHAssetMediaType = .image, subtypes: PHAssetMediaSubtype = [], animated: Bool = false,
@@ -55,18 +58,18 @@ enum DemoLibrary {
                         pixelWidth: pixels.0, pixelHeight: pixels.1, hasLocation: hasLocation)
         }
         return ScanSnapshot(date: Date(), limitedAccess: false, includedCloudDownloads: false, assets: [
-            asset("sample-1", "Beach.heic", true, [resource("synthetic beach image")]),
-            asset("sample-2", "Beach copy.heic", false, [resource("synthetic beach image")]),
-            asset("sample-3", "Live Photo.heic", false, [resource("synthetic still"), resource("synthetic motion", type: 9)], subtypes: .photoLive),
-            asset("sample-4", "Different motion.heic", false, [resource("synthetic still"), resource("different motion", type: 9)], subtypes: .photoLive),
+            asset("sample-1", "Beach.heic", true, [resource("synthetic beach image", size: 3_400_000)]),
+            asset("sample-2", "Beach copy.heic", false, [resource("synthetic beach image", size: 3_400_000)]),
+            asset("sample-3", "Live Photo.heic", false, [resource("synthetic still", size: 2_800_000), resource("synthetic motion", type: 9, size: 3_100_000)], subtypes: .photoLive),
+            asset("sample-4", "Different motion.heic", false, [resource("synthetic still", size: 2_800_000), resource("different motion", type: 9, size: 3_000_000)], subtypes: .photoLive),
             asset("sample-5", "Cloud-only.heic", false, [], issue: "Original resource is not available locally."),
-            asset("sample-6", "Boarding pass.png", false, [resource("synthetic screenshot")], subtypes: .photoScreenshot),
-            asset("sample-7", "Dancing cat.gif", false, [resource("synthetic animated image")], animated: true),
-            asset("sample-8", "Goal celebration.heic", false, [resource("synthetic burst frame")], burst: ("demo-burst", 14)),
-            asset("sample-9", "Mountain view.heic", false, [resource("synthetic panorama")], subtypes: .photoPanorama),
-            asset("sample-10", "Skate trick.mov", false, [resource("synthetic slow motion video", type: 2)], mediaType: .video, subtypes: .videoHighFrameRate),
-            asset("sample-11", "Sunset.mov", false, [resource("synthetic time-lapse video", type: 2)], mediaType: .video, subtypes: .videoTimelapse),
-            asset("sample-12", "IMG-20240512-WA0007.jpg", false, [resource("synthetic chat image")], pixels: (1280, 960), hasLocation: false)
+            asset("sample-6", "Boarding pass.png", false, [resource("synthetic screenshot", size: 1_200_000)], subtypes: .photoScreenshot),
+            asset("sample-7", "Dancing cat.gif", false, [resource("synthetic animated image", size: 4_500_000)], animated: true),
+            asset("sample-8", "Goal celebration.heic", false, [resource("synthetic burst frame", size: 2_900_000)], burst: ("demo-burst", 14)),
+            asset("sample-9", "Mountain view.heic", false, [resource("synthetic panorama", size: 18_000_000)], subtypes: .photoPanorama),
+            asset("sample-10", "Skate trick.mov", false, [resource("synthetic slow motion video", type: 2, size: 1_600_000_000)], mediaType: .video, subtypes: .videoHighFrameRate),
+            asset("sample-11", "Sunset.mov", false, [resource("synthetic time-lapse video", type: 2, size: 820_000_000)], mediaType: .video, subtypes: .videoTimelapse),
+            asset("sample-12", "IMG-20240512-WA0007.jpg", false, [resource("synthetic chat image", size: 280_000)], pixels: (1280, 960), hasLocation: false)
         ])
     }
 }

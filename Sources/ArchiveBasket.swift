@@ -25,5 +25,16 @@ final class ArchiveBasket: ObservableObject {
 enum TesterAccess {
     /// MUST be false in the build sent to App Review: Apple reviews in the same test environment as
     /// TestFlight, and a reviewer has to be able to see and buy Pro. Tracked in the App Review checklist.
-    static let enabled = true
+    static let enabled = false
+}
+
+/// Test-only launch switches (sample data, skipping the welcome). Always off in builds for the App Store.
+enum LaunchFlags {
+    static func has(_ flag: String) -> Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.arguments.contains(flag)
+        #else
+        return false
+        #endif
+    }
 }

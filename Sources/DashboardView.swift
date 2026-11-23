@@ -135,7 +135,8 @@ struct FreeUpView: View {
     @ViewBuilder
     private func resultDial(_ rescue: RescueSummary) -> some View {
         VStack(spacing: 12) {
-            if model.isDemo {
+            // App Store pictures are made from sample data and leave this label off.
+            if model.isDemo, !LaunchFlags.has("--store-pictures") {
                 Label("Sample photos, not your library", systemImage: "testtube.2")
                     .font(.subheadline.weight(.semibold))
             }

@@ -1,25 +1,37 @@
 # TidyAway privacy policy
 
-TidyAway reads the photos and videos you authorize through Apple Photos. It inventories those items and checks for exact duplicates on your device. The app has no account system, analytics, or advertising and does not transmit your photo library or scan results to the developer.
+TidyAway helps you free up space on your iPhone. It works on your iPhone. It has no account system, no analytics, and no advertising, and it never sends your photos, your library information, or your activity to the developer.
 
-The latest completed inventory and a scan activity log are stored in the app’s local storage. The inventory can include Apple Photos identifiers, file names, dates, favorite status, resource sizes, and hashes. The app does not store a separate copy of your photos or videos.
+## Photos access
 
-Scans use photo and video resources already available on your iPhone. TidyAway does not request iCloud Photos originals during a scan or archive copy, and does not edit items in Apple Photos. It deletes items only as described below. You can change Photos access in Settings. Delete the app to remove the local inventory and activity log from your device.
+TidyAway reads the photos and videos you allow it to through Apple Photos. You can give full or limited access, and change it at any time in Settings.
 
-Saved storage comparisons contain the costs, usage, and preferences you enter and are stored in the app’s local storage. You can remove saved comparisons in the app or by deleting the app. If you choose to share a report, the system share sheet lets you choose where it goes. Apple handles in-app purchase transactions.
+A scan builds an inventory on your iPhone. It can include Apple Photos identifiers, file names, dates, favorite status, media types, resource sizes and fingerprints (hashes), the names of your albums, and an approximate location rounded to about 1 km. The inventory and an activity log are kept in the app's local storage and are removed when you delete the app. The app does not keep separate copies of your photos.
 
-If you choose files for size analysis, the app reads the names and reported sizes of that selection. The analysis stays in memory while the screen is open. The app does not send the selection or read file contents.
+To suggest groups, TidyAway can look at small versions of your photos with the image recognition built into iOS. This happens on your iPhone. The app keeps short labels (such as "beach" or "receipt"), sharpness and brightness numbers, and which photos look alike. It never keeps a picture and does not identify people.
 
-If you approve an archive or test restore, the app reads the items you selected and writes verified copies to the folder you chose in Files. Its provider may download source files or sync copies to your account. The app keeps per-file verification results in memory while the archive screen is open and records authorization, item counts, and an outcome in the local activity log.
+When you choose a place on the Archive tab, the map comes from Apple Maps. Your photo locations stay on your iPhone.
 
-If you connect Google Drive, OneDrive, or Dropbox, that service signs you in and gives TidyAway access only to the files it creates (Google Drive) or to its own app folder (OneDrive and Dropbox). Copies are uploaded straight to that service; for OneDrive and Dropbox each item is briefly prepared in temporary storage on your iPhone and removed after upload. The sign-in is kept in this iPhone's Keychain. Disconnecting removes it; your archived copies stay with the service.
+## Deleting
 
-To suggest groups to archive, the app can look at small versions of your photos and videos with the image recognition built into iOS. This happens on your iPhone. The app keeps short labels (such as "beach" or "receipt"), sharpness and brightness numbers, and which photos look alike, never a picture. It does not identify people. These notes stay on your iPhone, are dropped for photos that are gone, and are removed when you delete the app. After an archive copy, the app also keeps the photo's identifier on your iPhone so Get back can show its picture while the original is still there.
+TidyAway deletes nothing on its own. When you select items, sign off, and approve, the app asks Apple Photos to delete exactly those items, and Apple shows its own confirmation. Apple normally keeps deleted items in Recently Deleted for up to 30 days. If iCloud Photos is on, the deletion also applies to iCloud Photos and your other devices. Favorites are never deleted, and one copy of every duplicate is always kept. The approval, item count, and outcome are recorded in the local activity log, without file names.
 
-After a verified archive copy, the app keeps a local list of the file name, folder name, size, checksum, and date, with a saved reference to the folder you chose. The Archived tab uses this list to show what you archived and to restore a copy when you ask. The list stays on your iPhone and is removed when you delete the app.
+If you approve removing a downloaded iCloud Drive file, the app asks iCloud Drive to remove the downloaded copy from your iPhone. The file stays in iCloud Drive.
 
-If you approve removing a synced iCloud Drive download, the app asks iCloud Drive to remove the downloaded copy from your iPhone. The authorization, selected size, and outcome are recorded in the local activity log.
+## Archiving
 
-If you authorize removing exact duplicates, the app re-reads the copy to keep and the copies to remove, then asks Apple Photos to delete the items you approved. Apple shows its own confirmation and normally keeps deleted items in Recently Deleted for up to 30 days. If iCloud Photos is on, the deletion also applies to iCloud Photos and your synced devices. The authorization, item count, and outcome are recorded in the local activity log.
+When you approve an archive, the app copies the items you selected to the place you chose: a drive plugged into your iPhone, a folder in Files (such as iCloud Drive or a file server), or a connected Google Drive, OneDrive, or Dropbox account. If an original is stored only in iCloud Photos, the app downloads it from Apple first. Each copy is checked against its original. The app only adds copies there; it never changes or deletes anything in your archive.
+
+If you connect Google Drive, OneDrive, or Dropbox, that service signs you in on its own page and gives TidyAway access only to the files it creates (Google Drive) or to its own app folder (OneDrive and Dropbox). TidyAway can't see your other files there. To show which account is connected, the app keeps the account's email address or name on your iPhone; it isn't sent anywhere else. Copies go straight to that service; for OneDrive and Dropbox each item is briefly prepared in temporary storage on your iPhone and removed after upload. The sign-in is kept in your iPhone's Keychain. Disconnecting removes it from your iPhone; your archived copies stay with the service. That service's own privacy policy covers what it stores.
+
+After a verified copy, the app keeps a local list of each copy's file name, location, size, fingerprint, and date, and the identifier of the photo it came from, so you can find a copy and put it back. Deleting originals after archiving is offered only when the app can confirm the copy is safe at its destination. The list stays on your iPhone and is removed when you delete the app.
+
+## Purchases
+
+TidyAway Pro is sold through Apple. Apple handles payment; the app only learns whether Pro is active.
+
+## Questions
 
 For privacy questions, use the [TidyAway support page](https://github.com/bienyam/SmartPhotoVault/issues). Issues are public, so leave out personal photos and library information.
+
+Last updated: November 23, 2026.
