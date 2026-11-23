@@ -146,9 +146,15 @@ extension SmartGrouper {
         let all = extras(in: assets, insights: insights, facts: facts)
         let ready = all.filter(canArchive)
         guard ready.count >= 5 else { return nil }
+        // Each set with the photo that stays, so the list can show it locked beside the ones that move.
+        let readyIDs = Set(ready.map(\.id))
+        let sets = CleanupGrouper.keepSets(in: assets, insights: insights, facts: facts).compactMap { set -> KeepSet? in
+            let moving = set.extras.filter { readyIDs.contains($0.id) }
+            return moving.isEmpty ? nil : KeepSet(keep: set.keep, extras: moving, because: set.because)
+        }
         return SmartGroup(id: "same-shots", kind: .sameShots, title: "Lots of the same shot",
                           reason: "Taken seconds apart and look alike. The sharpest one stays on your \(Device.name)",
-                          records: ready, notYet: all.count - ready.count, when: "Best one stays")
+                          records: ready, notYet: all.count - ready.count, when: "Best one stays", sets: sets)
     }
 
     // MARK: - Topics

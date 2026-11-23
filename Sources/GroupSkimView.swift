@@ -6,9 +6,19 @@ struct SkimPart: Identifiable {
     let id: String
     let title: String
     let records: [AssetRecord]
+    /// In a look-alike set, the photo that stays on the iPhone. Shown first, locked, never moved.
+    var keep: AssetRecord? = nil
+    var because: String? = nil
 
-    /// One day is split by time of day, several days by day. Video groups stay in one list, in their own order.
+    /// One day is split by time of day, several days by day. Look-alike sets are shown set by set with
+    /// the photo that stays. Video groups stay in one list, in their own order.
     static func parts(of group: SmartGroup, calendar: Calendar = .current) -> [SkimPart] {
+        if group.kind == .sameShots, !group.sets.isEmpty {
+            return group.sets.map { set in
+                SkimPart(id: set.keep.id, title: "\(set.extras.count + 1) look alike · keeping 1", records: set.extras,
+                         keep: set.keep, because: set.because)
+            }
+        }
         guard group.kind == .event || group.kind == .trip else {
             return [SkimPart(id: "all", title: "All", records: group.records)]
         }
@@ -92,10 +102,11 @@ struct GroupSkimView: View {
             LazyVGrid(columns: columns, spacing: 3) {
                 ForEach(parts) { part in
                     Section {
+                        if let keep = part.keep { keptCell(keep, because: part.because) }
                         ForEach(part.records) { record in cell(record) }
                     } header: {
                         HStack {
-                            Text("\(part.title) · \(part.records.count)").font(.headline)
+                            Text(part.keep == nil ? "\(part.title) · \(part.records.count)" : part.title).font(.headline)
                             Spacer()
                             Button(allOut(part) ? "Put back in" : "Leave out") { toggle(part) }
                                 .font(.subheadline.weight(.bold))
@@ -193,6 +204,37 @@ struct GroupSkimView: View {
                 }
             }
         }
+    }
+
+    /// The photo that stays on the iPhone: shown, locked, and never selected or moved.
+    private func keptCell(_ record: AssetRecord, because: String?) -> some View {
+        AssetCover(assetID: record.id, side: 200)
+            .aspectRatio(1, contentMode: .fit)
+            .overlay(RoundedRectangle(cornerRadius: 2).stroke(Brand.safe, lineWidth: 3))
+            .overlay(alignment: .topTrailing) {
+                Image(systemName: "lock.fill")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.white)
+                    .padding(5)
+                    .background(Brand.safe, in: Circle())
+                    .padding(4)
+            }
+            .overlay(alignment: .bottomLeading) {
+                Text("Stays")
+                    .font(.caption2.weight(.heavy))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(Brand.safe, in: Capsule())
+                    .padding(3)
+            }
+            .contextMenu {
+                Text("Stays on your \(Device.name): \(because ?? "the best of this set")")
+            } preview: {
+                AssetCover(assetID: record.id, side: 1000).frame(width: 320, height: 420)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Kept photo, stays on your \(Device.name), \(because ?? "the best of this set"). Not moved.")
+            .accessibilityIdentifier("skim-kept-\(record.id)")
     }
 
     private func allOut(_ part: SkimPart) -> Bool { part.records.allSatisfy { leftOut.contains($0.id) } }
