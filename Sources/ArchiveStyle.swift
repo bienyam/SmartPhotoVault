@@ -195,9 +195,20 @@ struct ArchiveCard: View {
     let detail: String
     let coverID: String?
     var tall = false
+    /// A few words on why this group was made, shown as a tag at the top.
+    var why: String? = nil
+    /// Shown on a brand-colored card when there is no picture, instead of a dark empty card.
+    var symbol: String = "photo.on.rectangle"
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
+            if let why {
+                Text(why).font(.caption2.weight(.bold))
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(.black.opacity(0.35), in: Capsule())
+                    .lineLimit(1)
+                Spacer(minLength: 6)
+            }
             Text(title).font(tall ? .title3.bold() : .headline)
             Text(detail).font(.footnote)
         }
@@ -207,8 +218,18 @@ struct ArchiveCard: View {
         .frame(maxWidth: .infinity, minHeight: tall ? 120 : 96, alignment: .bottomLeading)
         .background {
             ZStack {
-                AssetCover(assetID: coverID ?? "sample-", side: 600)
-                LinearGradient(colors: [.black.opacity(0.25), .black.opacity(0.82)], startPoint: .top, endPoint: .bottom)
+                if let coverID {
+                    AssetCover(assetID: coverID, side: 600)
+                    LinearGradient(colors: [.black.opacity(0.25), .black.opacity(0.82)], startPoint: .top, endPoint: .bottom)
+                } else {
+                    LinearGradient(colors: [Color(red: 1, green: 0.62, blue: 0.45), Color(red: 0.78, green: 0.31, blue: 0.12)],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing)
+                    Image(systemName: symbol)
+                        .font(.system(size: 44, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.35))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                        .padding(14)
+                }
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 18))

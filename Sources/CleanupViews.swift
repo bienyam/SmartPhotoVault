@@ -27,13 +27,17 @@ struct CleanupListView: View {
     let source: String
     let allowsRemoval: Bool
     @ObservedObject var model: DashboardModel
+    /// Look-alike sets. Each kept photo is shown first, locked, and is never in `items`.
+    var sets: [KeepSet] = []
     @State private var selected: Set<String> = []
     @State private var agreed = false
     @State private var working = false
     @State private var message: String?
     @State private var result: RemovedResult?
 
-    private var selectable: [AssetRecord] { items.filter { !$0.favorite } }
+    private var kept: Set<String> { Set(sets.map(\.keep.id)) }
+    private var selectable: [AssetRecord] { items.filter { !$0.favorite && !kept.contains($0.id) } }
+    private var inSets: Set<String> { Set(sets.flatMap(\.extras).map(\.id)) }
     private var selectedRecords: [AssetRecord] { selectable.filter { selected.contains($0.id) } }
     private var selectedBytes: Int64 { selectedRecords.reduce(0) { $0 + $1.displayBytes } }
     private var allSelected: Bool { !selectable.isEmpty && selectedRecords.count == selectable.count }
@@ -43,9 +47,32 @@ struct CleanupListView: View {
             if items.isEmpty {
                 Text("Nothing here right now.").foregroundStyle(.secondary)
             }
-            ForEach(items) { asset in
-                AssetRow(asset: asset, selectable: allowsRemoval, selected: selected.contains(asset.id)) {
-                    toggle(asset)
+            if sets.isEmpty {
+                ForEach(items) { asset in
+                    AssetRow(asset: asset, selectable: allowsRemoval, selected: selected.contains(asset.id)) {
+                        toggle(asset)
+                    }
+                }
+            } else {
+                ForEach(sets) { set in
+                    Section("\(set.extras.count + 1) look alike · keeping 1") {
+                        AssetRow(asset: set.keep, selectable: false, selected: false, note: "Keeping this one: \(set.because)") {}
+                        ForEach(set.extras) { asset in
+                            AssetRow(asset: asset, selectable: allowsRemoval, selected: selected.contains(asset.id)) {
+                                toggle(asset)
+                            }
+                        }
+                    }
+                }
+                let rest = items.filter { !inSets.contains($0.id) }
+                if !rest.isEmpty {
+                    Section("Blurry, accidental and dark") {
+                        ForEach(rest) { asset in
+                            AssetRow(asset: asset, selectable: allowsRemoval, selected: selected.contains(asset.id)) {
+                                toggle(asset)
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -96,7 +123,7 @@ struct CleanupListView: View {
     }
 
     private func toggle(_ asset: AssetRecord) {
-        guard allowsRemoval, !asset.favorite else { return }
+        guard allowsRemoval, !asset.favorite, !kept.contains(asset.id) else { return }
         if selected.contains(asset.id) { selected.remove(asset.id) } else { selected.insert(asset.id) }
         agreed = false
     }
@@ -146,7 +173,7 @@ struct DuplicatesListView: View {
             ForEach(groups) { group in
                 let plan = DuplicateRemovalPlan(group: group)
                 Section("\(group.assets.count) identical · keeping 1") {
-                    ForEach(group.assets) { asset in
+                    ForEach(group.assets.sorted { a, _ in a.id == plan?.keepID }) { asset in
                         let isExtra = plan?.removeIDs.contains(asset.id) ?? false
                         AssetRow(asset: asset, selectable: isExtra, selected: selected.contains(asset.id),
                                  note: asset.id == plan?.keepID ? "Keeping this one" : nil) {
@@ -163,7 +190,7 @@ struct DuplicatesListView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 InfoButton(title: "Duplicates",
-                           text: "Exact duplicates match byte for byte, including Live Photo motion and edits. TidyAway always keeps one copy of each, keeps favorites, and checks every copy again just before removal.")
+                           text: "Exact duplicates match byte for byte, including Live Photo motion and edits. In each set the copy that stays is shown first with a lock and \"Keeping this one\"; it can't be selected, and Select all never includes it. Favorites are kept too. Every copy is checked again just before removal.")
             }
             if !extras.isEmpty {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -232,6 +259,9 @@ struct AssetRow: View {
                         .font(.title2)
                         .foregroundStyle(selected ? Brand.primary : Color.secondary)
                         .accessibilityHidden(true)
+                } else if note != nil {
+                    Image(systemName: "lock.fill").font(.title3).foregroundStyle(Brand.safe)
+                        .frame(width: 28).accessibilityHidden(true)
                 } else if asset.favorite {
                     Image(systemName: "heart.fill").font(.title3).foregroundStyle(Color.secondary)
                         .frame(width: 28).accessibilityHidden(true)
