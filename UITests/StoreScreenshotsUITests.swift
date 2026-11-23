@@ -20,7 +20,7 @@ final class StoreScreenshotsUITests: XCTestCase {
 
         // 2. Free up: the Dial and everything it found.
         app = XCUIApplication()
-        app.launchArguments += ["--skip-welcome", "--demo", "--ui-fast"]
+        app.launchArguments += ["--skip-welcome", "--demo", "--ui-fast", "--store-pictures"]
         app.launch()
         XCTAssertTrue(app.buttons["row-duplicates"].waitForExistence(timeout: 15))
         sleep(1)
