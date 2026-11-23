@@ -95,10 +95,23 @@ struct PhotoArchiveView: View {
         case google = "Google Drive"
         case home = "Home file server"
         case other = "Other Files location"
+        case oneDrive = "OneDrive"
+        case dropbox = "Dropbox"
 
         /// Every destination stays available (owner rule: never drop an existing feature unasked).
         /// A plugged-in drive is listed first because most people own one.
-        static let offered: [Destination] = [.drive, .google, .iCloud, .other, .home, .shared]
+        /// OneDrive and Dropbox appear once TidyAway is registered with them.
+        static var offered: [Destination] {
+            [.drive, .google, .iCloud, .other, .home, .shared] + [.oneDrive, .dropbox].filter { $0.cloud?.available == true }
+        }
+
+        var cloud: CloudService? {
+            switch self {
+            case .oneDrive: .oneDrive
+            case .dropbox: .dropbox
+            default: nil
+            }
+        }
 
         var detail: String {
             switch self {
@@ -108,6 +121,8 @@ struct PhotoArchiveView: View {
             case .google: "Sign in with Google. TidyAway can only see and add the files it puts in a \"TidyAway Archive\" folder."
             case .home: "In Files, connect to your server from Browse → More → Connect to Server, then choose its shared folder. Stay on the same Wi-Fi as your server for copying, verification and restore. This workflow has no background sync."
             case .other: "Choose a folder from another provider in Files, an attached drive, or On My iPhone."
+            case .oneDrive: "Sign in with Microsoft. TidyAway can only see and add files in its own folder, Apps › TidyAway."
+            case .dropbox: "Sign in with Dropbox. TidyAway can only see and add files in its own folder, Apps › TidyAway."
             }
         }
 
@@ -118,6 +133,7 @@ struct PhotoArchiveView: View {
             case .google: "externaldrive"
             case .home: "server.rack"
             case .other: "folder"
+            case .oneDrive, .dropbox: "cloud"
             }
         }
     }
@@ -176,6 +192,8 @@ struct PhotoArchiveView: View {
     @State private var archivedBytes: Int64 = 0
     @State private var folderCheck: FolderCheck?
     @ObservedObject private var google = GoogleDriveAccount.shared
+    @ObservedObject private var oneDrive = CloudAccount.oneDrive
+    @ObservedObject private var dropbox = CloudAccount.dropbox
     @State private var checkingFolder = false
     @State private var showPro = false
     @EnvironmentObject private var pro: ProStore
@@ -498,12 +516,14 @@ struct PhotoArchiveView: View {
 
     private var destinationTitle: String {
         if destinationKind == .google, google.email != nil { return "Copy to Google Drive" }
+        if let service = toCloud { return "Copy to \(service.name)" }
         if let destination { return "Copy to \(destination.lastPathComponent)" }
         return "Choose where to copy"
     }
 
     private var destinationDetail: String {
         if destinationKind == .google { return google.email ?? "Connect Google Drive" }
+        if let service = destinationKind?.cloud { return account(service).name ?? "Connect \(service.name)" }
         if let problem = folderCheck?.problem { return problem }
         if let free = folderCheck?.available { return "\(formattedBytes(free)) free" }
         return destination == nil ? "A drive, a cloud, or your own server" : "Ready"
@@ -702,6 +722,8 @@ struct PhotoArchiveView: View {
                 if destinationKind == .drive { drivePanel }
                 if destinationKind == .google {
                     googleConnection
+                } else if let service = destinationKind.cloud {
+                    cloudConnection(account(service))
                 } else {
                 Button { showArchiveFolder = true } label: {
                     Label(destination.map { "Change folder (\($0.lastPathComponent))" } ?? "Choose archive folder in Files",
@@ -791,6 +813,35 @@ struct PhotoArchiveView: View {
                 .font(.footnote).foregroundStyle(.secondary)
         }
         if let message = google.message {
+            Text(message).font(.footnote).foregroundStyle(Brand.caution)
+        }
+    }
+
+    private func account(_ service: CloudService) -> CloudAccount { service == .oneDrive ? oneDrive : dropbox }
+
+    @ViewBuilder
+    private func cloudConnection(_ account: CloudAccount) -> some View {
+        let name = account.service.name
+        if account.connected {
+            Label("Connected as \(account.name ?? name)", systemImage: "checkmark.circle")
+                .foregroundStyle(Brand.safe)
+                .accessibilityIdentifier("cloud-connected")
+            Text("Copies go to \(account.service.folderDescription).")
+                .font(.footnote).foregroundStyle(.secondary)
+            Button("Disconnect \(name)", role: .destructive) { Task { await account.disconnect() } }
+                .font(.footnote)
+        } else {
+            Button {
+                Task { await account.connect() }
+            } label: {
+                Label(account.busy ? "Waiting for \(name)…" : "Connect \(name)", systemImage: "person.badge.key")
+            }
+            .disabled(account.busy)
+            .accessibilityIdentifier("cloud-connect")
+            Text("\(name) asks you to allow access. TidyAway can never see, change or delete your other files there.")
+                .font(.footnote).foregroundStyle(.secondary)
+        }
+        if let message = account.message {
             Text(message).font(.footnote).foregroundStyle(Brand.caution)
         }
     }
@@ -916,11 +967,19 @@ struct PhotoArchiveView: View {
     private var allowance: ArchiveAllowance { ProStore.archiveAllowance(used: archivedBytes, selection: selectedBytes, unlocked: pro.unlocked) }
     private var overAllowance: Bool { if case .over = allowance { return true } else { return false } }
     private var toGoogle: Bool { destinationKind == .google && google.email != nil }
-    private var hasDestination: Bool { toGoogle || (destinationKind != .google && destination != nil) }
+    /// OneDrive or Dropbox, once connected.
+    private var toCloud: CloudService? {
+        guard let service = destinationKind?.cloud, account(service).connected else { return nil }
+        return service
+    }
+    private var toOnline: Bool { toGoogle || toCloud != nil }
+    private var hasDestination: Bool {
+        toOnline || (destinationKind != .google && destinationKind?.cloud == nil && destination != nil)
+    }
 
     private var canCopy: Bool {
         guard archiveConsent, !busy, !items.isEmpty, hasDestination, !overAllowance else { return false }
-        if toGoogle { return true }
+        if toOnline { return true }
         return comparison.fits != false && (availableGB.isEmpty || availableBytes != nil)
             && folderCheck?.problem == nil && !checkingFolder && tooBigForDrive.isEmpty
     }
@@ -928,11 +987,15 @@ struct PhotoArchiveView: View {
     private var consentLine: String {
         let count = "\(items.count.formatted()) \(items.count == 1 ? "item" : "items")"
         if toGoogle { return "I authorize copying \(count) to Google Drive (\(google.email ?? ""))." }
+        if let service = toCloud { return "I authorize copying \(count) to \(service.name) (\(account(service).name ?? service.name))." }
         return "I authorize copying \(count) to \(destination?.lastPathComponent ?? "this folder")."
     }
 
     private var consentText: String {
-        toGoogle
+        if let service = toCloud {
+            return "I authorize copying these items to \(service.name) (\(account(service).name ?? service.name)), in \(service.folderDescription). Source items stay where they are and this step frees no space."
+        }
+        return toGoogle
             ? "I authorize copying these items to Google Drive (\(google.email ?? "")), in the TidyAway Archive folder. Source items stay where they are and this step frees no space."
             : "I authorize copying these items to this folder. Files providers may download selected files and sync these copies. Source items stay where they are and this step frees no space."
     }
@@ -999,7 +1062,7 @@ struct PhotoArchiveView: View {
                     }
                 }
                 Button(hasDestination ? "Copy \(items.count.formatted()) \(items.count == 1 ? "item" : "items")" : "Choose where to copy above") {
-                    if toGoogle { beginDriveCopy() } else { beginCopy() }
+                    if toGoogle { beginDriveCopy() } else if let service = toCloud { beginCloudCopy(service) } else { beginCopy() }
                 }
                 .buttonStyle(ArchiveButtonStyle())
                 .disabled(!canCopy)
@@ -1021,10 +1084,10 @@ struct PhotoArchiveView: View {
         } else if unmeasured > 0 {
             Button("Check sizes of \(unmeasured) items", action: measureSelection)
         }
-        if !toGoogle, let available = comparison.available {
+        if !toOnline, let available = comparison.available {
             LabeledContent("Available space", value: formattedBytes(available))
         }
-        if !toGoogle {
+        if !toOnline {
             if comparison.fits == false {
                 Label("This selection doesn't fit. Remove items or choose a different folder.", systemImage: "exclamationmark.triangle")
                     .foregroundStyle(Brand.caution)
@@ -1054,7 +1117,7 @@ struct PhotoArchiveView: View {
             }
             .accessibilityIdentifier("archive-allowance")
         }
-        if !toGoogle, !tooBigForDrive.isEmpty {
+        if !toOnline, !tooBigForDrive.isEmpty {
             Text("\(tooBigForDrive.count) selected \(tooBigForDrive.count == 1 ? "item is" : "items are") over 4 GB, too big for this FAT32 drive. Remove \(tooBigForDrive.count == 1 ? "it" : "them") or use an ExFAT drive.")
                 .font(.footnote).foregroundStyle(Brand.caution)
         }
@@ -1083,7 +1146,7 @@ struct PhotoArchiveView: View {
                 }
                 .sheet(isPresented: $showRunDetails) { detailsSheet }
         } else {
-            ArchiveProgressView(run: run, usesDrive: destinationKind == .google)
+            ArchiveProgressView(run: run, usesDrive: destinationKind == .google || destinationKind?.cloud != nil)
         }
     }
 
@@ -1300,6 +1363,79 @@ struct PhotoArchiveView: View {
             archiveConsent = false
         } else {
             add(item)
+        }
+    }
+
+    /// Uploads each item to OneDrive or Dropbox and matches the service's own fingerprint of what it stored.
+    private func beginCloudCopy(_ service: CloudService) {
+        let account = account(service)
+        guard !busy, archiveConsent, account.connected, !items.isEmpty else { return }
+        let selection = items.map { item in
+            if case let .photo(id, nil) = item.source, let measured = checkedPhotos[item.id] {
+                return ArchiveItem(id: item.id, name: item.name, source: .photo(id, expected: measured))
+            }
+            return item
+        }
+        archiveConsent = false
+        guard let operation = authorize("archive copy to \(service.name)", count: selection.count) else { return }
+        busy = true
+        message = nil
+        restoreTarget = nil
+        run.start(selection.count)
+        showRun = true
+        UIApplication.shared.isIdleTimerDisabled = true
+        Task {
+            let started = Date()
+            var records: [ArchivedRecord] = []
+            var copies: [String: ArchivedRecord] = [:]
+            var problems: [String] = []
+            var copiedItems: [ArchiveItem] = []
+            await withTaskGroup(of: (ArchiveItem, Result<CloudUpload, Error>).self) { group in
+                var waiting = selection[...]
+                var running = 0
+                while true {
+                    while running < Self.copiesAtOnce, !run.stopping, let item = waiting.popFirst() {
+                        run.currentID = Self.photoID(item)
+                        running += 1
+                        let token = try? await account.accessToken()
+                        group.addTask {
+                            guard let token else { return (item, .failure(CloudError.notConnected(service.name))) }
+                            return (item, await Result(awaiting: { try await CloudArchive.upload(item, to: service, token: token) }))
+                        }
+                    }
+                    guard let next = await group.next() else { break }
+                    let (item, outcome) = next
+                    running -= 1
+                    switch outcome {
+                    case .success(let uploaded):
+                        let record = ArchivedRecord(id: UUID().uuidString, name: uploaded.name, folderName: service.name,
+                                                    bytes: uploaded.fingerprint.bytes, digest: uploaded.fingerprint.digest, date: Date(),
+                                                    viaHomeServer: false, folderBookmark: nil, driveFileID: uploaded.fileID,
+                                                    photoID: Self.photoID(item), cloud: service, cloudHash: uploaded.serviceHash)
+                        records.append(record)
+                        copiedItems.append(item)
+                        run.copied += 1
+                        run.bytes += record.bytes
+                        // Saved as each item finishes, so an interrupted run keeps what it already copied.
+                        if Self.save(record) { copies[item.id] = record } else { problems.append(Self.notSaved(item)) }
+                    case .failure(let error):
+                        problems.append("\(item.name) — \(error.localizedDescription)")
+                    }
+                    run.tried += 1
+                }
+            }
+            refreshArchivedBytes()
+            let copiedIDs = Set(copiedItems.map(\.id))
+            failures = problems
+            items.removeAll { copiedIDs.contains($0.id) }
+            message = nil
+            let completion = records.isEmpty ? nil : ArchiveCompletion(items: copiedItems, bytes: records.reduce(0) { $0 + $1.bytes },
+                                                                       place: service.name, driveFolderID: nil, copies: copies)
+            run.outcome = ArchiveOutcome(completion: completion, failures: problems,
+                                         left: run.stopping ? selection.count - run.tried : 0, place: service.name)
+            recordOutcome("Archive copy to \(service.name) \(operation) completed. Verified \(records.count) of \(selection.count) items in \(Self.seconds(since: started)).")
+            UIApplication.shared.isIdleTimerDisabled = false
+            busy = false
         }
     }
 
