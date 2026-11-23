@@ -19,6 +19,7 @@ final class ArchiveRun: ObservableObject {
         currentID = nil
         stopping = false
         outcome = nil
+        ArchiveLive.shared.reset()
     }
 }
 
@@ -59,6 +60,22 @@ struct ArchiveProgressView: View {
                 .accessibilityIdentifier("archive-progress")
             Text("copied and checked · \(run.bytes.fileSize)")
                 .foregroundStyle(ArchiveStyle.muted)
+            // Live activity, so a long first item never looks like nothing is happening.
+            TimelineView(.periodic(from: .now, by: 1)) { _ in
+                let live = ArchiveLive.shared.now
+                VStack(spacing: 4) {
+                    if live.downloading > 0 {
+                        Label("Downloading \(live.downloading.formatted()) from iCloud · \(Int(live.fraction * 100))%", systemImage: "icloud.and.arrow.down")
+                            .accessibilityIdentifier("archive-downloading")
+                    }
+                    if live.written > 0 {
+                        Text("\(live.written.fileSize) written so far")
+                    }
+                }
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(ArchiveStyle.muted)
+                .monospacedDigit()
+            }
             if run.tried > run.copied {
                 Text("\((run.tried - run.copied).formatted()) couldn't be copied. Details at the end.")
                     .font(.footnote).foregroundStyle(Brand.caution)

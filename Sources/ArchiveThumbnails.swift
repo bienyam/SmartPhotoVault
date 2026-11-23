@@ -50,12 +50,14 @@ enum ArchiveThumbnails {
     /// Starts `remember` without waiting for it.
     static func rememberSoon(_ photoIDs: [String]) {
         guard !photoIDs.isEmpty else { return }
-        Task.detached(priority: .utility) { await remember(photoIDs) }
+        Task.detached(priority: .background) { await remember(photoIDs) }
     }
 
     private static func picture(of asset: PHAsset) async -> UIImage? {
         let options = PHImageRequestOptions()
-        options.isNetworkAccessAllowed = true
+        // Local only: Photos keeps a small version of every picture on the device, and an iCloud
+        // download here would compete with archive copies for the same connection.
+        options.isNetworkAccessAllowed = false
         options.deliveryMode = .highQualityFormat
         options.resizeMode = .fast
         return await withCheckedContinuation { done in
