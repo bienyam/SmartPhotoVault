@@ -61,6 +61,19 @@ final class StoreScreenshotsUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["copy-summary"].waitForExistence(timeout: 10))
         sleep(1)
         keep(app, "store-06-copy")
+        app.terminate()
+
+        // For App Review: where Pro is bought (the in-app purchase review screenshot).
+        app = XCUIApplication()
+        app.launchArguments += ["--skip-welcome", "--ui-fast"]
+        app.launch()
+        app.tabBars.buttons["More"].tap()
+        let pro = app.buttons["more-pro"]
+        XCTAssertTrue(pro.waitForExistence(timeout: 10))
+        pro.tap()
+        XCTAssertTrue(app.navigationBars["TidyAway Pro"].waitForExistence(timeout: 10))
+        sleep(3)
+        keep(app, "store-review-pro")
     }
 
     private func keep(_ app: XCUIApplication, _ name: String) {
