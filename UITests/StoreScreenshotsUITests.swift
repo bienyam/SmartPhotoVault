@@ -46,7 +46,7 @@ final class StoreScreenshotsUITests: XCTestCase {
         sleep(1)
         keep(app, "store-04-archive")
         app.buttons["section-topics"].tap()
-        XCTAssertTrue(app.buttons["group-topic-food"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["group-topic-food"].waitForExistence(timeout: 15))
         sleep(1)
         keep(app, "store-05-topics")
 

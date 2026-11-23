@@ -42,10 +42,12 @@ enum DemoLibrary {
     }
 
     static var snapshot: ScanSnapshot {
-        // Sizes like real photos and videos, so sample screens and App Store pictures read naturally.
+        // App Store pictures use sizes like real photos and videos; tests keep the tiny ones they were written for.
+        let lifelike = LaunchFlags.has("--store-pictures")
         func resource(_ contents: String, type: Int = 1, size: Int64? = nil) -> ResourceFingerprint {
             let data = Data(contents.utf8)
-            return ResourceFingerprint(type: type, digest: SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(), bytes: size ?? Int64(data.count))
+            return ResourceFingerprint(type: type, digest: SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(),
+                                       bytes: lifelike ? (size ?? Int64(data.count)) : Int64(data.count))
         }
         func asset(_ id: String, _ name: String, _ favorite: Bool, _ resources: [ResourceFingerprint], issue: String? = nil,
                    mediaType: PHAssetMediaType = .image, subtypes: PHAssetMediaSubtype = [], animated: Bool = false,
