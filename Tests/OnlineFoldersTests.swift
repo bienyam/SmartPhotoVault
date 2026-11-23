@@ -11,7 +11,7 @@ final class OnlineFoldersTests: XCTestCase {
 
     func testPathsAreShownInsideTidyAwaysOwnFolder() {
         let folder = OnlineFolder(id: "Trips/Beach", path: "Trips/Beach")
-        XCTAssertEqual(folder.shown(in: .oneDrive), "OneDrive › Apps › TidyAway › Trips › Beach")
+        XCTAssertEqual(folder.shown(in: .oneDrive), "OneDrive › My files › TidyAway › Trips › Beach")
         XCTAssertEqual(folder.label(in: .dropbox), "Dropbox › Trips › Beach")
         XCTAssertEqual(OnlineFolder.root.shown(in: .dropbox), "Dropbox › Apps › TidyAway")
         XCTAssertEqual(OnlineFolder.root.label(in: .oneDrive), "OneDrive")
