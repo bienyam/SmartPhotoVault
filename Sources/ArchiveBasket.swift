@@ -23,9 +23,16 @@ final class ArchiveBasket: ObservableObject {
 
 /// Pro for everyone testing a TestFlight build, so every feature can be tried.
 enum TesterAccess {
-    /// MUST be false in the build sent to App Review: Apple reviews in the same test environment as
-    /// TestFlight, and a reviewer has to be able to see and buy Pro. Tracked in the App Review checklist.
+    /// On in TestFlight builds, off in builds for App Review. Apple reviews in the same test
+    /// environment as TestFlight and a reviewer has to be able to buy Pro, so the switch is set when
+    /// the build is made: app-store.yml compiles TESTER_ACCESS in unless `review_build` is ticked,
+    /// and review builds get a build number ending in .9. Even when compiled in, it only unlocks in
+    /// the test environment, never for App Store customers.
+    #if TESTER_ACCESS
+    static let enabled = true
+    #else
     static let enabled = false
+    #endif
 }
 
 /// Test-only launch switches (sample data, skipping the welcome). Always off in builds for the App Store.

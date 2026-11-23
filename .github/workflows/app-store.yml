@@ -12,6 +12,10 @@ on:
         description: Sign and upload to App Store Connect
         type: boolean
         default: false
+      review_build:
+        description: Build for App Review (tester access off, build number ends in .9)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -79,7 +83,9 @@ jobs:
     timeout-minutes: 25
     env:
       DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
-      BUILD_NUMBER: ${{ github.run_number }}.${{ github.run_attempt }}
+      BUILD_NUMBER: ${{ github.run_number }}.${{ github.run_attempt }}${{ inputs.review_build && '.9' || '' }}
+      # TestFlight builds unlock Pro for testers; App Review builds must not.
+      TESTER_FLAG: ${{ !inputs.review_build && 'TESTER_ACCESS' || '' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -103,7 +109,9 @@ jobs:
             -configuration Release -destination 'generic/platform=iOS' \
             -archivePath build/SmartPhotoVault.xcarchive \
             CURRENT_PROJECT_VERSION="$BUILD_NUMBER" DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            SWIFT_ACTIVE_COMPILATION_CONDITIONS="$TESTER_FLAG" \
             CODE_SIGNING_ALLOWED=NO
+          echo "Build $BUILD_NUMBER, tester access: ${TESTER_FLAG:-off (App Review build)}"
       - name: Verify archive SDK
         run: |
           plist=build/SmartPhotoVault.xcarchive/Products/Applications/SmartPhotoVault.app/Info.plist

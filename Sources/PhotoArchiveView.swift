@@ -330,11 +330,11 @@ struct PhotoArchiveView: View {
             if snapshot.albums != nil {
                 HStack(spacing: 10) {
                     Button { if pro.unlocked { path.append(ArchiveRoute.albums) } else { showPro = true } } label: {
-                        Label("Albums", systemImage: pro.unlocked ? "rectangle.stack" : "lock")
+                        Label("Albums", systemImage: pro.looksUnlocked ? "rectangle.stack" : "lock")
                     }
                     .accessibilityIdentifier("archive-albums")
                     Button { if pro.unlocked { path.append(ArchiveRoute.filter) } else { showPro = true } } label: {
-                        Label("Places", systemImage: pro.unlocked ? "map" : "lock")
+                        Label("Places", systemImage: pro.looksUnlocked ? "map" : "lock")
                     }
                     .accessibilityIdentifier("archive-places")
                 }
@@ -352,7 +352,7 @@ struct PhotoArchiveView: View {
         HStack(spacing: 8) {
             Text(text).font(.title3.weight(.heavy)).foregroundStyle(ArchiveStyle.ink)
                 .accessibilityAddTraits(.isHeader)
-            if !pro.unlocked {
+            if !pro.looksUnlocked {
                 Text("PRO").font(.caption.weight(.heavy))
                     .foregroundStyle(ArchiveStyle.onAction)
                     .padding(.horizontal, 8).padding(.vertical, 3)
@@ -912,7 +912,7 @@ struct PhotoArchiveView: View {
                         place = nil
                         showSuggestions(from: snapshot)
                     } label: {
-                        Label("Suggest large videos", systemImage: pro.unlocked ? "film.stack" : "lock")
+                        Label("Suggest large videos", systemImage: pro.looksUnlocked ? "film.stack" : "lock")
                     }
                     .accessibilityIdentifier("archive-suggest-videos")
                 }
