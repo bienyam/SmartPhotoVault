@@ -79,6 +79,17 @@ final class VerifiedArchiveTests: XCTestCase {
         }
     }
 
+    func testABatchCopiesWithoutFlushingEachFileThenFlushesOnce() throws {
+        try withFolders { source, archive, _ in
+            try Data(repeating: 9, count: 50_000).write(to: source)
+            let item = ArchiveItem(id: "test", name: source.lastPathComponent, source: .file(source))
+            let receipt = try VerifiedArchive.copy(item, to: archive, flush: false)
+            XCTAssertEqual(try VerifiedArchive.storedSize(of: receipt.url), 50_000)
+            XCTAssertNoThrow(try VerifiedArchive.flushDrive(receipt.url, in: archive))
+            XCTAssertThrowsError(try VerifiedArchive.flushDrive(archive.appendingPathComponent("gone"), in: archive))
+        }
+    }
+
     func testChangedCopyNoLongerMatchesItsStamp() throws {
         try withFolders { source, archive, _ in
             try Data([1, 2, 3]).write(to: source)
