@@ -12,6 +12,8 @@ struct ArchiveItem: Identifiable, Sendable {
     let id: String
     let name: String
     let source: ArchiveSource
+    /// The size the scan recorded, when known. OneDrive needs it before the upload starts.
+    var size: Int64? = nil
 
     var sourceLabel: String {
         switch source {
