@@ -463,6 +463,7 @@ enum CloudArchive {
         while let piece = try handle.read(upToCount: pieceSize), !piece.isEmpty {
             try await each(piece, offset)
             offset += Int64(piece.count)
+            ArchiveLive.shared.uploaded(piece.count)
         }
     }
 }

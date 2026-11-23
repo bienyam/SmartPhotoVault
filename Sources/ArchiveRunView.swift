@@ -69,7 +69,11 @@ struct ArchiveProgressView: View {
                             .accessibilityIdentifier("archive-downloading")
                     }
                     if live.written > 0 {
-                        Text("\(live.written.fileSize) written so far")
+                        Text("\(live.written.fileSize) read from Photos so far")
+                    }
+                    let sent = ArchiveLive.shared.uploadedBytes
+                    if sent > 0 {
+                        Text("\(sent.fileSize) uploaded so far")
                     }
                 }
                 .font(.footnote.weight(.semibold))

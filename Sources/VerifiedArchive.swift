@@ -414,10 +414,18 @@ final class ArchiveLive: @unchecked Sendable {
     static let shared = ArchiveLive()
     private let lock = NSLock()
     private var written: Int64 = 0
+    private var sent: Int64 = 0
     private var downloads: [String: Double] = [:]
 
-    func reset() { lock.lock(); written = 0; downloads = [:]; lock.unlock() }
+    func reset() { lock.lock(); written = 0; sent = 0; downloads = [:]; lock.unlock() }
     func wrote(_ count: Int) { lock.lock(); written += Int64(count); lock.unlock() }
+    /// Bytes accepted by OneDrive or Dropbox.
+    func uploaded(_ count: Int) { lock.lock(); sent += Int64(count); lock.unlock() }
+
+    var uploadedBytes: Int64 {
+        lock.lock(); defer { lock.unlock() }
+        return sent
+    }
     /// Pass nil when the item is done.
     func downloading(_ id: String, _ fraction: Double?) {
         lock.lock(); downloads[id] = fraction; lock.unlock()
