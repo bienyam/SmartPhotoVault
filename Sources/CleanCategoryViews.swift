@@ -8,7 +8,7 @@ struct MessagesAttachmentsGuide: View {
                 Text("Photos, videos and GIFs you send and receive in Messages are stored inside Messages, separate from your Photos library. They can take a lot of space without showing up in Photos.")
             }
             Section("Clear large attachments") {
-                step(1, "Open Settings, then General, then iPhone Storage.")
+                step(1, "Open Settings, then General, then \(Device.name) Storage.")
                 step(2, "Wait for the list to load, then tap Messages.")
                 step(3, "Tap Review Large Attachments, or open Photos, Videos, or GIFs and Stickers.")
                 step(4, "Tap Edit, select what you don't need, and tap Delete.")

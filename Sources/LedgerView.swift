@@ -21,7 +21,7 @@ struct LedgerView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 InfoButton(title: "Activity",
-                           text: "Everything you approved and what happened, newest first. This history stays on your iPhone and never includes file names.")
+                           text: "Everything you approved and what happened, newest first. This history stays on your \(Device.name) and never includes file names.")
             }
         }
         .onAppear { model.reloadActivity() }

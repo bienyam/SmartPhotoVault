@@ -72,8 +72,8 @@ struct CloudDownloadRemovalView: View {
                     LabeledContent("Selected file", value: plan.name)
                     LabeledContent("File size", value: ByteCountFormatter.string(fromByteCount: plan.size, countStyle: .file))
                     LabeledContent("Original stays in", value: "iCloud Drive")
-                    Text("This file will need an internet connection to open again on this iPhone. The file size is not a promise of how much space iOS will reclaim.")
-                    Toggle("I understand and authorize removing this iPhone download", isOn: $confirms)
+                    Text("This file will need an internet connection to open again on this \(Device.name). The file size is not a promise of how much space iOS will reclaim.")
+                    Toggle("I understand and authorize removing this \(Device.name) download", isOn: $confirms)
                     Button("Remove this download") { authorize(plan) }
                         .disabled(!confirms)
                     Button("Cancel review", role: .cancel) {

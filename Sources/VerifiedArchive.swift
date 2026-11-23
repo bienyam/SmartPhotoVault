@@ -40,7 +40,7 @@ enum ArchiveError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .unsupportedPhoto: "Only JPEG and HEIC photos and single-file videos available on this iPhone can be copied. Live Photos, slo-mo and edited videos aren't supported yet."
+        case .unsupportedPhoto: "Only JPEG and HEIC photos and single-file videos available on this \(Device.name) can be copied. Live Photos, slo-mo and edited videos aren't supported yet."
         case .missingFile: "Choose an accessible regular file."
         case .conflict: "A file with that name already exists. Choose a different folder."
         case .verification: "The copied bytes did not match the original."

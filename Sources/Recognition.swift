@@ -147,7 +147,7 @@ extension SmartGrouper {
         let ready = all.filter(canArchive)
         guard ready.count >= 5 else { return nil }
         return SmartGroup(id: "same-shots", kind: .sameShots, title: "Lots of the same shot",
-                          reason: "Taken seconds apart and look alike. The sharpest one stays on your iPhone",
+                          reason: "Taken seconds apart and look alike. The sharpest one stays on your \(Device.name)",
                           records: ready, notYet: all.count - ready.count, when: "Best one stays")
     }
 

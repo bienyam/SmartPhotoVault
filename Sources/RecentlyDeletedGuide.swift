@@ -115,7 +115,7 @@ struct RecentlyDeletedGuide: View {
                 VStack(alignment: .leading, spacing: 18) {
                     Text("Empty Recently Deleted").font(.largeTitle.bold())
                         .accessibilityAddTraits(.isHeader)
-                    Text("Photos you delete wait here for up to 30 days and still use space. iPhone doesn't let apps open or empty this album, so here is the quickest way. It takes about a minute.")
+                    Text("Photos you delete wait here for up to 30 days and still use space. \(Device.name) doesn't let apps open or empty this album, so here is the quickest way. It takes about a minute.")
                         .foregroundStyle(.secondary)
                     if RecentRemovals.bytes() > 0 {
                         Label("TidyAway moved about \(RecentRemovals.bytes().fileSize) there in the last 30 days.", systemImage: "info.circle")
@@ -167,10 +167,10 @@ struct RecentlyDeletedGuide: View {
             VStack(alignment: .leading, spacing: 2) {
                 if let gained {
                     Text("About \(gained.fileSize) came back").font(.title3.bold())
-                    Text("Free space on this iPhone since you opened this guide.").font(.footnote).foregroundStyle(.secondary)
+                    Text("Free space on this \(Device.name) since you opened this guide.").font(.footnote).foregroundStyle(.secondary)
                 } else {
                     Text("No change yet").font(.title3.bold())
-                    Text("If you emptied it, iPhone can take a few minutes to show the space. Measure again soon.")
+                    Text("If you emptied it, \(Device.name) can take a few minutes to show the space. Measure again soon.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }

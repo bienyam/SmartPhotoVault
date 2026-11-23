@@ -98,7 +98,7 @@ struct DialButton: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Free up space")
-            .accessibilityHint("Checks photos on this iPhone")
+            .accessibilityHint("Checks photos on this \(Device.name)")
             .accessibilityIdentifier("free-up-space")
         }
     }

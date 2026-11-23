@@ -88,14 +88,14 @@ struct ArchivedRemovalView: View {
                         .foregroundStyle(Brand.safe)
                         .accessibilityIdentifier("archive-recheck-ok")
                 } else {
-                    Text("Nothing can be deleted right now. Your originals stay on this iPhone.")
+                    Text("Nothing can be deleted right now. Your originals stay on this \(Device.name).")
                 }
                 if !checking, total < done.photoIDs.count {
-                    Text("Favorites stay on your iPhone.").font(.footnote).foregroundStyle(.secondary)
+                    Text("Favorites stay on your \(Device.name).").font(.footnote).foregroundStyle(.secondary)
                 }
             }
             if !checking, !staying.isEmpty {
-                Section("Staying on this iPhone") {
+                Section("Staying on this \(Device.name)") {
                     ForEach(staying) { item in
                         VStack(alignment: .leading, spacing: 2) {
                             Text(item.name)
@@ -174,7 +174,7 @@ struct ArchivedRemovalView: View {
             }
         }
         guard !Task.isCancelled else { return }
-        try? InventoryStore.openDefault().log("Checked \(candidates.count) archive copies before removal: \(exact.count) confirmed, \(kept.count) kept on this iPhone.")
+        try? InventoryStore.openDefault().log("Checked \(candidates.count) archive copies before removal: \(exact.count) confirmed, \(kept.count) kept on this \(Device.name).")
         proofs = exact
         staying = kept
         checkedAt = Date()

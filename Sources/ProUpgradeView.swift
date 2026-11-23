@@ -29,7 +29,7 @@ struct ProUpgradeView: View {
             Section {
                 ProPurchaseControls()
             } footer: {
-                Text("Pro is optional. Cleaning up your iPhone and getting your photos back stay free.")
+                Text("Pro is optional. Cleaning up your \(Device.name) and getting your photos back stay free.")
             }
         }
         .navigationTitle("TidyAway Pro")
