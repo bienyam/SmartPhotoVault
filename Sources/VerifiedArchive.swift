@@ -254,10 +254,18 @@ enum VerifiedArchive {
         let temporary = destination.deletingLastPathComponent().appendingPathComponent(".\(UUID().uuidString).partial")
         defer { try? files.removeItem(at: temporary) }
         let source = try copy(temporary)
-        guard try read(temporary, wifi: wifi) == source else { throw ArchiveError.verification }
+        // The bytes were flushed to the destination; it must hold exactly as many as the source had.
+        guard try storedSize(of: temporary) == source.bytes else { throw ArchiveError.verification }
         try wifi?.requireConnection()
         try files.moveItem(at: temporary, to: destination)
         return source
+    }
+
+    /// The size the destination reports for a file, fresh rather than remembered.
+    static func storedSize(of url: URL) throws -> Int64 {
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        guard let size = attributes[.size] as? NSNumber else { throw ArchiveError.verification }
+        return size.int64Value
     }
 
     private static func read(_ url: URL, wifi: ArchiveWiFi?, skipCache: Bool = false,

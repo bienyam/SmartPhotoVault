@@ -38,14 +38,14 @@ struct AssetThumbnail: View {
         let assets = PHAsset.fetchAssets(withLocalIdentifiers: [assetID], options: nil)
         guard let asset = assets.firstObject else { return }
         let options = PHImageRequestOptions()
-        options.isNetworkAccessAllowed = false
+        options.isNetworkAccessAllowed = true
         options.deliveryMode = .opportunistic
         options.resizeMode = .fast
         requestID = PHImageManager.default().requestImage(for: asset,
                                                         targetSize: CGSize(width: 192, height: 192),
                                                         contentMode: .aspectFill,
                                                         options: options) { thumbnail, info in
-            guard (info?[PHImageCancelledKey] as? Bool) != true else { return }
+            guard (info?[PHImageCancelledKey] as? Bool) != true, let thumbnail else { return }
             DispatchQueue.main.async {
                 guard isVisible else { return }
                 image = thumbnail

@@ -18,6 +18,8 @@ struct PhotoInsight: Codable, Equatable, Sendable {
     var closeFace = false
     /// The photo just before this one, when they look nearly the same.
     var sameAs: String?
+    /// Average light, 0 (black) to 255. Nil for results read before it was measured.
+    var brightness: Double?
 }
 
 /// Facts Photos gives for free, read again each time groups are made.
@@ -133,6 +135,7 @@ actor InsightReader {
         guard item.image else { return insight }
         insight.closeFace = (faces.results ?? []).contains { $0.boundingBox.width * $0.boundingBox.height > 0.08 }
         insight.sharpness = Self.sharpness(of: picture)
+        insight.brightness = Self.brightness(of: picture)
         guard let mark = print.results?.first else {
             previous = nil
             return insight
@@ -158,6 +161,16 @@ actor InsightReader {
         PHImageManager.default().requestImage(for: asset, targetSize: CGSize(width: 360, height: 360),
                                               contentMode: .aspectFit, options: options) { picture, _ in image = picture }
         return image?.cgImage
+    }
+
+    /// Average light over the whole picture, 0 to 255.
+    static func brightness(of image: CGImage) -> Double {
+        let side = 32
+        var pixels = [UInt8](repeating: 0, count: side * side)
+        guard let context = CGContext(data: &pixels, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side,
+                                      space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return 0 }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
+        return Double(pixels.reduce(0) { $0 + Int($1) }) / Double(pixels.count)
     }
 
     /// How much fine detail there is: the spread of the differences between neighboring points.

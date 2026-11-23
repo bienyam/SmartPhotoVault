@@ -68,24 +68,26 @@ struct CleanupListView: View {
         .safeAreaInset(edge: .bottom) {
             if allowsRemoval && !items.isEmpty {
                 VStack(spacing: 0) {
-                    if !selectedRecords.isEmpty {
-                        // Copy them off first: archiving removes nothing, and the copy screen checks everything.
-                        Button {
-                            ArchiveBasket.shared.send(selectedRecords)
-                        } label: {
-                            Label("Archive \(selectedRecords.count.formatted()) first · \(selectedBytes.fileSize)",
-                                  systemImage: "externaldrive.badge.plus")
-                        }
-                        .buttonStyle(ArchiveOutlineStyle())
-                        .disabled(working)
-                        .padding(.horizontal, 16)
-                        .padding(.top, 10)
-                        .background(.regularMaterial)
-                        .accessibilityIdentifier("archive-selected")
-                    }
                     RemovalBar(count: selectedRecords.count, bytes: selectedBytes,
                                fullText: RemovalDisclosure.items(count: selectedRecords.count, from: source),
                                working: working, message: message, agreed: $agreed, delete: delete)
+                    if !selectedRecords.isEmpty {
+                        // The alternative to deleting: copy them off with Archive. Archiving removes nothing.
+                        Button {
+                            ArchiveBasket.shared.send(selectedRecords)
+                        } label: {
+                            Label("Or archive \(selectedRecords.count == 1 ? "it" : "them") instead", systemImage: "externaldrive.badge.plus")
+                                .font(.subheadline.weight(.semibold))
+                                .frame(maxWidth: .infinity, minHeight: 36)
+                        }
+                        .buttonStyle(.borderless)
+                        .tint(ArchiveStyle.link)
+                        .disabled(working)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 8)
+                        .background(.regularMaterial)
+                        .accessibilityIdentifier("archive-selected")
+                    }
                 }
             }
         }

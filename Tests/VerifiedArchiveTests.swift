@@ -66,6 +66,19 @@ final class VerifiedArchiveTests: XCTestCase {
         }
     }
 
+    /// Owner, 2026-11-22: the copy is confirmed by its size on the destination, to the byte.
+    func testCopyIsConfirmedByItsExactSizeOnTheDestination() throws {
+        try withFolders { source, archive, _ in
+            try Data(repeating: 7, count: 123_457).write(to: source)
+            let item = ArchiveItem(id: "test", name: source.lastPathComponent, source: .file(source))
+            let receipt = try VerifiedArchive.copy(item, to: archive)
+            XCTAssertEqual(receipt.fingerprint.bytes, 123_457)
+            XCTAssertEqual(try VerifiedArchive.storedSize(of: receipt.url), 123_457)
+            try Data(repeating: 7, count: 123_456).write(to: receipt.url)
+            XCTAssertEqual(try VerifiedArchive.storedSize(of: receipt.url), 123_456, "One byte short shows.")
+        }
+    }
+
     func testChangedCopyNoLongerMatchesItsStamp() throws {
         try withFolders { source, archive, _ in
             try Data([1, 2, 3]).write(to: source)
