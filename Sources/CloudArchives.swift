@@ -394,9 +394,53 @@ enum CloudArchive {
     /// Pieces sent at a time: 10 MiB suits both (OneDrive needs multiples of 320 KiB, Dropbox of 4 MiB is ideal).
     static let pieceSize = 32 * 327_680
 
-    /// Copies an item to a temporary file on the iPhone first (fingerprinted and checked as with any
-    /// archive copy), then uploads that file and matches the service's fingerprint of what it stored.
+    /// Streams the item straight to the service in pieces as Photos hands them over, so no copy needs
+    /// room on the iPhone, then matches the service's fingerprint of what it stored. OneDrive needs the
+    /// size up front; when it isn't known, or the item turns out a different size, it goes the older way.
     static func upload(_ item: ArchiveItem, to service: CloudService, token: String) async throws -> CloudUpload {
+        do {
+            return try await streamed(item, to: service, token: token)
+        } catch CloudStreamError.sizeChanged {
+            return try await throughFile(item, to: service, token: token)
+        }
+    }
+
+    private static func streamed(_ item: ArchiveItem, to service: CloudService, token: String) async throws -> CloudUpload {
+        switch service {
+        case .oneDrive:
+            guard let total = CloudStream.knownSize(of: item), total > 0 else { throw CloudStreamError.sizeChanged }
+            let sent = try await Task.detached(priority: .userInitiated) { try CloudStream.oneDrive(item, total: total, token: token) }.value
+            try check(item, sent.fingerprint)
+            // OneDrive may need a moment to fingerprint a new file.
+            var stored = try await OneDriveClient.stored(sent.stored.id, token: token)
+            for wait in [1, 2, 4] where stored.hash == nil {
+                try await Task.sleep(nanoseconds: UInt64(wait) * 1_000_000_000)
+                stored = try await OneDriveClient.stored(sent.stored.id, token: token)
+            }
+            guard stored.bytes == sent.fingerprint.bytes else { throw CloudError.verification(service.name) }
+            guard let hash = stored.hash else { throw CloudError.notConfirmedYet(service.name) }
+            guard sameHash(hash, sent.local, service: service) else { throw CloudError.verification(service.name) }
+            return CloudUpload(fileID: sent.stored.id, name: sent.stored.name ?? item.name, fingerprint: sent.fingerprint, serviceHash: sent.local)
+        case .dropbox:
+            let sent = try await Task.detached(priority: .userInitiated) { try CloudStream.dropbox(item, token: token) }.value
+            try check(item, sent.fingerprint)
+            guard sent.size == sent.fingerprint.bytes else { throw CloudError.verification(service.name) }
+            guard let hash = sent.hash else { throw CloudError.notConfirmedYet(service.name) }
+            guard sameHash(hash, sent.local, service: service) else { throw CloudError.verification(service.name) }
+            return CloudUpload(fileID: sent.id, name: sent.name, fingerprint: sent.fingerprint, serviceHash: sent.local)
+        }
+    }
+
+    /// A photo the scan read in full must arrive exactly as it was read.
+    private static func check(_ item: ArchiveItem, _ fingerprint: ArchiveFingerprint) throws {
+        if case let .photo(_, expected) = item.source, let expected,
+           fingerprint != ArchiveFingerprint(bytes: expected.bytes, digest: expected.digest) {
+            throw ArchiveError.verification
+        }
+    }
+
+    /// The older way: a temporary copy on the iPhone, then the upload. Needs room for the item.
+    private static func throughFile(_ item: ArchiveItem, to service: CloudService, token: String) async throws -> CloudUpload {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("TidyAwayUpload-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }

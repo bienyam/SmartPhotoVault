@@ -660,7 +660,8 @@ struct PhotoArchiveView: View {
         var known = Set(items.map(\.id))
         for record in records where known.insert(record.id).inserted {
             items.append(ArchiveItem(id: record.id, name: record.filename,
-                                     source: .photo(record.id, expected: record.inICloud ? nil : record.resources.first)))
+                                     source: .photo(record.id, expected: record.inICloud ? nil : record.resources.first),
+                                     size: record.displayBytes > 0 ? record.displayBytes : nil))
             if record.inICloud, let size = record.cloudBytes { measuredBytes[record.id] = size }
         }
         archiveConsent = false
@@ -1347,7 +1348,8 @@ struct PhotoArchiveView: View {
         }
         suggested = records.compactMap { record -> ArchiveItem? in
             guard let name = names[record.id] else { return nil }
-            return ArchiveItem(id: record.id, name: name, source: .photo(record.id, expected: record.resources.first))
+            return ArchiveItem(id: record.id, name: name, source: .photo(record.id, expected: record.resources.first),
+                               size: record.displayBytes > 0 ? record.displayBytes : nil)
         }
         showSuggested = true
     }
