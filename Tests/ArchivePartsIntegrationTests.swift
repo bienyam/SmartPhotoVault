@@ -128,9 +128,37 @@ final class ArchivePartsIntegrationTests: XCTestCase {
         XCTAssertEqual(back.first?.digest, scanned.first?.digest, "The original still came back byte for byte.")
         for (returned, original) in zip(back, scanned) {
             print("PARTS|\(label)|type \(original.type) came back byte for byte: \(returned.digest == original.digest && returned.bytes == original.bytes)")
-            XCTAssertEqual(returned, original, "Every file of the item that came back is the original's, byte for byte.")
+            if original.type == adjustment {
+                // Photos keeps an edit's instructions in its own library and writes the file out again,
+                // so the bytes can differ. What must come back unchanged is the edit inside it.
+                let before = try await edit(in: id), after = try await edit(in: newID)
+                print("PARTS|\(label)|edit file keys \(before.keys.sorted()), whole file content equal: \(NSDictionary(dictionary: before).isEqual(to: after))")
+                XCTAssertEqual(after["adjustmentData"] as? Data, before["adjustmentData"] as? Data, "The edit itself came back unchanged.")
+                XCTAssertNotNil(after["adjustmentData"] as? Data)
+                XCTAssertEqual(after["adjustmentFormatIdentifier"] as? String, before["adjustmentFormatIdentifier"] as? String)
+                XCTAssertEqual(after["adjustmentFormatVersion"] as? String, before["adjustmentFormatVersion"] as? String)
+            } else {
+                XCTAssertEqual(returned, original, "The pictures and videos that came back are the originals, byte for byte.")
+            }
         }
         return newID
+    }
+
+    /// The edit instructions Photos holds for an item, read from its adjustment file.
+    @MainActor
+    private func edit(in id: String) async throws -> [String: Any] {
+        let asset = try XCTUnwrap(PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject)
+        let resource = try XCTUnwrap(PHAssetResource.assetResources(for: asset).first { $0.type == .adjustmentData })
+        let box = FixtureDataBox()
+        let data: Data = try await withCheckedThrowingContinuation { continuation in
+            PHAssetResourceManager.default().requestData(for: resource, options: nil) { piece in
+                box.append(piece)
+            } completionHandler: { error in
+                if let error { continuation.resume(throwing: error) } else { continuation.resume(returning: box.data) }
+            }
+        }
+        let list = try PropertyListSerialization.propertyList(from: data, options: [], format: nil)
+        return try XCTUnwrap(list as? [String: Any])
     }
 
     @MainActor
@@ -279,5 +307,12 @@ final class ArchivePartsIntegrationTests: XCTestCase {
     private func fixtureError(_ message: String) -> NSError {
         NSError(domain: "SimulatorFixture", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
     }
+}
+
+private final class FixtureDataBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = Data()
+    func append(_ piece: Data) { lock.lock(); value.append(piece); lock.unlock() }
+    var data: Data { lock.lock(); defer { lock.unlock() }; return value }
 }
 #endif
