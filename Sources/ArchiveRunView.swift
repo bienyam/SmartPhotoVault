@@ -10,6 +10,8 @@ final class ArchiveRun: ObservableObject {
     @Published var currentID: String?
     @Published var stopping = false
     @Published var outcome: ArchiveOutcome?
+    /// What the run is doing once every item is done, such as making sure a drive saved everything.
+    @Published var phase: String?
     /// Failures so far, counted by a short reason, so the screen can say why while the run goes on.
     @Published var reasons: [String: Int] = [:]
 
@@ -49,6 +51,7 @@ final class ArchiveRun: ObservableObject {
         stopping = false
         outcome = nil
         reasons = [:]
+        phase = nil
         ArchiveLive.shared.reset()
     }
 }
@@ -101,6 +104,13 @@ struct ArchiveProgressView: View {
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(Brand.caution)
                 .accessibilityIdentifier("archive-failure-reasons")
+            }
+            if run.total > 0, run.tried >= run.total, run.outcome == nil {
+                Label(run.phase ?? "Finishing up…", systemImage: "hourglass")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(ArchiveStyle.muted)
+                    .symbolEffect(.pulse)
+                    .accessibilityIdentifier("archive-finishing")
             }
             // Live activity, so a long first item never looks like nothing is happening.
             TimelineView(.periodic(from: .now, by: 1)) { _ in

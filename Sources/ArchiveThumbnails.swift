@@ -34,7 +34,7 @@ enum ArchiveThumbnails {
 
     /// Saves pictures for the photos that are still in the library and don't have one yet.
     /// Never throws and never blocks a removal: a missing picture only means a plainer Get back row.
-    static func remember(_ photoIDs: [String]) async {
+    static func remember(_ photoIDs: [String], progress: (@Sendable (_ done: Int, _ total: Int) async -> Void)? = nil) async {
         let missing = Array(Set(photoIDs.filter { !FileManager.default.fileExists(atPath: url(for: $0).path) }))
         guard !missing.isEmpty else { return }
         let access = PHPhotoLibrary.authorizationStatus(for: .readWrite)
@@ -42,8 +42,23 @@ enum ArchiveThumbnails {
         let assets = PHAsset.fetchAssets(withLocalIdentifiers: missing, options: nil)
         var list: [PHAsset] = []
         assets.enumerateObjects { asset, _, _ in list.append(asset) }
-        for asset in list {
-            if let image = await picture(of: asset) { store(image, for: asset.localIdentifier) }
+        let total = list.count
+        var done = 0
+        await withTaskGroup(of: Void.self) { group in
+            var waiting = list[...]
+            var running = 0
+            while true {
+                while running < 6, let asset = waiting.popFirst() {
+                    running += 1
+                    group.addTask {
+                        if let image = await picture(of: asset) { store(image, for: asset.localIdentifier) }
+                    }
+                }
+                guard await group.next() != nil else { break }
+                running -= 1
+                done += 1
+                await progress?(done, total)
+            }
         }
     }
 

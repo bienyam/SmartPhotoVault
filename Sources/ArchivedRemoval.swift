@@ -64,6 +64,10 @@ struct ArchivedRemovalView: View {
     @State private var wifi = ArchiveWiFi()
     /// Bringing one copy back and checking it against its original. Removal waits for it.
     @State private var test = RestoreTest.notYet
+    /// What removal is doing right now, with a count, so a long step never looks stuck.
+    @State private var phase: String?
+    @State private var phaseDone = 0
+    @State private var phaseTotal = 0
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
 
@@ -91,6 +95,13 @@ struct ArchivedRemovalView: View {
                     }
                     .accessibilityIdentifier("archive-recheck")
                     Text("Each copy must still be there, the same size as its original to the byte. Keep this open.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                } else if let phase {
+                    ProgressView(value: Double(phaseDone), total: Double(max(phaseTotal, 1))) {
+                        Text(phaseTotal > 0 ? "\(phase): \(phaseDone) of \(phaseTotal)" : phase)
+                    }
+                    .accessibilityIdentifier("removal-phase")
+                    Text("Keep TidyAway open. This can take a few minutes for a large set.")
                         .font(.footnote).foregroundStyle(.secondary)
                 } else if !proofs.isEmpty {
                     checklist
@@ -177,7 +188,13 @@ struct ArchivedRemovalView: View {
                     running += 1
                     let record = copies[item.id]
                     group.addTask {
-                        (item, await Result(awaiting: { try await ArchiveProver.prove(photoID: id, record: record, wifi: network) }))
+                        (item, await Result(awaiting: {
+                            let proof = try await ArchiveProver.prove(photoID: id, record: record, wifi: network)
+                            // A confirmed copy the person can't see (OneDrive's app folder in work and school
+                            // accounts) is not enough: its original stays.
+                            guard await CopyVisibility.canBeSeen(proof.record) else { throw HiddenCopy() }
+                            return proof
+                        }))
                     }
                 }
                 guard let next = await group.next() else { break }
@@ -193,16 +210,6 @@ struct ArchivedRemovalView: View {
         guard !Task.isCancelled else { return }
         // A copy that is confirmed but kept where the person can't see it (OneDrive's hidden app folder
         // in work and school accounts) is not enough: its original stays.
-        var visible: [ArchiveProof] = []
-        for proof in exact {
-            if await CopyVisibility.canBeSeen(proof.record) {
-                visible.append(proof)
-            } else {
-                kept.append(Staying(id: proof.photoID, name: proof.record.name,
-                                    reason: "Its copy is in OneDrive's app folder (Apps › TidyAway), which OneDrive doesn't always show. Get back can still bring it back. New copies go to My files › TidyAway, where you can see them."))
-            }
-        }
-        exact = visible
         try? InventoryStore.openDefault().log("Checked \(candidates.count) archive copies before removal: \(exact.count) confirmed, \(kept.count) kept on this \(Device.name).")
         proofs = exact
         staying = kept
@@ -272,6 +279,12 @@ struct ArchivedRemovalView: View {
         }
     }
 
+    private func show(_ text: String, total: Int) {
+        phase = text
+        phaseDone = 0
+        phaseTotal = total
+    }
+
     private func remove() {
         let approved = proofs
         let approvedBytes = bytes
@@ -279,20 +292,41 @@ struct ArchivedRemovalView: View {
         working = true
         message = nil
         Task {
-            // One last look at every copy and original. If anything changed, nothing is removed.
-            for proof in approved {
-                do {
-                    try await ArchiveProver.confirm(proof, wifi: wifi)
-                } catch {
-                    try? InventoryStore.openDefault().log("Removal after archiving stopped: a copy or original couldn't be confirmed. Nothing was removed.")
-                    message = "Something changed or couldn't be reached, so nothing was removed. All copies were checked again."
-                    working = false
-                    agreed = false
-                    round += 1
-                    return
+            // One last look at every copy and original, six at a time. If anything changed, nothing is removed.
+            show("Checking each copy once more", total: approved.count)
+            let network = wifi
+            var failed = false
+            await withTaskGroup(of: Bool.self) { group in
+                var waiting = approved[...]
+                var running = 0
+                while true {
+                    while running < 6, !failed, let proof = waiting.popFirst() {
+                        running += 1
+                        group.addTask { (try? await ArchiveProver.confirm(proof, wifi: network)) != nil }
+                    }
+                    guard let ok = await group.next() else { break }
+                    running -= 1
+                    if !ok { failed = true }
+                    phaseDone += 1
                 }
             }
+            if failed {
+                phase = nil
+                try? InventoryStore.openDefault().log("Removal after archiving stopped: a copy or original couldn't be confirmed. Nothing was removed.")
+                message = "Something changed or couldn't be reached, so nothing was removed. All copies were checked again."
+                working = false
+                agreed = false
+                round += 1
+                return
+            }
+            // Small pictures for Get back, kept on this iPhone before the originals go.
+            show("Saving small pictures for Get back", total: approved.count)
+            await ArchiveThumbnails.remember(approved.map(\.photoID)) { done, _ in
+                await MainActor.run { phaseDone = done }
+            }
+            show("Waiting for Apple to ask you to confirm", total: 0)
             let outcome = await model.removeItems(approved.map(\.photoID), bytes: approvedBytes, from: "items archived to \(done.place)")
+            phase = nil
             working = false
             agreed = false
             switch outcome {
@@ -303,5 +337,12 @@ struct ArchivedRemovalView: View {
             case .blocked(let reason): message = reason
             }
         }
+    }
+}
+
+/// A copy that is confirmed but kept where the person can't see it.
+struct HiddenCopy: LocalizedError {
+    var errorDescription: String? {
+        "Its copy is in OneDrive's app folder (Apps › TidyAway), which OneDrive doesn't always show. Get back can still bring it back. New copies go to My files › TidyAway, where you can see them."
     }
 }
