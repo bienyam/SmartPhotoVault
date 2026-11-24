@@ -140,6 +140,19 @@ actor DuplicateScanner {
         return try await hash(resource)
     }
 
+    /// The fingerprint of every file that would be archived for an item, the one that names it first:
+    /// one for a single-file photo or video, several for a Live Photo or an edited photo.
+    func archiveFingerprints(for id: String) async throws -> [ResourceFingerprint] {
+        guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject else {
+            throw ArchiveError.unsupportedPhoto
+        }
+        if let single = VerifiedArchive.original(for: asset) { return [try await hash(single)] }
+        guard let files = VerifiedArchive.plan(for: asset) else { throw ArchiveError.unsupportedPhoto }
+        var fingerprints: [ResourceFingerprint] = []
+        for file in files { fingerprints.append(try await hash(file)) }
+        return fingerprints
+    }
+
     private func hash(_ resource: PHAssetResource) async throws -> ResourceFingerprint {
         let state = ResourceHashState()
         let manager = PHAssetResourceManager.default()

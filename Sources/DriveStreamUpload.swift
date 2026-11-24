@@ -98,6 +98,20 @@ final class DriveStreamUpload: @unchecked Sendable {
 }
 
 extension GoogleDriveClient {
+    /// Streams every file of an item to Google Drive. A single-file item goes exactly the way it always
+    /// has. A Live Photo or edited photo is streamed file by file, each checked against Drive's own
+    /// checksum like a single file, and counts only when all of them are stored.
+    static func streamUploadEvery(_ item: ArchiveItem, folderID: String, token: String) throws
+        -> (fileID: String, fingerprint: ArchiveFingerprint, parts: [ArchivedPart]) {
+        guard let files = try ArchiveParts.files(of: item) else {
+            let single = try streamUpload(item, folderID: folderID, token: token)
+            return (single.fileID, single.fingerprint, [])
+        }
+        let uploads = try ArchiveParts.every(files) { try streamUpload($0, folderID: folderID, token: token) }
+        let stored = zip(files, uploads).map { StoredPart(name: $0.name, fingerprint: $1.fingerprint, fileID: $1.fileID) }
+        return (uploads[0].fileID, uploads[0].fingerprint, ArchiveParts.parts(files, stored))
+    }
+
     /// Archives one item to Google Drive by streaming it, with no local copy. Runs off the main thread.
     static func streamUpload(_ item: ArchiveItem, folderID: String, token: String) throws -> (fileID: String, fingerprint: ArchiveFingerprint) {
         let session = try startSession(name: item.name, folderID: folderID, token: token)
@@ -111,7 +125,7 @@ extension GoogleDriveClient {
         switch item.source {
         case let .photo(id, expected):
             guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject,
-                  let resource = VerifiedArchive.original(for: asset) else { throw ArchiveError.unsupportedPhoto }
+                  let resource = VerifiedArchive.file(of: asset, part: item.part) else { throw ArchiveError.unsupportedPhoto }
             let options = PHAssetResourceRequestOptions()
             options.isNetworkAccessAllowed = true
             let done = DispatchSemaphore(value: 0)

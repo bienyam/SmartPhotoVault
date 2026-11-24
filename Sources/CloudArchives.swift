@@ -412,6 +412,19 @@ enum CloudArchive {
         }
     }
 
+    /// Uploads every file of an item. A single-file item goes exactly the way it always has. A Live
+    /// Photo or edited photo is uploaded file by file, each matched against the service's own
+    /// fingerprint like a single file, and counts only when all of them are stored.
+    static func uploadEvery(_ item: ArchiveItem, to service: CloudService, token: String,
+                            folder: OnlineFolder = .root) async throws -> (upload: CloudUpload, parts: [ArchivedPart]) {
+        guard let files = try ArchiveParts.files(of: item) else {
+            return (try await upload(item, to: service, token: token, folder: folder), [])
+        }
+        let uploads = try await ArchiveParts.everyAsync(files) { try await upload($0, to: service, token: token, folder: folder) }
+        let stored = uploads.map { StoredPart(name: $0.name, fingerprint: $0.fingerprint, fileID: $0.fileID, cloudHash: $0.serviceHash) }
+        return (uploads[0], ArchiveParts.parts(files, stored))
+    }
+
     private static func streamed(_ item: ArchiveItem, to service: CloudService, token: String, folder: OnlineFolder) async throws -> CloudUpload {
         switch service {
         case .oneDrive:

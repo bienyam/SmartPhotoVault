@@ -17,6 +17,9 @@ struct ArchiveProof: Sendable {
     let record: ArchivedRecord
     let copy: CopyStamp
     let originalModified: Date?
+    /// A Live Photo or edited photo: the same stamp for each of its other files, in the record's order.
+    /// Empty for a single-file copy.
+    var partCopies: [CopyStamp] = []
 }
 
 /// Why an original stays on the iPhone.
@@ -47,7 +50,15 @@ enum ArchiveProver {
         guard let record else { throw ArchiveProofError.notRecorded }
         let modified = try originalModificationDate(photoID)
         let stamp = try await currentStamp(record, wifi: wifi)
-        return ArchiveProof(photoID: photoID, record: record, copy: stamp, originalModified: modified)
+        guard record.hasParts else {
+            return ArchiveProof(photoID: photoID, record: record, copy: stamp, originalModified: modified)
+        }
+        // A Live Photo or edited photo: the original must still be made of exactly the files that were
+        // copied, and every one of those copies must pass the same check as the first.
+        try sameParts(photoID, as: record)
+        var others: [CopyStamp] = []
+        for file in record.files.dropFirst() { others.append(try await currentStamp(file, wifi: wifi)) }
+        return ArchiveProof(photoID: photoID, record: record, copy: stamp, originalModified: modified, partCopies: others)
     }
 
     static func confirm(_ proof: ArchiveProof, wifi: ArchiveWiFi) async throws {
@@ -55,6 +66,24 @@ enum ArchiveProver {
             throw ArchiveProofError.originalChanged
         }
         guard try await currentStamp(proof.record, wifi: wifi) == proof.copy else { throw ArchiveProofError.changedSinceCheck }
+        guard proof.record.hasParts || !proof.partCopies.isEmpty else { return }
+        try sameParts(proof.photoID, as: proof.record)
+        let files = Array(proof.record.files.dropFirst())
+        guard partsProven(files.count, stamps: proof.partCopies.count) else { throw ArchiveProofError.changedSinceCheck }
+        for (file, stamp) in zip(files, proof.partCopies) {
+            guard try await currentStamp(file, wifi: wifi) == stamp else { throw ArchiveProofError.changedSinceCheck }
+        }
+    }
+
+    /// Every other file of the item needs its own stamp: one short, or one extra, proves nothing.
+    static func partsProven(_ files: Int, stamps: Int) -> Bool { files > 0 && files == stamps }
+
+    /// The original in Photos must still be made of exactly the files that were archived. An edit made
+    /// (or undone) after the copy changes them, and then the copy is no longer the whole item.
+    private static func sameParts(_ id: String, as record: ArchivedRecord) throws {
+        guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject,
+              let files = VerifiedArchive.plan(for: asset),
+              files.map({ $0.type.rawValue }) == record.partTypes else { throw ArchiveProofError.originalChanged }
     }
 
     /// The copy as the destination describes it now. It must exist, be off this iPhone and be exactly the

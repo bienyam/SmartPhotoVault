@@ -368,6 +368,15 @@ enum CopyVisibility {
         return isVisibleOneDrive(path)
     }
 
+    /// Every file of the item must be where the person can see it. A single-file copy is just itself.
+    @MainActor
+    static func canAllBeSeen(_ record: ArchivedRecord) async -> Bool {
+        for file in record.files {
+            guard await canBeSeen(file) else { return false }
+        }
+        return true
+    }
+
     /// A copy is visible when it is in My files › TidyAway or a folder inside it.
     static func isVisibleOneDrive(_ parentPath: String) -> Bool {
         parentPath == "/drive/root:/TidyAway" || parentPath.hasPrefix("/drive/root:/TidyAway/")

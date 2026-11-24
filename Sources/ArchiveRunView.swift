@@ -23,7 +23,7 @@ final class ArchiveRun: ObservableObject {
     static func reason(for error: Error) -> String {
         switch error {
         case ArchiveError.iCloudDownload: return "iCloud didn't send them"
-        case ArchiveError.unsupportedPhoto: return "Kind not supported yet (Live Photos, edits)"
+        case ArchiveError.unsupportedPhoto: return "Kind not supported yet (slo-mo, edited videos, RAW)"
         case ArchiveError.verification, CloudError.verification, GoogleDriveError.verification: return "The copy didn't match the original"
         case CloudError.notConfirmedYet: return "Not confirmed by the service yet"
         case CloudError.server(let name, _): return "\(name) didn't accept them"

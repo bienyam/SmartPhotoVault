@@ -20,6 +20,10 @@ struct ArchivedRecord: Codable, Identifiable, Equatable {
     var cloud: CloudService? = nil
     /// That service's own fingerprint of the copy, matched when it was archived.
     var cloudHash: String? = nil
+    /// A Live Photo or an edited photo: its other files, stored beside this one and each checked the
+    /// same way. Everything above then describes the original still. Nil for a single-file copy and in
+    /// every record saved before these could be archived.
+    var parts: [ArchivedPart]? = nil
 }
 
 /// Archived items grouped by the day they were archived.
@@ -27,7 +31,7 @@ struct ArchiveDay: Identifiable, Equatable {
     let day: Date
     let records: [ArchivedRecord]
     var id: Date { day }
-    var bytes: Int64 { records.reduce(0) { $0 + $1.bytes } }
+    var bytes: Int64 { records.reduce(0) { $0 + $1.totalBytes } }
     var places: String { Array(Set(records.map(\.folderName))).sorted().joined(separator: ", ") }
 
     /// Newest day first; files within a day in name order.
@@ -184,7 +188,7 @@ struct ArchivedDayView: View {
                                 .clipShape(RoundedRectangle(cornerRadius: 10))
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(record.name).foregroundStyle(.primary).lineLimit(1)
-                                Text("\(record.bytes.fileSize) · \(record.folderName) · \(record.date.formatted(date: .omitted, time: .shortened))")
+                                Text("\(record.totalBytes.fileSize)\(record.filesNote.map { " · \($0)" } ?? "") · \(record.folderName) · \(record.date.formatted(date: .omitted, time: .shortened))")
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer(minLength: 0)
@@ -347,8 +351,61 @@ enum ArchiveRestore {
         }.value
     }
 
+    /// A verified local copy of every file of the item, original first. Each is checked against its own
+    /// fingerprint; if any one fails, none is returned.
+    static func verifiedCopies(_ record: ArchivedRecord, wifi: ArchiveWiFi) async throws -> [URL] {
+        var copies: [URL] = []
+        do {
+            for file in record.files { copies.append(try await verifiedCopy(file, wifi: wifi)) }
+        } catch {
+            for copy in copies { try? FileManager.default.removeItem(at: copy) }
+            throw error
+        }
+        return copies
+    }
+
+    /// True when Photos on this iPhone says it can build one item out of these kinds of files.
+    static func photosCanRebuild(_ types: [Int]) -> Bool {
+        !types.isEmpty && types.allSatisfy { PHAssetResourceType(rawValue: $0) != nil }
+            && PHAssetCreationRequest.supportsAssetResourceTypes(types.map { NSNumber(value: $0) })
+    }
+
+    /// Puts a Live Photo or an edited photo back as one item: the original still with its video, its edit
+    /// instructions and its edited picture, so it comes back live, edited and able to revert. Afterwards
+    /// the new item must hold every kind of file that was archived.
+    /// Returns the new item's Photos ID.
+    @discardableResult
+    static func everyPartToPhotos(_ record: ArchivedRecord, wifi: ArchiveWiFi) async throws -> String {
+        let types = record.partTypes
+        guard photosCanRebuild(types) else { throw ArchiveRestoreError.photosCannotRebuild(record.name) }
+        let files = try await verifiedCopies(record, wifi: wifi)
+        defer { for file in files { try? FileManager.default.removeItem(at: file) } }
+        guard files.count == types.count else { throw ArchiveError.verification }
+        let created = ArchiveCreatedBox()
+        try await PHPhotoLibrary.shared().performChanges {
+            let request = PHAssetCreationRequest.forAsset()
+            for (index, file) in files.enumerated() {
+                guard let type = PHAssetResourceType(rawValue: types[index]) else { continue }
+                let options = PHAssetResourceCreationOptions()
+                if index == 0 { options.originalFilename = record.name }
+                request.addResource(with: type, fileURL: file, options: options)
+            }
+            created.id = request.placeholderForCreatedAsset?.localIdentifier
+        }
+        guard let id = created.id,
+              let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject,
+              Set(PHAssetResource.assetResources(for: asset).map { $0.type.rawValue }).isSuperset(of: types) else {
+            throw ArchiveRestoreError.partsMissing(record.name)
+        }
+        return id
+    }
+
     /// Adds the archived original back to Apple Photos as a new item.
     static func toPhotos(_ record: ArchivedRecord, wifi: ArchiveWiFi) async throws {
+        if record.hasParts {
+            try await everyPartToPhotos(record, wifi: wifi)
+            return
+        }
         let file = try await verifiedCopy(record, wifi: wifi)
         defer { try? FileManager.default.removeItem(at: file) }
         let video = ArchivedDayView.isVideo(record.name)
@@ -360,8 +417,22 @@ enum ArchiveRestore {
         }
     }
 
-    /// Saves the archived original as a new file in a chosen folder, never overwriting.
+    /// Saves the archived original as a new file in a chosen folder, never overwriting. A Live Photo or
+    /// an edited photo is saved as all its files, side by side under the names they have in the archive.
     static func toFolder(_ record: ArchivedRecord, folder: URL, wifi: ArchiveWiFi) async throws {
+        let files = record.files
+        guard files.count > 1 else { return try await fileToFolder(record, folder: folder, wifi: wifi) }
+        // Nothing is written unless every name is free.
+        let taken: Bool = {
+            let scoped = folder.startAccessingSecurityScopedResource()
+            defer { if scoped { folder.stopAccessingSecurityScopedResource() } }
+            return files.contains { FileManager.default.fileExists(atPath: folder.appendingPathComponent($0.name).path) }
+        }()
+        guard !taken else { throw ArchiveError.conflict }
+        for file in files { try await fileToFolder(file, folder: folder, wifi: wifi) }
+    }
+
+    private static func fileToFolder(_ record: ArchivedRecord, folder: URL, wifi: ArchiveWiFi) async throws {
         let file = try await verifiedCopy(record, wifi: wifi)
         defer { try? FileManager.default.removeItem(at: file) }
         let scoped = folder.startAccessingSecurityScopedResource()
@@ -376,10 +447,29 @@ enum ArchiveRestore {
     }
 }
 
+/// Carries the new item's ID out of the Photos change.
+final class ArchiveCreatedBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: String?
+    var id: String? {
+        get { lock.lock(); defer { lock.unlock() }; return value }
+        set { lock.lock(); value = newValue; lock.unlock() }
+    }
+}
+
 enum ArchiveRestoreError: LocalizedError {
     case folderGone(String, String)
+    /// Photos on this iPhone won't build one item out of these files.
+    case photosCannotRebuild(String)
+    /// Photos took the item but didn't keep every file.
+    case partsMissing(String)
     var errorDescription: String? {
         switch self {
+        case .photosCannotRebuild:
+            "Photos on this \(Device.name) can't rebuild this Live Photo or edited photo as one item. Put it back to a folder in Files instead to get every part. The archive copies stay where they are."
+        case .partsMissing:
+            "Photos took the picture but didn't keep its Live Photo or edit part. The archive copies are unchanged: put it back to a folder in Files to get every part."
+
         case let .folderGone(folder, name):
             "TidyAway can no longer open that archive folder. Your copy is still in \(folder): open it in Files to find \(name)."
         }
