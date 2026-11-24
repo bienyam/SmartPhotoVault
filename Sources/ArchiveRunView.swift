@@ -28,6 +28,7 @@ final class ArchiveRun: ObservableObject {
         case CloudError.notConfirmedYet: return "Not confirmed by the service yet"
         case CloudError.server(let name, _): return "\(name) didn't accept them"
         case GoogleDriveError.server: return "Google Drive didn't accept them"
+        case ArchiveError.editedDuringCopy: return "Edited while it was being copied"
         case ArchiveError.wifi: return "Wi-Fi to the file server dropped"
         case ArchiveError.unavailable, ArchiveError.missingFile: return "The destination couldn't be reached"
         case GoogleDriveError.noSpace: return "Not enough space on this \(Device.name)"

@@ -177,6 +177,36 @@ enum ArchiveParts {
         return stored
     }
 
+    /// The files Photos rewrites when an item is edited: the instructions, the edited picture and the
+    /// edited video. The original still and the original video never change.
+    static let editTypes: Set<Int> = [ArchivePlan.adjustmentData, ArchivePlan.fullSizePhoto, ArchivePlan.fullSizePairedVideo]
+
+    /// True when every edit file, read again now, is byte for byte what was copied. Same kinds of files
+    /// is not enough: a second edit keeps the kinds and changes the bytes.
+    static func editUnchanged(_ copied: [(type: Int, fingerprint: ArchiveFingerprint)],
+                              current: (Int) throws -> ArchiveFingerprint) rethrows -> Bool {
+        for part in copied where editTypes.contains(part.type) {
+            guard try current(part.type) == part.fingerprint else { return false }
+        }
+        return true
+    }
+
+    /// After every file of an item was copied: reads the edit files from Photos once more. If any is no
+    /// longer what was copied, the item was edited mid-copy and the copy is refused, so the archive never
+    /// holds instructions from one edit beside the picture of another.
+    static func requireSameEdit(_ files: [ArchiveItem], _ copied: [ArchiveFingerprint],
+                                current: ((ArchiveItem) throws -> ArchiveFingerprint)? = nil) throws {
+        func read(_ file: ArchiveItem) throws -> ArchiveFingerprint {
+            if let current { return try current(file) }
+            guard case let .photo(id, _) = file.source else { throw ArchiveError.missingFile }
+            return try VerifiedArchive.originalFingerprint(id, part: file.part)
+        }
+        guard files.count == copied.count else { throw ArchiveError.verification }
+        for (file, fingerprint) in zip(files, copied) where editTypes.contains(file.part ?? -1) {
+            guard try read(file) == fingerprint else { throw ArchiveError.editedDuringCopy }
+        }
+    }
+
     /// The progress screen counts downloads by item; a second file of the same item gets its own entry.
     static func liveKey(_ id: String, part: Int?) -> String {
         guard let part, part != ArchivePlan.photo else { return id }

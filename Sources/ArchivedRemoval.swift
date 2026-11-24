@@ -73,9 +73,16 @@ struct ArchivedRemovalView: View {
 
     enum RestoreTest: Equatable {
         case notYet, running, passed(String), failed(String)
+        /// Two came back: the smallest copy, and the smallest Live Photo or edited photo.
+        case passedTwo(String, String)
     }
 
-    private var tested: Bool { if case .passed = test { true } else { false } }
+    private var tested: Bool {
+        switch test {
+        case .passed, .passedTwo: true
+        default: false
+        }
+    }
 
     private struct Staying: Identifiable {
         let id: String
@@ -240,6 +247,8 @@ struct ArchivedRemovalView: View {
         switch test {
         case .passed(let name):
             check(true, "One brought back and checked", "\(name) matched its original exactly")
+        case let .passedTwo(first, second):
+            check(true, "Two brought back and checked", "\(first) and \(second) matched their originals exactly")
         case .failed(let reason):
             check(false, "Bring one back to test", reason, problem: true)
         default:
@@ -283,8 +292,13 @@ struct ArchivedRemovalView: View {
                 for url in urls { try? FileManager.default.removeItem(at: url) }
                 guard urls.count == record.files.count else { throw ArchiveError.verification }
             }
-            test = .passed(first.name)
-            try? InventoryStore.openDefault().log("Test restore from \(done.place) matched its original.")
+            if chosen.count > 1 {
+                test = .passedTwo(first.name, chosen[1].name)
+                try? InventoryStore.openDefault().log("Two test restores from \(done.place) matched their originals.")
+            } else {
+                test = .passed(first.name)
+                try? InventoryStore.openDefault().log("Test restore from \(done.place) matched its original.")
+            }
         } catch {
             test = .failed("Couldn't bring it back: \(error.localizedDescription) Your originals stay until this works.")
         }

@@ -24,7 +24,7 @@ struct ArchiveProof: Sendable {
 
 /// Why an original stays on the iPhone.
 enum ArchiveProofError: LocalizedError, Equatable {
-    case notRecorded, copyMissing, copyDiffers, notUploaded, notConfirmable, originalChanged, changedSinceCheck
+    case notRecorded, copyMissing, copyDiffers, notUploaded, notConfirmable, originalChanged, changedSinceCheck, editChanged
 
     var errorDescription: String? {
         switch self {
@@ -35,6 +35,7 @@ enum ArchiveProofError: LocalizedError, Equatable {
         case .notConfirmable: "Its copy is on this \(Device.name), or in a cloud folder that can't prove it finished uploading."
         case .originalChanged: "The original changed after it was copied."
         case .changedSinceCheck: "Something changed after the check."
+        case .editChanged: "It was edited after it was copied, so its copy doesn't hold the latest edit. Copy it again."
         }
     }
 }
@@ -53,9 +54,10 @@ enum ArchiveProver {
         guard record.hasParts else {
             return ArchiveProof(photoID: photoID, record: record, copy: stamp, originalModified: modified)
         }
-        // A Live Photo or edited photo: the original must still be made of exactly the files that were
-        // copied, and every one of those copies must pass the same check as the first.
-        try sameParts(photoID, as: record)
+        // A Live Photo or edited photo: the original must still be made of the same kinds of files, its
+        // edit must still be byte for byte the one that was copied, and every one of the copies must pass
+        // the same check as the first.
+        try await Task.detached(priority: .userInitiated) { try sameParts(photoID, as: record) }.value
         var others: [CopyStamp] = []
         for file in record.files.dropFirst() { others.append(try await currentStamp(file, wifi: wifi)) }
         return ArchiveProof(photoID: photoID, record: record, copy: stamp, originalModified: modified, partCopies: others)
@@ -67,7 +69,8 @@ enum ArchiveProver {
         }
         guard try await currentStamp(proof.record, wifi: wifi) == proof.copy else { throw ArchiveProofError.changedSinceCheck }
         guard proof.record.hasParts || !proof.partCopies.isEmpty else { return }
-        try sameParts(proof.photoID, as: proof.record)
+        let photoID = proof.photoID, record = proof.record
+        try await Task.detached(priority: .userInitiated) { try sameParts(photoID, as: record) }.value
         let files = Array(proof.record.files.dropFirst())
         guard partsProven(files.count, stamps: proof.partCopies.count) else { throw ArchiveProofError.changedSinceCheck }
         for (file, stamp) in zip(files, proof.partCopies) {
@@ -78,12 +81,23 @@ enum ArchiveProver {
     /// Every other file of the item needs its own stamp: one short, or one extra, proves nothing.
     static func partsProven(_ files: Int, stamps: Int) -> Bool { files > 0 && files == stamps }
 
-    /// The original in Photos must still be made of exactly the files that were archived. An edit made
-    /// (or undone) after the copy changes them, and then the copy is no longer the whole item.
-    private static func sameParts(_ id: String, as record: ArchivedRecord) throws {
+    /// Two checks on the original of a Live Photo or edited photo, as it is in Photos now.
+    /// First, it must be made of the same kinds of files that were archived: a first edit, or a revert,
+    /// changes the kinds. Second, because a later edit keeps the kinds and changes only the bytes, its
+    /// edit files (instructions, edited picture, edited video) are read again in full and must match the
+    /// fingerprints recorded when they were copied. The original still and video are not re-read here;
+    /// Photos never rewrites them. Reads the files from Photos, so it blocks: call it off the main thread.
+    static func sameParts(_ id: String, as record: ArchivedRecord) throws {
         guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject,
               let files = VerifiedArchive.plan(for: asset),
               files.map({ $0.type.rawValue }) == record.partTypes else { throw ArchiveProofError.originalChanged }
+        try sameEdit(as: record) { try VerifiedArchive.originalFingerprint(id, part: $0) }
+    }
+
+    /// The edit files, read now by `current`, must be byte for byte the ones in the record.
+    static func sameEdit(as record: ArchivedRecord, current: (Int) throws -> ArchiveFingerprint) throws {
+        let copied = zip(record.partTypes, record.files).map { (type: $0, fingerprint: fingerprint(of: $1)) }
+        guard try ArchiveParts.editUnchanged(copied, current: current) else { throw ArchiveProofError.editChanged }
     }
 
     /// The copy as the destination describes it now. It must exist, be off this iPhone and be exactly the

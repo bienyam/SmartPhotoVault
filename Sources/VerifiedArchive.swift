@@ -45,7 +45,7 @@ struct ArchiveReceipt: Identifiable, Sendable {
 }
 
 enum ArchiveError: LocalizedError {
-    case unsupportedPhoto, missingFile, conflict, verification, sameFolder, unavailable, wifi, iCloudDownload
+    case unsupportedPhoto, missingFile, conflict, verification, sameFolder, unavailable, wifi, iCloudDownload, editedDuringCopy
 
     var errorDescription: String? {
         switch self {
@@ -57,6 +57,7 @@ enum ArchiveError: LocalizedError {
         case .unavailable: "The selected location could not be opened."
         case .iCloudDownload: "iCloud didn't send this item. Use Wi-Fi, turn off Low Power Mode, and if you're not on Wi-Fi turn on Settings › Photos › Cellular Data. Then try again."
         case .wifi: "Join the same Wi-Fi network as your home server and try again."
+        case .editedDuringCopy: "It was edited while it was being copied, so the copy wasn't counted. Copy it again."
         }
     }
 }
@@ -143,6 +144,8 @@ enum VerifiedArchive {
             return (try copy(item, to: folder, wifi: wifi, flush: flush), [])
         }
         let receipts = try ArchiveParts.every(files) { try copy($0, to: folder, wifi: wifi, flush: flush) }
+        // An edit made while the files were being copied would leave parts of two different edits.
+        try ArchiveParts.requireSameEdit(files, receipts.map { $0.fingerprint })
         let stored = receipts.map { StoredPart(name: $0.url.lastPathComponent, fingerprint: $0.fingerprint) }
         return (receipts[0], ArchiveParts.parts(files, stored))
     }

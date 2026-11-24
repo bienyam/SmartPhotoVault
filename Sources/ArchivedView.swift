@@ -393,11 +393,16 @@ enum ArchiveRestore {
             created.id = request.placeholderForCreatedAsset?.localIdentifier
         }
         guard let id = created.id,
-              let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject,
-              Set(PHAssetResource.assetResources(for: asset).map { $0.type.rawValue }).isSuperset(of: types) else {
+              let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject else {
             throw ArchiveRestoreError.partsMissing(record.name)
         }
+        try requireEveryPart(PHAssetResource.assetResources(for: asset).map { $0.type.rawValue }, of: types, name: record.name)
         return id
+    }
+
+    /// The item Photos built must hold every kind of file that was archived, or it is reported as incomplete.
+    static func requireEveryPart(_ found: [Int], of wanted: [Int], name: String) throws {
+        guard !wanted.isEmpty, Set(found).isSuperset(of: wanted) else { throw ArchiveRestoreError.partsMissing(name) }
     }
 
     /// Adds the archived original back to Apple Photos as a new item.
@@ -429,7 +434,21 @@ enum ArchiveRestore {
             return files.contains { FileManager.default.fileExists(atPath: folder.appendingPathComponent($0.name).path) }
         }()
         guard !taken else { throw ArchiveError.conflict }
-        for file in files { try await fileToFolder(file, folder: folder, wifi: wifi) }
+        // If a later file fails, the ones this attempt just wrote are taken back, so the folder never
+        // keeps half an item and a second try isn't stopped by its own leftovers. Only files written
+        // here, moments ago, are removed; anything that was already in the folder is never touched.
+        var written: [String] = []
+        do {
+            for file in files {
+                try await fileToFolder(file, folder: folder, wifi: wifi)
+                written.append(file.name)
+            }
+        } catch {
+            let scoped = folder.startAccessingSecurityScopedResource()
+            defer { if scoped { folder.stopAccessingSecurityScopedResource() } }
+            for name in written { try? FileManager.default.removeItem(at: folder.appendingPathComponent(name)) }
+            throw error
+        }
     }
 
     private static func fileToFolder(_ record: ArchivedRecord, folder: URL, wifi: ArchiveWiFi) async throws {

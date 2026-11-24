@@ -98,6 +98,50 @@ final class ArchivePartsIntegrationTests: XCTestCase {
                            "\(file.name) on the destination is the original, byte for byte.")
         }
 
+        // Proof before deleting reads the edit files again: the same edit passes, and a record of any
+        // other edit is refused even though the kinds of files are identical.
+        try await Task.detached { try ArchiveProver.sameParts(id, as: record) }.value
+        for index in stored.parts.indices where ArchiveParts.editTypes.contains(stored.parts[index].type) {
+            let earlier = Self.withAnotherEdit(record, at: index)
+            XCTAssertEqual(earlier.partTypes, record.partTypes)
+            do {
+                try await Task.detached { try ArchiveProver.sameParts(id, as: earlier) }.value
+                XCTFail("Photos now holds a different edit than the one copied: the original must stay.")
+            } catch {
+                XCTAssertEqual(error as? ArchiveProofError, .editChanged)
+            }
+        }
+        // The same check right after copying: what was copied must still be what Photos holds.
+        let parts = try XCTUnwrap(try ArchiveParts.files(of: item))
+        let copied = record.files.map { ArchiveProver.fingerprint(of: $0) }
+        try await Task.detached { try ArchiveParts.requireSameEdit(parts, copied) }.value
+        if let index = parts.lastIndex(where: { ArchiveParts.editTypes.contains($0.part ?? -1) }) {
+            var other = copied
+            other[index] = ArchiveFingerprint(bytes: copied[index].bytes, digest: String(repeating: "0", count: 64))
+            let changed = other
+            do {
+                try await Task.detached { try ArchiveParts.requireSameEdit(parts, changed) }.value
+                XCTFail("An edit made mid-copy must refuse the copy.")
+            } catch {
+                XCTAssertEqual(error as? ArchiveError, .editedDuringCopy)
+            }
+        }
+
+        // A different file already under one of the names: refused, and left exactly as it was.
+        let taken = files.temporaryDirectory.appendingPathComponent("TidyAwayTaken-\(UUID().uuidString)", isDirectory: true)
+        try files.createDirectory(at: taken, withIntermediateDirectories: true)
+        defer { try? files.removeItem(at: taken) }
+        let theirs = Data("someone else's file".utf8)
+        let clash = taken.appendingPathComponent(record.files[1].name)
+        try theirs.write(to: clash)
+        do {
+            _ = try await Task.detached { try VerifiedArchive.copyEvery(item, to: taken) }.value
+            XCTFail("A different file with the same name must never count as the copy.")
+        } catch {
+            XCTAssertEqual(error as? ArchiveError, .conflict)
+        }
+        XCTAssertEqual(try Data(contentsOf: clash), theirs)
+
         // Copying again never overwrites: the files already there count only because they match.
         let again = try await Task.detached { try VerifiedArchive.copyEvery(item, to: archive) }.value
         XCTAssertEqual(again.parts, stored.parts)
@@ -159,6 +203,17 @@ final class ArchivePartsIntegrationTests: XCTestCase {
         }
         let list = try PropertyListSerialization.propertyList(from: data, options: [], format: nil)
         return try XCTUnwrap(list as? [String: Any])
+    }
+
+    /// The same record, as if one of its edit files had been copied from a different edit.
+    private static func withAnotherEdit(_ record: ArchivedRecord, at index: Int) -> ArchivedRecord {
+        var parts = record.otherParts
+        let part = parts[index]
+        parts[index] = ArchivedPart(type: part.type, name: part.name, bytes: part.bytes, digest: String(repeating: "0", count: 64),
+                                    fileID: part.fileID, cloudHash: part.cloudHash)
+        var changed = record
+        changed.parts = parts
+        return changed
     }
 
     @MainActor

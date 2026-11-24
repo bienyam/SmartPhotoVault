@@ -108,6 +108,8 @@ extension GoogleDriveClient {
             return (single.fileID, single.fingerprint, [])
         }
         let uploads = try ArchiveParts.every(files) { try streamUpload($0, folderID: folderID, token: token) }
+        // An edit made while the files were going up would leave parts of two different edits.
+        try ArchiveParts.requireSameEdit(files, uploads.map { $0.fingerprint })
         let stored = zip(files, uploads).map { StoredPart(name: $0.name, fingerprint: $1.fingerprint, fileID: $1.fileID) }
         return (uploads[0].fileID, uploads[0].fingerprint, ArchiveParts.parts(files, stored))
     }
