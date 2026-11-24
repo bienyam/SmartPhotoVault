@@ -51,7 +51,18 @@ enum ArchiveProofError: LocalizedError, Equatable {
 /// not a full read-back, so freeing space stays fast. Owner, 2026-11-24: the original in Photos is read
 /// again in full, so anything edited after it was copied stays.)
 enum ArchiveProver {
-    static func prove(photoID: String, record: ArchivedRecord?, wifi: ArchiveWiFi) async throws -> ArchiveProof {
+    /// Runs a blocking read of originals off the main thread. If the task asking is cancelled (the screen
+    /// closed), the read is told, cancels its request to Photos and throws.
+    private static func reading<T: Sendable>(_ work: @escaping @Sendable (_ cancelled: @escaping @Sendable () -> Bool) throws -> T) async throws -> T {
+        let gate = ArchiveGate()
+        return try await withTaskCancellationHandler {
+            try await Task.detached(priority: .userInitiated) { try work { !gate.isOpen } }.value
+        } onCancel: {
+            gate.close()
+        }
+    }
+
+    static func prove(photoID: String, record: ArchivedRecord?, wifi: ArchiveWiFi, progress: ProofProgress? = nil) async throws -> ArchiveProof {
         guard let record else { throw ArchiveProofError.notRecorded }
         let modified = try originalModificationDate(photoID)
         let stamp = try await currentStamp(record, wifi: wifi)
@@ -59,15 +70,15 @@ enum ArchiveProver {
             // A single file (owner, 2026-11-24): the original must still be that one file and nothing
             // more, and reading it again in full must give the recorded fingerprint. A photo or video
             // edited after it was copied fails here, so its edit is never deleted with it.
-            let size = try await Task.detached(priority: .userInitiated) {
-                try sameOriginal(photoID, as: record, readInFull: true)
-            }.value
+            let size = try await reading { cancelled in
+                try sameOriginal(photoID, as: record, readInFull: true, cancelled: cancelled, progress: progress)
+            }
             return ArchiveProof(photoID: photoID, record: record, copy: stamp, originalModified: modified, originalSize: size)
         }
         // A Live Photo or edited photo: the original must still be made of the same kinds of files, its
         // edit must still be byte for byte the one that was copied, and every one of the copies must pass
         // the same check as the first.
-        try await Task.detached(priority: .userInitiated) { try sameParts(photoID, as: record) }.value
+        try await reading { cancelled in try sameParts(photoID, as: record, cancelled: cancelled, progress: progress) }
         var others: [CopyStamp] = []
         for file in record.files.dropFirst() { others.append(try await currentStamp(file, wifi: wifi)) }
         return ArchiveProof(photoID: photoID, record: record, copy: stamp, originalModified: modified, partCopies: others)
@@ -81,16 +92,16 @@ enum ArchiveProver {
         let photoID = proof.photoID, record = proof.record
         guard proof.record.hasParts || !proof.partCopies.isEmpty else {
             // A single file, once more: still one file of the same kind and, as Photos reports it, the
-            // same size as when it was proven. A photo is also read again in full. A video was read in
-            // full moments ago by `prove`; reading gigabytes a second time would stall the delete, and
-            // any edit since then changes its files, its size or its modification date, checked above.
-            let size = try await Task.detached(priority: .userInitiated) {
-                try sameOriginal(photoID, as: record, readInFull: false)
-            }.value
+            // same size as when it was proven. It was read in full moments ago by `prove`; reading it
+            // again here would download an iCloud original once more after the person's OK, and any
+            // edit since then changes its files, its size or its modification date, checked above.
+            let size = try await reading { cancelled in
+                try sameOriginal(photoID, as: record, readInFull: false, cancelled: cancelled, progress: nil)
+            }
             guard unchangedSize(size, since: proof.originalSize) else { throw ArchiveProofError.editChanged }
             return
         }
-        try await Task.detached(priority: .userInitiated) { try sameParts(photoID, as: record) }.value
+        try await reading { cancelled in try sameParts(photoID, as: record, cancelled: cancelled, progress: nil) }
         let files = Array(proof.record.files.dropFirst())
         guard partsProven(files.count, stamps: proof.partCopies.count) else { throw ArchiveProofError.changedSinceCheck }
         for (file, stamp) in zip(files, proof.partCopies) {
@@ -99,16 +110,22 @@ enum ArchiveProver {
     }
 
     /// The original of a single-file copy, as it is in Photos now. Returns the size Photos reports for it.
-    /// A photo is always read again in full; a video only when `readInFull` is set. Reads from Photos,
-    /// so it blocks: call it off the main thread.
-    static func sameOriginal(_ id: String, as record: ArchivedRecord, readInFull: Bool) throws -> Int64? {
+    /// With `readInFull` (the check) the original is read again in full; without it (right before the
+    /// delete) only its files and reported size are looked at. Reads from Photos, so it blocks: call it
+    /// off the main thread.
+    static func sameOriginal(_ id: String, as record: ArchivedRecord, readInFull: Bool, cancelled: @escaping () -> Bool = { false },
+                             progress: ProofProgress? = nil) throws -> Int64? {
         guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject else {
             throw ArchiveProofError.originalChanged
         }
         let resources = PHAssetResource.assetResources(for: asset)
         var current: (() throws -> ArchiveFingerprint)? = nil
-        if readInFull || asset.mediaType == .image { current = { try VerifiedArchive.originalFingerprint(id) } }
-        try sameSingleFile(types: resources.map { $0.type.rawValue }, as: record, current: current)
+        if readInFull {
+            current = { try VerifiedArchive.originalFingerprint(id, cancelled: cancelled, read: { progress?.add($0) }) }
+        }
+        // Photo or video comes from the item itself, not from the copy's file name.
+        let kind = asset.mediaType == .video ? PHAssetResourceType.video.rawValue : PHAssetResourceType.photo.rawValue
+        try sameSingleFile(types: resources.map { $0.type.rawValue }, kind: kind, as: record, current: current)
         // The same rule the copy itself was made under: one original file, not a Live Photo.
         guard VerifiedArchive.original(for: asset) != nil else { throw ArchiveProofError.editChanged }
         return DuplicateScanner.reportedSize(of: resources)
@@ -118,9 +135,9 @@ enum ArchiveProver {
     /// the kind that was copied (an edit, a crop or a trim adds files beside it), and, when it is read
     /// again by `current`, only while its bytes are the ones in the record. A record with no usable
     /// fingerprint can never match, so its original stays.
-    static func sameSingleFile(types: [Int], as record: ArchivedRecord, current: (() throws -> ArchiveFingerprint)?) throws {
-        let copied = ArchivedDayView.isVideo(record.name) ? PHAssetResourceType.video.rawValue : PHAssetResourceType.photo.rawValue
-        guard types == [copied] else { throw ArchiveProofError.editChanged }
+    /// `kind` is the one kind of file a single-file copy of this item is made from: a photo or a video.
+    static func sameSingleFile(types: [Int], kind: Int, as record: ArchivedRecord, current: (() throws -> ArchiveFingerprint)?) throws {
+        guard types == [kind] else { throw ArchiveProofError.editChanged }
         guard let current else { return }
         guard !record.digest.isEmpty, try current() == fingerprint(of: record) else { throw ArchiveProofError.editChanged }
     }
@@ -138,11 +155,14 @@ enum ArchiveProver {
     /// edit files (instructions, edited picture, edited video) are read again in full and must match the
     /// fingerprints recorded when they were copied. The original still and video are not re-read here;
     /// Photos never rewrites them. Reads the files from Photos, so it blocks: call it off the main thread.
-    static func sameParts(_ id: String, as record: ArchivedRecord) throws {
+    static func sameParts(_ id: String, as record: ArchivedRecord, cancelled: () -> Bool = { false },
+                          progress: ProofProgress? = nil) throws {
         guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject,
               let files = VerifiedArchive.plan(for: asset),
               files.map({ $0.type.rawValue }) == record.partTypes else { throw ArchiveProofError.originalChanged }
-        try sameEdit(as: record) { try VerifiedArchive.originalFingerprint(id, part: $0) }
+        try sameEdit(as: record) {
+            try VerifiedArchive.originalFingerprint(id, part: $0, cancelled: cancelled, read: { progress?.add($0) })
+        }
     }
 
     /// The edit files, read now by `current`, must be byte for byte the ones in the record.
@@ -213,6 +233,15 @@ enum ArchiveProver {
         }
         return asset.modificationDate
     }
+}
+
+/// How much of the originals the check has read so far, for the progress line. Safe from any thread.
+final class ProofProgress: @unchecked Sendable {
+    private let lock = NSLock()
+    private var read: Int64 = 0
+    func add(_ count: Int) { lock.lock(); read += Int64(count); lock.unlock() }
+    func reset() { lock.lock(); read = 0; lock.unlock() }
+    var bytes: Int64 { lock.lock(); defer { lock.unlock() }; return read }
 }
 
 /// Reads a whole file back from Google Drive and hashes it, without storing it on the iPhone.

@@ -62,6 +62,9 @@ struct ArchivedRemovalView: View {
     @State private var checkedAt = Date()
     @State private var round = 0
     @State private var wifi = ArchiveWiFi()
+    /// How much of the originals the check has read again so far, so a large video never looks stuck.
+    @State private var reading = ProofProgress()
+    @State private var readBytes: Int64 = 0
     /// Bringing one copy back and checking it against its original. Removal waits for it.
     @State private var test = RestoreTest.notYet
     /// What removal is doing right now, with a count, so a long step never looks stuck.
@@ -101,6 +104,11 @@ struct ArchivedRemovalView: View {
                         Text("Checking every copy: \(checked) of \(total)")
                     }
                     .accessibilityIdentifier("archive-recheck")
+                    if readBytes > 0 {
+                        Text("Read \(readBytes.fileSize) of your originals so far.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                            .accessibilityIdentifier("archive-recheck-read")
+                    }
                     Text("Each copy must still be there, the same size as its original to the byte. Keep this open.")
                         .font(.footnote).foregroundStyle(.secondary)
                 } else if let phase {
@@ -178,6 +186,16 @@ struct ArchivedRemovalView: View {
         total = candidates.count
         UIApplication.shared.isIdleTimerDisabled = true
         defer { UIApplication.shared.isIdleTimerDisabled = false }
+        let progress = reading
+        progress.reset()
+        readBytes = 0
+        let watch = Task {
+            while !Task.isCancelled {
+                readBytes = progress.bytes
+                try? await Task.sleep(nanoseconds: 500_000_000)
+            }
+        }
+        defer { watch.cancel() }
         if done.copies.values.contains(where: \.viaHomeServer) {
             // The Wi-Fi check needs a moment to learn the connection.
             try? await Task.sleep(nanoseconds: 800_000_000)
@@ -196,7 +214,7 @@ struct ArchivedRemovalView: View {
                     let record = copies[item.id]
                     group.addTask {
                         (item, await Result(awaiting: {
-                            let proof = try await ArchiveProver.prove(photoID: id, record: record, wifi: network)
+                            let proof = try await ArchiveProver.prove(photoID: id, record: record, wifi: network, progress: progress)
                             // A confirmed copy the person can't see (OneDrive's app folder in work and school
                             // accounts) is not enough: its original stays.
                             // For a Live Photo or edited photo, that goes for every one of its files.

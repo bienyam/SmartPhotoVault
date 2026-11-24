@@ -70,6 +70,28 @@ final class ArchivePartsIntegrationTests: XCTestCase {
         print("PARTS|plain|size Photos reports: \(String(describing: proven)), actual \(picture.count)")
         XCTAssertTrue(ArchiveProver.unchangedSize(again, since: proven), "Unchanged between the check and the delete.")
 
+        // The check reads every byte and says so; right before the delete nothing is read again.
+        let counted = ProofProgress()
+        _ = try await Task.detached { try ArchiveProver.sameOriginal(id, as: record, readInFull: true, progress: counted) }.value
+        XCTAssertEqual(counted.bytes, Int64(picture.count))
+        let quiet = ProofProgress()
+        _ = try await Task.detached { try ArchiveProver.sameOriginal(id, as: record, readInFull: false, progress: quiet) }.value
+        XCTAssertEqual(quiet.bytes, 0)
+
+        // Cancelling stops the request to Photos and ends as a cancellation, never as a pass.
+        do {
+            _ = try await Task.detached { try VerifiedArchive.originalFingerprint(id, cancelled: { true }) }.value
+            XCTFail("A cancelled read must not return a fingerprint.")
+        } catch {
+            XCTAssertTrue(error is CancellationError, "\(error)")
+        }
+        do {
+            _ = try await Task.detached { try ArchiveProver.sameOriginal(id, as: record, readInFull: true, cancelled: { true }) }.value
+            XCTFail("A cancelled check must not pass.")
+        } catch {
+            XCTAssertTrue(error is CancellationError, "\(error)")
+        }
+
         let other = ArchivedRecord(id: record.id, name: record.name, folderName: record.folderName, bytes: record.bytes,
                                    digest: String(repeating: "0", count: 64), date: record.date, viaHomeServer: false, folderBookmark: nil, photoID: id)
         do {

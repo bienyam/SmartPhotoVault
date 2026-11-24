@@ -212,30 +212,110 @@ enum VerifiedArchive {
     }
 
     /// Reads the whole original from Photos again (downloading it from iCloud if needed) and hashes it.
-    static func originalFingerprint(_ id: String, part: Int? = nil) throws -> ArchiveFingerprint {
+    ///
+    /// It waits the way the copy does. A download that stops moving is given up after the same quiet
+    /// time, and a photo that Photos never started sending is asked for the second way the copy uses,
+    /// which hands over the same original bytes. `cancelled` is asked about once a second; when it says
+    /// yes the request to Photos is cancelled and a `CancellationError` is thrown, so no download keeps
+    /// running after its screen has closed. `read` hears how many bytes arrived, for a progress line.
+    static func originalFingerprint(_ id: String, part: Int? = nil, cancelled: () -> Bool = { false },
+                                    read: (@Sendable (Int) -> Void)? = nil) throws -> ArchiveFingerprint {
         guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject,
               let resource = file(of: asset, part: part) else { throw ArchiveProofError.originalChanged }
         let sink = ArchiveHasher()
+        let activity = ArchiveActivity()
         let options = PHAssetResourceRequestOptions()
         options.isNetworkAccessAllowed = true
+        options.progressHandler = { fraction in activity.progressed(fraction) }
         let completion = DispatchSemaphore(value: 0)
         let manager = PHAssetResourceManager.default()
         let request = manager.requestData(for: resource, options: options) { data in
+            activity.received()
             sink.append(data)
+            read?(data.count)
         } completionHandler: { error in
             sink.finish(error)
             completion.signal()
         }
-        let limit: DispatchTimeInterval = asset.mediaType == .video ? .seconds(3600) : .seconds(600)
-        if completion.wait(timeout: .now() + limit) == .timedOut {
-            sink.finish(ArchiveError.unavailable)
+        let limit: TimeInterval = asset.mediaType == .video ? 3600 : 600
+        switch waitForRead(completion, activity: activity, limit: limit, cancelled: cancelled) {
+        case .finished:
+            break
+        case .cancelled:
+            sink.finish(CancellationError())
             manager.cancelDataRequest(request)
+            throw CancellationError()
+        case let .stalled(receivedSome):
+            sink.finish(ArchiveError.iCloudDownload)
+            manager.cancelDataRequest(request)
+            guard canReadSecondWay(receivedSome: receivedSome, isImage: asset.mediaType == .image, part: part) else {
+                throw ArchiveError.iCloudDownload
+            }
+            let data = try originalImageData(asset, limit: limit, cancelled: cancelled)
+            read?(data.count)
+            var hash = SHA256()
+            hash.update(data: data)
+            return fingerprint(hash, bytes: Int64(data.count))
         }
         do {
             return try sink.result()
         } catch let error as NSError where error.domain == PHPhotosErrorDomain {
             throw ArchiveError.iCloudDownload
         }
+    }
+
+    /// How a wait for Photos ended.
+    enum ReadWait: Equatable { case finished, stalled(receivedSome: Bool), cancelled }
+
+    /// Waits for `done`, looking up every `tick`. Gives up when nothing has arrived and no download
+    /// progress was made for the quiet time (shorter before the first byte, as in the copy), or when the
+    /// whole read passes `limit`. Stops at once when `cancelled` says so.
+    static func waitForRead(_ done: DispatchSemaphore, activity: ArchiveActivity, limit: TimeInterval, tick: TimeInterval = 1,
+                            firstQuiet: TimeInterval = ArchiveActivity.firstTryLimit,
+                            laterQuiet: TimeInterval = ArchiveActivity.stallLimit, cancelled: () -> Bool) -> ReadWait {
+        let started = Date()
+        while true {
+            if cancelled() { return .cancelled }
+            if done.wait(timeout: .now() + tick) == .success { return .finished }
+            let quiet = activity.gotData ? laterQuiet : firstQuiet
+            if activity.silentFor > quiet || Date().timeIntervalSince(started) > limit {
+                return .stalled(receivedSome: activity.gotData)
+            }
+        }
+    }
+
+    /// After a stall: the second way exists only for a photo's original still that sent nothing at all,
+    /// exactly as in the copy. Anything else stays unread, and so stays on the iPhone.
+    static func canReadSecondWay(receivedSome: Bool, isImage: Bool, part: Int?) -> Bool {
+        !receivedSome && isImage && ArchiveParts.allowsImageFallback(part: part)
+    }
+
+    /// The second way of reading a photo's unedited original: Photos' image download, held in memory.
+    private static func originalImageData(_ asset: PHAsset, limit: TimeInterval, cancelled: () -> Bool) throws -> Data {
+        let options = PHImageRequestOptions()
+        options.version = .original
+        options.deliveryMode = .highQualityFormat
+        options.isNetworkAccessAllowed = true
+        let activity = ArchiveActivity()
+        options.progressHandler = { progress, _, _, _ in activity.progressed(progress) }
+        let box = ArchiveImageBox()
+        let completion = DispatchSemaphore(value: 0)
+        let request = PHImageManager.default().requestImageDataAndOrientation(for: asset, options: options) { data, _, _, info in
+            box.set(data, error: info?[PHImageErrorKey] as? Error)
+            completion.signal()
+        }
+        switch waitForRead(completion, activity: activity, limit: limit, firstQuiet: ArchiveActivity.stallLimit, cancelled: cancelled) {
+        case .finished:
+            break
+        case .cancelled:
+            PHImageManager.default().cancelImageRequest(request)
+            throw CancellationError()
+        case .stalled:
+            PHImageManager.default().cancelImageRequest(request)
+            throw ArchiveError.iCloudDownload
+        }
+        guard let data = box.data, !data.isEmpty else { throw ArchiveError.iCloudDownload }
+        return data
     }
 
     private static func stamp(_ url: URL, offDevice: Bool) throws -> CopyStamp {

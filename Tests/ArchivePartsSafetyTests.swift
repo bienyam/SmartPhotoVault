@@ -85,11 +85,82 @@ final class ArchivePartsSafetyTests: XCTestCase {
                        viaHomeServer: false, folderBookmark: Data([1]), photoID: "asset")
     }
 
+    private func kind(_ name: String) -> Int { name.hasSuffix(".MOV") ? video : photo }
+
+    func testAVideoIsKnownByTheItemNotByItsCopysName() {
+        // A video whose copy has no file extension is still a video, so it isn't held back for nothing.
+        XCTAssertNoThrow(try ArchiveProver.sameSingleFile(types: [video], kind: video, as: single("holiday clip")) { self.fp("ab12", 100) })
+        XCTAssertThrowsError(try ArchiveProver.sameSingleFile(types: [video, adjustment], kind: video, as: single("holiday clip"), current: nil))
+    }
+
+    // MARK: - Reading the original again: stalls and cancelling
+
+    func testAReadThatFinishesIsWaitedFor() {
+        let done = DispatchSemaphore(value: 0)
+        done.signal()
+        XCTAssertEqual(VerifiedArchive.waitForRead(done, activity: ArchiveActivity(), limit: 5, tick: 0.05, cancelled: { false }), .finished)
+    }
+
+    func testADownloadThatNeverStartsStopsAfterTheShortQuietTime() {
+        let started = Date()
+        let result = VerifiedArchive.waitForRead(DispatchSemaphore(value: 0), activity: ArchiveActivity(), limit: 60, tick: 0.05,
+                                                 firstQuiet: 0.2, laterQuiet: 30, cancelled: { false })
+        XCTAssertEqual(result, .stalled(receivedSome: false))
+        XCTAssertLessThan(Date().timeIntervalSince(started), 5, "Not the old fixed 10 minutes.")
+    }
+
+    func testADownloadThatStopsPartwayGetsTheLongerQuietTimeThenStops() {
+        let activity = ArchiveActivity()
+        activity.received()
+        let started = Date()
+        let result = VerifiedArchive.waitForRead(DispatchSemaphore(value: 0), activity: activity, limit: 60, tick: 0.05,
+                                                 firstQuiet: 0.1, laterQuiet: 0.6, cancelled: { false })
+        XCTAssertEqual(result, .stalled(receivedSome: true))
+        XCTAssertGreaterThan(Date().timeIntervalSince(started), 0.5)
+    }
+
+    func testASlowButMovingReadStillEndsAtTheOverallLimit() {
+        let result = VerifiedArchive.waitForRead(DispatchSemaphore(value: 0), activity: ArchiveActivity(), limit: 0.2, tick: 0.05,
+                                                 firstQuiet: 30, laterQuiet: 30, cancelled: { false })
+        XCTAssertEqual(result, .stalled(receivedSome: false))
+    }
+
+    func testCancellingEndsTheWaitAtTheNextLook() {
+        var looks = 0
+        let started = Date()
+        let result = VerifiedArchive.waitForRead(DispatchSemaphore(value: 0), activity: ArchiveActivity(), limit: 60, tick: 0.05,
+                                                 firstQuiet: 30, laterQuiet: 30, cancelled: {
+            looks += 1
+            return looks > 3
+        })
+        XCTAssertEqual(result, .cancelled)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 5)
+    }
+
+    func testAfterAStallOnlyAPhotosUntouchedStillIsAskedForTheSecondWay() {
+        XCTAssertTrue(VerifiedArchive.canReadSecondWay(receivedSome: false, isImage: true, part: nil))
+        XCTAssertTrue(VerifiedArchive.canReadSecondWay(receivedSome: false, isImage: true, part: photo))
+        // Everything else ends as a clean "stays": it could not be read, so it is not deleted.
+        XCTAssertFalse(VerifiedArchive.canReadSecondWay(receivedSome: true, isImage: true, part: nil), "Half a download is never topped up.")
+        XCTAssertFalse(VerifiedArchive.canReadSecondWay(receivedSome: false, isImage: false, part: nil), "A video has no second way.")
+        XCTAssertFalse(VerifiedArchive.canReadSecondWay(receivedSome: false, isImage: true, part: adjustment))
+        XCTAssertFalse(VerifiedArchive.canReadSecondWay(receivedSome: false, isImage: true, part: paired))
+    }
+
+    func testTheProgressLineCountsEveryByteRead() {
+        let progress = ProofProgress()
+        progress.add(1_000)
+        progress.add(24)
+        XCTAssertEqual(progress.bytes, 1_024)
+        progress.reset()
+        XCTAssertEqual(progress.bytes, 0)
+    }
+
     func testAnUnchangedSingleFileStillPasses() {
-        XCTAssertNoThrow(try ArchiveProver.sameSingleFile(types: [photo], as: single("IMG_1.HEIC")) { self.fp("ab12", 100) })
-        XCTAssertNoThrow(try ArchiveProver.sameSingleFile(types: [video], as: single("IMG_2.MOV")) { self.fp("ab12", 100) })
+        XCTAssertNoThrow(try ArchiveProver.sameSingleFile(types: [photo], kind: photo, as: single("IMG_1.HEIC")) { self.fp("ab12", 100) })
+        XCTAssertNoThrow(try ArchiveProver.sameSingleFile(types: [video], kind: video, as: single("IMG_2.MOV")) { self.fp("ab12", 100) })
         // Right before the delete a video is not read a second time: still one video file is enough there.
-        XCTAssertNoThrow(try ArchiveProver.sameSingleFile(types: [video], as: single("IMG_2.MOV"), current: nil))
+        XCTAssertNoThrow(try ArchiveProver.sameSingleFile(types: [video], kind: video, as: single("IMG_2.MOV"), current: nil))
     }
 
     func testASingleFileThatGainedAnEditIsRejected() {
@@ -103,20 +174,20 @@ final class ArchivePartsSafetyTests: XCTestCase {
         ]
         for (why, name, types) in gained {
             // The original file itself is untouched by an edit, so its bytes still match: not enough.
-            XCTAssertThrowsError(try ArchiveProver.sameSingleFile(types: types, as: single(name)) { self.fp("ab12", 100) }, why) {
+            XCTAssertThrowsError(try ArchiveProver.sameSingleFile(types: types, kind: kind(name), as: single(name)) { self.fp("ab12", 100) }, why) {
                 XCTAssertEqual($0 as? ArchiveProofError, .editChanged, why)
             }
-            XCTAssertThrowsError(try ArchiveProver.sameSingleFile(types: types, as: single(name), current: nil), why)
+            XCTAssertThrowsError(try ArchiveProver.sameSingleFile(types: types, kind: kind(name), as: single(name), current: nil), why)
         }
     }
 
     func testASingleFileWhoseBytesChangedIsRejected() {
         for (why, now) in [("different bytes, same size", fp("ffff", 100)), ("same digest claimed, different size", fp("ab12", 101))] {
-            XCTAssertThrowsError(try ArchiveProver.sameSingleFile(types: [photo], as: single("IMG_1.HEIC")) { now }, why) {
+            XCTAssertThrowsError(try ArchiveProver.sameSingleFile(types: [photo], kind: photo, as: single("IMG_1.HEIC")) { now }, why) {
                 XCTAssertEqual($0 as? ArchiveProofError, .editChanged, why)
             }
         }
-        XCTAssertThrowsError(try ArchiveProver.sameSingleFile(types: [photo], as: single("IMG_1.HEIC")) { throw ArchiveError.iCloudDownload }) {
+        XCTAssertThrowsError(try ArchiveProver.sameSingleFile(types: [photo], kind: photo, as: single("IMG_1.HEIC")) { throw ArchiveError.iCloudDownload }) {
             XCTAssertEqual($0 as? ArchiveError, .iCloudDownload, "Unreadable is not unchanged.")
         }
     }
@@ -125,11 +196,11 @@ final class ArchivePartsSafetyTests: XCTestCase {
         // Exactly what 1.0 wrote. Every 1.0 record carries the fingerprint taken when it was copied.
         let json = #"{"id":"a","name":"IMG_1.HEIC","folderName":"Drive","bytes":1234,"digest":"ab","date":700000000,"viaHomeServer":false,"folderBookmark":"AQID","photoID":"p"}"#
         let old = try JSONDecoder().decode(ArchivedRecord.self, from: Data(json.utf8))
-        XCTAssertNoThrow(try ArchiveProver.sameSingleFile(types: [photo], as: old) { self.fp("ab", 1234) })
-        XCTAssertThrowsError(try ArchiveProver.sameSingleFile(types: [photo, fullPhoto, adjustment], as: old) { self.fp("ab", 1234) })
-        XCTAssertThrowsError(try ArchiveProver.sameSingleFile(types: [photo], as: old) { self.fp("cd", 1234) })
+        XCTAssertNoThrow(try ArchiveProver.sameSingleFile(types: [photo], kind: photo, as: old) { self.fp("ab", 1234) })
+        XCTAssertThrowsError(try ArchiveProver.sameSingleFile(types: [photo, fullPhoto, adjustment], kind: photo, as: old) { self.fp("ab", 1234) })
+        XCTAssertThrowsError(try ArchiveProver.sameSingleFile(types: [photo], kind: photo, as: old) { self.fp("cd", 1234) })
         // A record with nothing to compare against never passes, whatever is read.
-        XCTAssertThrowsError(try ArchiveProver.sameSingleFile(types: [photo], as: single("IMG_1.HEIC", bytes: 0, digest: "")) { self.fp("", 0) }) {
+        XCTAssertThrowsError(try ArchiveProver.sameSingleFile(types: [photo], kind: photo, as: single("IMG_1.HEIC", bytes: 0, digest: "")) { self.fp("", 0) }) {
             XCTAssertEqual($0 as? ArchiveProofError, .editChanged)
         }
     }
