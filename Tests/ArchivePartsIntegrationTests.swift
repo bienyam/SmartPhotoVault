@@ -36,6 +36,48 @@ final class ArchivePartsIntegrationTests: XCTestCase {
         let id = try await fixture("edited", [(.photo, original, "jpg"), (.adjustmentData, adjustments, "plist"),
                                               (.fullSizePhoto, rendered, "jpg")])
         try await roundTrip(id, label: "edited", types: [photo, adjustment, fullPhoto])
+
+        // The same item as a plain photo would have been recorded before it was edited: one file, the
+        // original still, whose bytes an edit never touches. It must stay.
+        let scanned = try await DuplicateScanner().archiveFingerprints(for: id)
+        let still = try XCTUnwrap(scanned.first)
+        let before = ArchivedRecord(id: UUID().uuidString, name: "plain.jpg", folderName: "archive", bytes: still.bytes, digest: still.digest,
+                                    date: Date(), viaHomeServer: false, folderBookmark: nil, photoID: id)
+        for full in [true, false] {
+            do {
+                _ = try await Task.detached { try ArchiveProver.sameOriginal(id, as: before, readInFull: full) }.value
+                XCTFail("A photo edited after it was copied must stay on the iPhone.")
+            } catch {
+                XCTAssertEqual(error as? ArchiveProofError, .editChanged)
+            }
+        }
+    }
+
+    @MainActor
+    func testPlainPhotoPassesUntilItsBytesOrFilesChange() async throws {
+        try await authorize()
+        let picture = try jpeg(.orange)
+        let id = try await fixture("plain", [(.photo, picture, "jpg")])
+        let asset = try XCTUnwrap(PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject)
+        guard VerifiedArchive.original(for: asset) != nil else { throw XCTSkip("The simulator's Photos kept more than one file for a plain photo.") }
+        let fingerprints = try await DuplicateScanner().archiveFingerprints(for: id)
+        let scanned = try XCTUnwrap(fingerprints.first)
+        XCTAssertEqual(scanned.bytes, Int64(picture.count))
+        let record = ArchivedRecord(id: UUID().uuidString, name: "plain.jpg", folderName: "archive", bytes: scanned.bytes, digest: scanned.digest,
+                                    date: Date(), viaHomeServer: false, folderBookmark: nil, photoID: id)
+        let proven = try await Task.detached { try ArchiveProver.sameOriginal(id, as: record, readInFull: true) }.value
+        let again = try await Task.detached { try ArchiveProver.sameOriginal(id, as: record, readInFull: false) }.value
+        print("PARTS|plain|size Photos reports: \(String(describing: proven)), actual \(picture.count)")
+        XCTAssertTrue(ArchiveProver.unchangedSize(again, since: proven), "Unchanged between the check and the delete.")
+
+        let other = ArchivedRecord(id: record.id, name: record.name, folderName: record.folderName, bytes: record.bytes,
+                                   digest: String(repeating: "0", count: 64), date: record.date, viaHomeServer: false, folderBookmark: nil, photoID: id)
+        do {
+            _ = try await Task.detached { try ArchiveProver.sameOriginal(id, as: other, readInFull: true) }.value
+            XCTFail("An original that no longer matches its record must stay.")
+        } catch {
+            XCTAssertEqual(error as? ArchiveProofError, .editChanged)
+        }
     }
 
     @MainActor

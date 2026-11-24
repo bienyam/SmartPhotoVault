@@ -75,6 +75,73 @@ final class ArchivePartsSafetyTests: XCTestCase {
                        "It was edited after it was copied, so its copy doesn't hold the latest edit. Copy it again.")
     }
 
+    // MARK: - A single file edited after the copy (owner, 2026-11-24)
+
+    private let video = PHAssetResourceType.video.rawValue
+    private let fullVideo = PHAssetResourceType.fullSizeVideo.rawValue
+
+    private func single(_ name: String, bytes: Int64 = 100, digest: String = "AB12") -> ArchivedRecord {
+        ArchivedRecord(id: name, name: name, folderName: "Drive", bytes: bytes, digest: digest, date: Date(timeIntervalSince1970: 1_000),
+                       viaHomeServer: false, folderBookmark: Data([1]), photoID: "asset")
+    }
+
+    func testAnUnchangedSingleFileStillPasses() {
+        XCTAssertNoThrow(try ArchiveProver.sameSingleFile(types: [photo], as: single("IMG_1.HEIC")) { self.fp("ab12", 100) })
+        XCTAssertNoThrow(try ArchiveProver.sameSingleFile(types: [video], as: single("IMG_2.MOV")) { self.fp("ab12", 100) })
+        // Right before the delete a video is not read a second time: still one video file is enough there.
+        XCTAssertNoThrow(try ArchiveProver.sameSingleFile(types: [video], as: single("IMG_2.MOV"), current: nil))
+    }
+
+    func testASingleFileThatGainedAnEditIsRejected() {
+        let gained: [(String, String, [Int])] = [
+            ("edited or cropped photo", "IMG_1.HEIC", [photo, fullPhoto, adjustment]),
+            ("photo that became a Live Photo's still", "IMG_1.HEIC", [photo, paired]),
+            ("trimmed video", "IMG_2.MOV", [video, fullVideo, adjustment]),
+            ("slo-mo style edit, no render", "IMG_2.MOV", [video, adjustment]),
+            ("nothing left to read", "IMG_1.HEIC", []),
+            ("a video where a photo was copied", "IMG_1.HEIC", [video]),
+        ]
+        for (why, name, types) in gained {
+            // The original file itself is untouched by an edit, so its bytes still match: not enough.
+            XCTAssertThrowsError(try ArchiveProver.sameSingleFile(types: types, as: single(name)) { self.fp("ab12", 100) }, why) {
+                XCTAssertEqual($0 as? ArchiveProofError, .editChanged, why)
+            }
+            XCTAssertThrowsError(try ArchiveProver.sameSingleFile(types: types, as: single(name), current: nil), why)
+        }
+    }
+
+    func testASingleFileWhoseBytesChangedIsRejected() {
+        for (why, now) in [("different bytes, same size", fp("ffff", 100)), ("same digest claimed, different size", fp("ab12", 101))] {
+            XCTAssertThrowsError(try ArchiveProver.sameSingleFile(types: [photo], as: single("IMG_1.HEIC")) { now }, why) {
+                XCTAssertEqual($0 as? ArchiveProofError, .editChanged, why)
+            }
+        }
+        XCTAssertThrowsError(try ArchiveProver.sameSingleFile(types: [photo], as: single("IMG_1.HEIC")) { throw ArchiveError.iCloudDownload }) {
+            XCTAssertEqual($0 as? ArchiveError, .iCloudDownload, "Unreadable is not unchanged.")
+        }
+    }
+
+    func testRecordsFromVersionOneAreHeldToTheSameCheck() throws {
+        // Exactly what 1.0 wrote. Every 1.0 record carries the fingerprint taken when it was copied.
+        let json = #"{"id":"a","name":"IMG_1.HEIC","folderName":"Drive","bytes":1234,"digest":"ab","date":700000000,"viaHomeServer":false,"folderBookmark":"AQID","photoID":"p"}"#
+        let old = try JSONDecoder().decode(ArchivedRecord.self, from: Data(json.utf8))
+        XCTAssertNoThrow(try ArchiveProver.sameSingleFile(types: [photo], as: old) { self.fp("ab", 1234) })
+        XCTAssertThrowsError(try ArchiveProver.sameSingleFile(types: [photo, fullPhoto, adjustment], as: old) { self.fp("ab", 1234) })
+        XCTAssertThrowsError(try ArchiveProver.sameSingleFile(types: [photo], as: old) { self.fp("cd", 1234) })
+        // A record with nothing to compare against never passes, whatever is read.
+        XCTAssertThrowsError(try ArchiveProver.sameSingleFile(types: [photo], as: single("IMG_1.HEIC", bytes: 0, digest: "")) { self.fp("", 0) }) {
+            XCTAssertEqual($0 as? ArchiveProofError, .editChanged)
+        }
+    }
+
+    func testTheSizePhotosReportsMustNotMoveBetweenTheCheckAndTheDelete() {
+        XCTAssertTrue(ArchiveProver.unchangedSize(5_000, since: 5_000))
+        XCTAssertTrue(ArchiveProver.unchangedSize(nil, since: nil), "Photos reported none both times.")
+        XCTAssertFalse(ArchiveProver.unchangedSize(5_001, since: 5_000))
+        XCTAssertFalse(ArchiveProver.unchangedSize(nil, since: 5_000))
+        XCTAssertFalse(ArchiveProver.unchangedSize(5_000, since: nil))
+    }
+
     // MARK: - An edit made while copying
 
     private func part(_ name: String, _ type: Int) -> ArchiveItem {

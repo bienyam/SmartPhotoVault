@@ -20,6 +20,9 @@ struct ArchiveProof: Sendable {
     /// A Live Photo or edited photo: the same stamp for each of its other files, in the record's order.
     /// Empty for a single-file copy.
     var partCopies: [CopyStamp] = []
+    /// A single-file copy: the size Photos reported for the original when it was proven, if it gave one.
+    /// Compared with itself right before the delete; never with the copy.
+    var originalSize: Int64? = nil
 }
 
 /// Why an original stays on the iPhone.
@@ -45,14 +48,21 @@ enum ArchiveProofError: LocalizedError, Equatable {
 /// `prove` makes sure the copy is still there, off this iPhone, at exactly the size recorded (on Google
 /// Drive also Drive's own SHA-256), and that the original hasn't changed since. `confirm` repeats that
 /// right before the delete. Any error means the original stays. (Owner, 2026-11-22: size to the byte,
-/// not a full read-back, so freeing space stays fast.)
+/// not a full read-back, so freeing space stays fast. Owner, 2026-11-24: the original in Photos is read
+/// again in full, so anything edited after it was copied stays.)
 enum ArchiveProver {
     static func prove(photoID: String, record: ArchivedRecord?, wifi: ArchiveWiFi) async throws -> ArchiveProof {
         guard let record else { throw ArchiveProofError.notRecorded }
         let modified = try originalModificationDate(photoID)
         let stamp = try await currentStamp(record, wifi: wifi)
         guard record.hasParts else {
-            return ArchiveProof(photoID: photoID, record: record, copy: stamp, originalModified: modified)
+            // A single file (owner, 2026-11-24): the original must still be that one file and nothing
+            // more, and reading it again in full must give the recorded fingerprint. A photo or video
+            // edited after it was copied fails here, so its edit is never deleted with it.
+            let size = try await Task.detached(priority: .userInitiated) {
+                try sameOriginal(photoID, as: record, readInFull: true)
+            }.value
+            return ArchiveProof(photoID: photoID, record: record, copy: stamp, originalModified: modified, originalSize: size)
         }
         // A Live Photo or edited photo: the original must still be made of the same kinds of files, its
         // edit must still be byte for byte the one that was copied, and every one of the copies must pass
@@ -68,8 +78,18 @@ enum ArchiveProver {
             throw ArchiveProofError.originalChanged
         }
         guard try await currentStamp(proof.record, wifi: wifi) == proof.copy else { throw ArchiveProofError.changedSinceCheck }
-        guard proof.record.hasParts || !proof.partCopies.isEmpty else { return }
         let photoID = proof.photoID, record = proof.record
+        guard proof.record.hasParts || !proof.partCopies.isEmpty else {
+            // A single file, once more: still one file of the same kind and, as Photos reports it, the
+            // same size as when it was proven. A photo is also read again in full. A video was read in
+            // full moments ago by `prove`; reading gigabytes a second time would stall the delete, and
+            // any edit since then changes its files, its size or its modification date, checked above.
+            let size = try await Task.detached(priority: .userInitiated) {
+                try sameOriginal(photoID, as: record, readInFull: false)
+            }.value
+            guard unchangedSize(size, since: proof.originalSize) else { throw ArchiveProofError.editChanged }
+            return
+        }
         try await Task.detached(priority: .userInitiated) { try sameParts(photoID, as: record) }.value
         let files = Array(proof.record.files.dropFirst())
         guard partsProven(files.count, stamps: proof.partCopies.count) else { throw ArchiveProofError.changedSinceCheck }
@@ -77,6 +97,37 @@ enum ArchiveProver {
             guard try await currentStamp(file, wifi: wifi) == stamp else { throw ArchiveProofError.changedSinceCheck }
         }
     }
+
+    /// The original of a single-file copy, as it is in Photos now. Returns the size Photos reports for it.
+    /// A photo is always read again in full; a video only when `readInFull` is set. Reads from Photos,
+    /// so it blocks: call it off the main thread.
+    static func sameOriginal(_ id: String, as record: ArchivedRecord, readInFull: Bool) throws -> Int64? {
+        guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject else {
+            throw ArchiveProofError.originalChanged
+        }
+        let resources = PHAssetResource.assetResources(for: asset)
+        var current: (() throws -> ArchiveFingerprint)? = nil
+        if readInFull || asset.mediaType == .image { current = { try VerifiedArchive.originalFingerprint(id) } }
+        try sameSingleFile(types: resources.map { $0.type.rawValue }, as: record, current: current)
+        // The same rule the copy itself was made under: one original file, not a Live Photo.
+        guard VerifiedArchive.original(for: asset) != nil else { throw ArchiveProofError.editChanged }
+        return DuplicateScanner.reportedSize(of: resources)
+    }
+
+    /// A single-file copy still stands for the whole item only while the original is exactly one file of
+    /// the kind that was copied (an edit, a crop or a trim adds files beside it), and, when it is read
+    /// again by `current`, only while its bytes are the ones in the record. A record with no usable
+    /// fingerprint can never match, so its original stays.
+    static func sameSingleFile(types: [Int], as record: ArchivedRecord, current: (() throws -> ArchiveFingerprint)?) throws {
+        let copied = ArchivedDayView.isVideo(record.name) ? PHAssetResourceType.video.rawValue : PHAssetResourceType.photo.rawValue
+        guard types == [copied] else { throw ArchiveProofError.editChanged }
+        guard let current else { return }
+        guard !record.digest.isEmpty, try current() == fingerprint(of: record) else { throw ArchiveProofError.editChanged }
+    }
+
+    /// The size Photos reports now must be what it reported when the original was proven. Both unknown
+    /// is the same; known then and unknown now, or the other way round, is not.
+    static func unchangedSize(_ now: Int64?, since proven: Int64?) -> Bool { now == proven }
 
     /// Every other file of the item needs its own stamp: one short, or one extra, proves nothing.
     static func partsProven(_ files: Int, stamps: Int) -> Bool { files > 0 && files == stamps }
