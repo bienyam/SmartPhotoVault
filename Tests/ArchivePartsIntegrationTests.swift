@@ -128,6 +128,7 @@ final class ArchivePartsIntegrationTests: XCTestCase {
         XCTAssertEqual(back.first?.digest, scanned.first?.digest, "The original still came back byte for byte.")
         for (returned, original) in zip(back, scanned) {
             print("PARTS|\(label)|type \(original.type) came back byte for byte: \(returned.digest == original.digest && returned.bytes == original.bytes)")
+            XCTAssertEqual(returned, original, "Every file of the item that came back is the original's, byte for byte.")
         }
         return newID
     }
