@@ -1656,6 +1656,8 @@ struct PhotoArchiveView: View {
             }
             // One flush for the whole batch. Until the drive confirms it, nothing may be deleted.
             if let last = successes.last {
+                // Shown on the copy screen, since a large drive can take a while to finish writing.
+                run.phase = "Making sure the drive saved everything…"
                 let flushed = await Task.detached(priority: .userInitiated) {
                     (try? VerifiedArchive.flushDrive(last.url, in: destination)) != nil
                 }.value
