@@ -25,6 +25,7 @@ struct ProUpgradeView: View {
             Section("Added with Pro") {
                 feature("Archive without a limit", icon: "infinity")
                 feature("Choose what to archive by album, place and size", icon: "line.3.horizontal.decrease.circle")
+                feature("Smart picks on this \(Device.name): best shots with the reason, screenshots sorted by what they say, and photos already archived", icon: "wand.and.stars")
             }
             Section {
                 ProPurchaseControls()

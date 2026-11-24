@@ -10,6 +10,8 @@ A scan builds an inventory on your iPhone. It can include Apple Photos identifie
 
 To suggest groups, TidyAway can look at small versions of your photos with the image recognition built into iOS. This happens on your iPhone. The app keeps short labels (such as "beach" or "receipt"), sharpness and brightness numbers, and which photos look alike. It never keeps a picture and does not identify people.
 
+With TidyAway Pro, the app can also look at faces in small copies of look-alike photos to suggest which one to keep (whether eyes are open and how clear faces are; it does not identify anyone), and read the words in your screenshots to sort them into groups such as login codes, receipts and expired tickets. This happens on your iPhone. Face scores are used on screen and not saved. For screenshots, only the group each one belongs to is kept; the words themselves are never stored, logged, or sent.
+
 When you choose a place on the Archive tab, the map comes from Apple Maps. Your photo locations stay on your iPhone.
 
 ## Deleting
