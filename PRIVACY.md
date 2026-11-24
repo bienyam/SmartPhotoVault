@@ -26,6 +26,12 @@ If you connect Google Drive, OneDrive, or Dropbox, that service signs you in on 
 
 After a verified copy, the app keeps a local list of each copy's file name, location, size, fingerprint, and date, and the identifier of the photo it came from, so you can find a copy and put it back. Deleting originals after archiving is offered only when the app can confirm the copy is safe at its destination. The list stays on your iPhone and is removed when you delete the app.
 
+## Check-ins and reminders
+
+If you turn on check-ins, TidyAway sends notifications from your iPhone on the schedule you choose. To fill them in, it reads how much space is free on your iPhone and the totals from its last check, and keeps a short history of those numbers (free space, totals by group, and how many items are in your library) on your iPhone. iOS may let the app refresh these numbers in the background; that only reads and notifies. Nothing is deleted in the background.
+
+If you turn on reminders before big events, TidyAway asks for access to your calendar and reads events in the next two weeks on your iPhone, to spot trips and events such as weddings and birthdays. An event's name appears only in the notification on your iPhone. Nothing from your calendar is saved, logged, or sent anywhere. Turning the switch off, or removing calendar access in Settings, stops it.
+
 ## Purchases
 
 TidyAway Pro is sold through Apple. Apple handles payment; the app only learns whether Pro is active.

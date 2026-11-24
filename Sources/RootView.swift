@@ -6,6 +6,8 @@ struct RootView: View {
 
     @StateObject private var model = DashboardModel()
     @ObservedObject private var basket = ArchiveBasket.shared
+    @ObservedObject private var checkIns = CheckInCenter.shared
+    @EnvironmentObject private var pro: ProStore
     @State private var tab = Tab.freeUp
     @AppStorage("hasSeenWelcome") private var hasSeenWelcome = false
     @State private var forceWelcome = LaunchFlags.has("--reset-welcome")
@@ -49,9 +51,28 @@ struct RootView: View {
         .onChange(of: basket.request) { tab = .archive }
         .task {
             if LaunchFlags.has("--demo") { model.showDemo() }
+            checkIns.start()
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { model.refreshAuthorization() }
+            // Check-ins catch up each time the app opens, since iOS may not have run one in the background.
+            if phase == .active { Task { await checkIns.catchUp(pro: pro.unlocked) } }
+        }
+        .onChange(of: pro.unlocked) { _, unlocked in
+            Task { await checkIns.catchUp(pro: unlocked) }
+        }
+        // A tapped check-in notification opens its report.
+        .sheet(isPresented: $checkIns.showReport) {
+            NavigationStack {
+                CheckInReportView(model: model, openFreeUp: {
+                    checkIns.showReport = false
+                    tab = .freeUp
+                })
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) { Button("Done") { checkIns.showReport = false } }
+                }
+            }
+            .environmentObject(pro)
         }
     }
 

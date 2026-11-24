@@ -23,7 +23,9 @@ final class CrawlerUITests: XCTestCase {
         "Choose where to restore it", "Change folder", "archive-scan", "archive-copy", "archive-stop",
         // These open Apple's own file window, which belongs to another process and covers the app.
         "Choose an iCloud Drive file", "Choose a different drive or folder", "Choose a folder", "delete-selected", "free-up-space", "check-again",
-        "Check my photos instead", "Stop", "Allow Access to Photos", "See TidyAway Pro", "Switch to lifetime"
+        "Check my photos instead", "Stop", "Allow Access to Photos", "See TidyAway Pro", "Switch to lifetime",
+        // Check-ins: switching these on asks for notification and calendar access, a system prompt that covers the app.
+        "checkins-daily", "checkins-weekly", "checkins-monthly", "checkins-low", "checkins-junk", "checkins-photos", "checkins-calendar"
     ]
 
     /// Finishing takes a fraction of this; running out means coverage is incomplete.
