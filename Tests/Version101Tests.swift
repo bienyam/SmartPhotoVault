@@ -213,6 +213,32 @@ final class Version101Tests: XCTestCase {
         XCTAssertEqual(AppearanceStore.load(from: store), .system)
     }
 
+    // MARK: More tab
+
+    func testTheTipOfTheWeekChangesEachWeekAndComesRound() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/Chicago")!
+        let start = calendar.date(from: DateComponents(year: 2026, month: 12, day: 2, hour: 12))!
+        let weeks = (0..<Tip.allCases.count).map { Tip.ofTheWeek(start.addingTimeInterval(Double($0) * 7 * 86_400), calendar: calendar) }
+        XCTAssertEqual(Set(weeks).count, Tip.allCases.count, "Each tip gets a week.")
+        XCTAssertEqual(Tip.ofTheWeek(start, calendar: calendar), Tip.ofTheWeek(start.addingTimeInterval(86_400), calendar: calendar))
+        XCTAssertEqual(Tip.allCases.map(\.identifier), ["guide-messages", "more-explainer", "more-optimize"],
+                       "The tips keep the identifiers they shipped with.")
+    }
+
+    func testTheProPageListsWhatStaysFree() {
+        let free = ProPlanLists.alwaysFree.map(\.text).joined(separator: " ").lowercased()
+        for word in ["duplicates", "large videos", "screenshots", "5 gb", "destination", "get archived items back",
+                     "activity", "preview", "favorites", "storage checkup", "monthly check-in"] {
+            XCTAssertTrue(free.contains(word), "Always free should mention \(word)")
+        }
+        let paid = ProPlanLists.addedWithPro.map(\.text).joined(separator: " ").lowercased()
+        for word in ["smart picks", "without a limit", "archive groups", "daily or weekly", "smart pro"] {
+            XCTAssertTrue(paid.contains(word), "Added with Pro should mention \(word)")
+        }
+        XCTAssertFalse(free.contains("smart picks"))
+    }
+
     // MARK: Free space trend
 
     func testTrendKeepsOnePointADay() {

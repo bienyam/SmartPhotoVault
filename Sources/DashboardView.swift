@@ -759,58 +759,6 @@ struct MoreTypesView: View {
     }
 }
 
-/// Everything that isn't cleanup or archiving, one row each.
-struct MoreView: View {
-    @ObservedObject var model: DashboardModel
-
-    var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    NavigationLink { LedgerView(model: model) } label: {
-                        Label("Activity", systemImage: "checkmark.shield")
-                    }
-                    .accessibilityIdentifier("more-activity")
-                    NavigationLink { CheckInsView(model: model) } label: {
-                        Label("Check-ins", systemImage: "bell.badge")
-                    }
-                    .accessibilityIdentifier("more-checkins")
-                    NavigationLink { ProUpgradeView() } label: {
-                        Label("TidyAway Pro", systemImage: "sparkles")
-                    }
-                    .accessibilityIdentifier("more-pro")
-                }
-                Section("Tips") {
-                    NavigationLink { MessagesAttachmentsGuide() } label: {
-                        Label("Photos and videos in Messages", systemImage: "message")
-                    }
-                    .accessibilityIdentifier("guide-messages")
-                    NavigationLink { StorageExplainer() } label: {
-                        Label("Where your storage goes", systemImage: "internaldrive")
-                    }
-                    .accessibilityIdentifier("more-explainer")
-                    NavigationLink { CloudDownloadRemovalView() } label: {
-                        Label("Free iCloud Drive downloads", systemImage: "icloud.and.arrow.down")
-                    }
-                    .accessibilityIdentifier("more-icloud-downloads")
-                    NavigationLink { OptimizeStorageTip() } label: {
-                        Label("Keep smaller copies with iCloud", systemImage: "iphone")
-                    }
-                    .accessibilityIdentifier("more-optimize")
-                }
-                Section {
-                    NavigationLink { HelpPrivacyView(model: model) } label: {
-                        Label("Help & privacy", systemImage: "questionmark.circle")
-                    }
-                    .accessibilityIdentifier("more-help")
-                }
-            }
-            .navigationTitle("More")
-            .navigationBarTitleDisplayMode(.inline)
-        }
-    }
-}
-
 /// Storage TidyAway can't clear itself, explained plainly with the steps to clear it yourself.
 struct StorageExplainer: View {
     var body: some View {
@@ -860,36 +808,6 @@ struct OptimizeStorageTip: View {
             }
         }
         .navigationTitle("Keep smaller copies")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-}
-
-struct HelpPrivacyView: View {
-    @ObservedObject var model: DashboardModel
-
-    var body: some View {
-        List {
-            Section("How TidyAway works") {
-                Text("Free up finds the biggest things on this \(Device.name). You pick what goes, sign off, and Apple asks you to confirm. Deleted items wait in Recently Deleted for 30 days; empty it in Photos to get the space back.")
-                Text("Archive copies photos and files to a place you choose and checks every copy. It only adds copies there; it never deletes or changes anything in your archive.")
-            }
-            Section("Privacy") {
-                Text("TidyAway reads the Apple Photos items you authorize. Scanning and exact duplicate matching run on your device.")
-                Text("The app stores the latest completed check and its activity log locally. The check can include Photos identifiers, file names, dates, favorite status, resource sizes and hashes, the names of your albums, and an approximate location rounded to about 1 km. The app does not transmit this information to the developer or include advertising or analytics.")
-                Text("When you choose a place on the Archive tab, the map is loaded from Apple Maps. Your photo locations stay on your \(Device.name).")
-                Text("Check-ins, if you turn them on, read free space and the last check's totals and keep a short history on this \(Device.name). Reminders before big events read your calendar on this \(Device.name) only; event names appear only in the notifications and are never saved or sent.")
-                Text("If you connect Google Drive, Google signs you in and gives TidyAway access only to the files it creates in a TidyAway Archive folder. The sign-in is kept in this \(Device.name)'s Keychain. Disconnecting removes it and revokes access; your archived copies stay in Drive.")
-                if CloudService.allCases.contains(where: \.available) {
-                    Text("If you connect OneDrive, Microsoft signs you in and gives TidyAway access to your files; TidyAway only adds copies to a TidyAway folder in My files and never opens, changes or deletes anything else. If you connect Dropbox, it gives TidyAway access only to its own folder, Apps › TidyAway. The sign-in is kept in this \(Device.name)'s Keychain. Disconnecting removes it; your archived copies stay there.")
-                }
-                Text("Checks read originals already available on your \(Device.name). If you approve an archive or restore, the app writes a copy to your chosen folder, downloading the original from iCloud first when it isn't on your \(Device.name). The source stays in place and the provider may sync the copy.")
-                Text("After a verified archive copy, the app keeps a local list of the file name, folder, size, checksum and date, with a reference to the folder you chose, so you can find and restore it.")
-                Text("If you approve deleting items, the app asks Apple Photos to delete exactly those items. Apple shows its own confirmation and normally keeps deleted items in Recently Deleted for up to 30 days. The approval, item count and outcome are recorded in the local activity log.")
-                Text("You can change Photos access in Settings. To remove the local data and activity log from this device, delete the app.")
-                Text("Apple handles in-app purchases.")
-            }
-        }
-        .navigationTitle("Help & privacy")
         .navigationBarTitleDisplayMode(.inline)
     }
 }
