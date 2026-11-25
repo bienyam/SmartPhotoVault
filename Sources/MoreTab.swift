@@ -361,7 +361,8 @@ struct AppearanceView: View {
                     Button {
                         appearance = choice.rawValue
                     } label: {
-                        HStack {
+                        HStack(spacing: 14) {
+                            AppearanceSwatch(choice: choice)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(choice.title).font(.body).foregroundStyle(Brand.ink)
                                 Text(choice.detail).font(.footnote).foregroundStyle(Brand.muted)
@@ -387,6 +388,29 @@ struct AppearanceView: View {
         }
         .navigationTitle("Appearance")
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// A small tile that shows the look itself: cream, navy, or half of each for "Same as iPhone".
+struct AppearanceSwatch: View {
+    let choice: AppearanceChoice
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 9, style: .continuous)
+        Group {
+            switch choice {
+            case .system:
+                HStack(spacing: 0) { Brand.swatchLight; Brand.swatchDark }
+            case .light:
+                Brand.swatchLight
+            case .dark:
+                Brand.swatchDark
+            }
+        }
+        .frame(width: 34, height: 34)
+        .clipShape(shape)
+        .overlay(shape.stroke(Brand.swatchEdge, lineWidth: 1))
+        .accessibilityHidden(true)
     }
 }
 
