@@ -477,7 +477,9 @@ final class DashboardUITests: XCTestCase {
         let group = app.buttons["group-large-videos"]
         XCTAssertTrue(group.waitForExistence(timeout: 15))
         group.tap()
-        XCTAssertTrue(app.navigationBars["TidyAway Pro"].waitForExistence(timeout: 5), "Opening a group shows Pro.")
+        XCTAssertTrue(app.staticTexts["pro-sheet-title"].waitForExistence(timeout: 5), "Opening a group shows the Pro half sheet.")
+        app.buttons["pro-sheet-plans"].tap()
+        XCTAssertTrue(app.navigationBars["TidyAway Pro"].waitForExistence(timeout: 5), "See all plans opens the Pro page.")
         reveal(app.buttons["pro-monthly"], in: app)
         XCTAssertTrue(app.buttons["pro-monthly"].waitForExistence(timeout: 5), "Opening a group shows Pro.")
     }

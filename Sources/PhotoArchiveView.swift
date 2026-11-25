@@ -1269,14 +1269,13 @@ struct PhotoArchiveView: View {
         }
     }
 
+    /// A locked Archive feature opens the half sheet; "See all plans" there opens the Pro page.
     private func proSheet(_ shown: Binding<Bool>) -> some View {
-        NavigationStack {
-            ProUpgradeView()
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("Not now") { shown.wrappedValue = false } }
-                }
-        }
-        .environmentObject(pro)
+        ProFeatureSheet(offer: ProOffer(
+            id: "archive", title: "Archive groups and filters",
+            what: "sort your library into events, trips and topics, let you choose by album or place, suggest large videos, and archive without the 5 GB limit.",
+            found: "Archiving up to 5 GB, to any destination, stays free.", symbol: "archivebox"))
+            .environmentObject(pro)
     }
 
     private func setDestination(_ folder: URL) {
