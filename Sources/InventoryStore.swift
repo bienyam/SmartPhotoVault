@@ -75,7 +75,8 @@ final class InventoryStore {
 
     /// Total size of everything archived, without loading every record.
     func archivedBytes() throws -> Int64 {
-        let statement = try prepare("SELECT COALESCE(SUM(json_extract(payload, '$.bytes')), 0) FROM archived")
+        // A Live Photo or edited photo also counts its other files; older records have none.
+        let statement = try prepare("SELECT (SELECT COALESCE(SUM(json_extract(payload, '$.bytes')), 0) FROM archived) + (SELECT COALESCE(SUM(json_extract(part.value, '$.bytes')), 0) FROM archived AS item, json_each(item.payload, '$.parts') AS part)")
         defer { sqlite3_finalize(statement) }
         guard sqlite3_step(statement) == SQLITE_ROW else { throw error() }
         return sqlite3_column_int64(statement, 0)

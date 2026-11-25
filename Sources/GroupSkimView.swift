@@ -92,7 +92,7 @@ struct GroupSkimView: View {
                     .background(ArchiveStyle.safeBack, in: Capsule())
                     .accessibilityIdentifier("skim-reason")
                 if group.notYet > 0 {
-                    Text("\(group.records.count) of \(group.total) can be archived now. Live Photos, edits and some formats can't yet.")
+                    Text("\(group.records.count) of \(group.total) can be archived now. Slo-mo, edited videos and some formats can't yet.")
                         .font(.footnote).foregroundStyle(ArchiveStyle.muted)
                 }
             }

@@ -14,12 +14,19 @@ struct ArchiveItem: Identifiable, Sendable {
     let source: ArchiveSource
     /// The size the scan recorded, when known. OneDrive needs it before the upload starts.
     var size: Int64? = nil
+    /// Set when this stands for one file of a Photos item kept as several (a Live Photo's video, an
+    /// edit): Photos' resource type of that file. Nil for a whole item.
+    var part: Int? = nil
+    /// The scan's fingerprint of every file of a Live Photo or edited photo. Nil for a single-file item.
+    var expectedParts: [ResourceFingerprint]? = nil
 
     var sourceLabel: String {
         switch source {
         case .file: "Files"
         case let .photo(_, expected):
-            if let expected { "Photos · \(ByteCountFormatter.string(fromByteCount: expected.bytes, countStyle: .file))" }
+            if let expectedParts, !expectedParts.isEmpty {
+                "Photos · \(ByteCountFormatter.string(fromByteCount: expectedParts.reduce(0) { $0 + $1.bytes }, countStyle: .file))"
+            } else if let expected { "Photos · \(ByteCountFormatter.string(fromByteCount: expected.bytes, countStyle: .file))" }
             else { "Photos" }
         }
     }
@@ -38,11 +45,11 @@ struct ArchiveReceipt: Identifiable, Sendable {
 }
 
 enum ArchiveError: LocalizedError {
-    case unsupportedPhoto, missingFile, conflict, verification, sameFolder, unavailable, wifi, iCloudDownload
+    case unsupportedPhoto, missingFile, conflict, verification, sameFolder, unavailable, wifi, iCloudDownload, editedDuringCopy
 
     var errorDescription: String? {
         switch self {
-        case .unsupportedPhoto: "Only JPEG and HEIC photos and single-file videos available on this \(Device.name) can be copied. Live Photos, slo-mo and edited videos aren't supported yet."
+        case .unsupportedPhoto: "Only JPEG and HEIC photos, with their Live Photo and edit parts, and single-file videos available on this \(Device.name) can be copied. Slo-mo, edited videos and RAW pairs aren't supported yet."
         case .missingFile: "Choose an accessible regular file."
         case .conflict: "A file with that name already exists. Choose a different folder."
         case .verification: "The copied bytes did not match the original."
@@ -50,6 +57,7 @@ enum ArchiveError: LocalizedError {
         case .unavailable: "The selected location could not be opened."
         case .iCloudDownload: "iCloud didn't send this item. Use Wi-Fi, turn off Low Power Mode, and if you're not on Wi-Fi turn on Settings › Photos › Cellular Data. Then try again."
         case .wifi: "Join the same Wi-Fi network as your home server and try again."
+        case .editedDuringCopy: "It was edited while it was being copied, so the copy wasn't counted. Copy it again."
         }
     }
 }
@@ -71,10 +79,15 @@ enum VerifiedArchive {
                         try writeVerified(to: output, wifi: wifi) { try copyFile(input, to: $0, wifi: wifi, flush: flush) }
                     }
                 }
+            case let .photo(id, expected) where item.part != nil && FileManager.default.fileExists(atPath: destination.path):
+                // One file of a Live Photo or edited photo is already there, from a try that stopped
+                // before every file was copied. Nothing is overwritten: it counts only if reading it
+                // back gives exactly the original's bytes.
+                fingerprint = try alreadyStored(id, part: item.part, expected: expected, at: destination, wifi: wifi)
             case let .photo(id, expected):
                 fingerprint = try coordinateWrite(to: destination) { output in
                     try writeVerified(to: output, wifi: wifi) { temporary in
-                        let result = try copyPhoto(id, to: temporary, wifi: wifi, flush: flush)
+                        let result = try copyPhoto(id, part: item.part, to: temporary, wifi: wifi, flush: flush)
                         if let expected, result != ArchiveFingerprint(bytes: expected.bytes, digest: expected.digest) {
                             throw ArchiveError.verification
                         }
@@ -122,6 +135,57 @@ enum VerifiedArchive {
         return resource
     }
 
+    /// Copies every file of an item to the folder. A single-file item goes exactly the way it always
+    /// has. A Live Photo or edited photo is copied file by file, each streamed and checked like a
+    /// single file, and counts only when all of them are there: the first failure stops the item.
+    static func copyEvery(_ item: ArchiveItem, to folder: URL, wifi: ArchiveWiFi? = nil,
+                          flush: Bool = true) throws -> (receipt: ArchiveReceipt, parts: [ArchivedPart]) {
+        guard let files = try ArchiveParts.files(of: item) else {
+            return (try copy(item, to: folder, wifi: wifi, flush: flush), [])
+        }
+        let receipts = try ArchiveParts.every(files) { try copy($0, to: folder, wifi: wifi, flush: flush) }
+        // An edit made while the files were being copied would leave parts of two different edits.
+        try ArchiveParts.requireSameEdit(files, receipts.map { $0.fingerprint })
+        let stored = receipts.map { StoredPart(name: $0.url.lastPathComponent, fingerprint: $0.fingerprint) }
+        return (receipts[0], ArchiveParts.parts(files, stored))
+    }
+
+    /// The files of a Live Photo or an edited photo, original still first. Nil for anything kept as one
+    /// file (see `original(for:)`) and for combinations that can't be archived yet.
+    static func plan(for asset: PHAsset) -> [PHAssetResource]? {
+        let resources = PHAssetResource.assetResources(for: asset)
+        guard let types = ArchivePlan.parts(mediaType: asset.mediaType.rawValue, types: resources.map { $0.type.rawValue }),
+              let still = resources.first(where: { $0.type == .photo }),
+              let type = UTType(still.uniformTypeIdentifier),
+              type.conforms(to: .jpeg) || type.conforms(to: .heic) else { return nil }
+        let ordered = types.compactMap { wanted in resources.first { $0.type.rawValue == wanted } }
+        return ordered.count == resources.count ? ordered : nil
+    }
+
+    /// The file that gives an item its name: the single original, or a Live or edited photo's original still.
+    static func primary(for asset: PHAsset) -> PHAssetResource? {
+        original(for: asset) ?? plan(for: asset)?.first
+    }
+
+    /// The file to read for an item: its single original, or the named part of a Live or edited photo.
+    static func file(of asset: PHAsset, part: Int?) -> PHAssetResource? {
+        guard let part else { return original(for: asset) }
+        return plan(for: asset)?.first { $0.type.rawValue == part }
+    }
+
+    /// A file of this name is already in the folder. It counts as this part's copy only when it holds
+    /// exactly the original's bytes, read back in full from the destination.
+    private static func alreadyStored(_ id: String, part: Int?, expected: ResourceFingerprint?, at destination: URL,
+                                      wifi: ArchiveWiFi?) throws -> ArchiveFingerprint {
+        let original = try originalFingerprint(id, part: part)
+        if let expected, original != ArchiveFingerprint(bytes: expected.bytes, digest: expected.digest) {
+            throw ArchiveError.verification
+        }
+        let stored = try coordinateRead(destination) { try read($0, wifi: wifi, skipCache: true) }
+        guard stored == original else { throw ArchiveError.conflict }
+        return original
+    }
+
     /// Reads a whole archive copy back from where it is stored and compares it with the fingerprint taken
     /// when it was archived. Anything missing, different or not yet uploaded throws.
     /// `offDevice` is only ever false in tests, which have no second volume to write to.
@@ -148,30 +212,110 @@ enum VerifiedArchive {
     }
 
     /// Reads the whole original from Photos again (downloading it from iCloud if needed) and hashes it.
-    static func originalFingerprint(_ id: String) throws -> ArchiveFingerprint {
+    ///
+    /// It waits the way the copy does. A download that stops moving is given up after the same quiet
+    /// time, and a photo that Photos never started sending is asked for the second way the copy uses,
+    /// which hands over the same original bytes. `cancelled` is asked about once a second; when it says
+    /// yes the request to Photos is cancelled and a `CancellationError` is thrown, so no download keeps
+    /// running after its screen has closed. `read` hears how many bytes arrived, for a progress line.
+    static func originalFingerprint(_ id: String, part: Int? = nil, cancelled: () -> Bool = { false },
+                                    read: (@Sendable (Int) -> Void)? = nil) throws -> ArchiveFingerprint {
         guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject,
-              let resource = original(for: asset) else { throw ArchiveProofError.originalChanged }
+              let resource = file(of: asset, part: part) else { throw ArchiveProofError.originalChanged }
         let sink = ArchiveHasher()
+        let activity = ArchiveActivity()
         let options = PHAssetResourceRequestOptions()
         options.isNetworkAccessAllowed = true
+        options.progressHandler = { fraction in activity.progressed(fraction) }
         let completion = DispatchSemaphore(value: 0)
         let manager = PHAssetResourceManager.default()
         let request = manager.requestData(for: resource, options: options) { data in
+            activity.received()
             sink.append(data)
+            read?(data.count)
         } completionHandler: { error in
             sink.finish(error)
             completion.signal()
         }
-        let limit: DispatchTimeInterval = asset.mediaType == .video ? .seconds(3600) : .seconds(600)
-        if completion.wait(timeout: .now() + limit) == .timedOut {
-            sink.finish(ArchiveError.unavailable)
+        let limit: TimeInterval = asset.mediaType == .video ? 3600 : 600
+        switch waitForRead(completion, activity: activity, limit: limit, cancelled: cancelled) {
+        case .finished:
+            break
+        case .cancelled:
+            sink.finish(CancellationError())
             manager.cancelDataRequest(request)
+            throw CancellationError()
+        case let .stalled(receivedSome):
+            sink.finish(ArchiveError.iCloudDownload)
+            manager.cancelDataRequest(request)
+            guard canReadSecondWay(receivedSome: receivedSome, isImage: asset.mediaType == .image, part: part) else {
+                throw ArchiveError.iCloudDownload
+            }
+            let data = try originalImageData(asset, limit: limit, cancelled: cancelled)
+            read?(data.count)
+            var hash = SHA256()
+            hash.update(data: data)
+            return fingerprint(hash, bytes: Int64(data.count))
         }
         do {
             return try sink.result()
         } catch let error as NSError where error.domain == PHPhotosErrorDomain {
             throw ArchiveError.iCloudDownload
         }
+    }
+
+    /// How a wait for Photos ended.
+    enum ReadWait: Equatable { case finished, stalled(receivedSome: Bool), cancelled }
+
+    /// Waits for `done`, looking up every `tick`. Gives up when nothing has arrived and no download
+    /// progress was made for the quiet time (shorter before the first byte, as in the copy), or when the
+    /// whole read passes `limit`. Stops at once when `cancelled` says so.
+    static func waitForRead(_ done: DispatchSemaphore, activity: ArchiveActivity, limit: TimeInterval, tick: TimeInterval = 1,
+                            firstQuiet: TimeInterval = ArchiveActivity.firstTryLimit,
+                            laterQuiet: TimeInterval = ArchiveActivity.stallLimit, cancelled: () -> Bool) -> ReadWait {
+        let started = Date()
+        while true {
+            if cancelled() { return .cancelled }
+            if done.wait(timeout: .now() + tick) == .success { return .finished }
+            let quiet = activity.gotData ? laterQuiet : firstQuiet
+            if activity.silentFor > quiet || Date().timeIntervalSince(started) > limit {
+                return .stalled(receivedSome: activity.gotData)
+            }
+        }
+    }
+
+    /// After a stall: the second way exists only for a photo's original still that sent nothing at all,
+    /// exactly as in the copy. Anything else stays unread, and so stays on the iPhone.
+    static func canReadSecondWay(receivedSome: Bool, isImage: Bool, part: Int?) -> Bool {
+        !receivedSome && isImage && ArchiveParts.allowsImageFallback(part: part)
+    }
+
+    /// The second way of reading a photo's unedited original: Photos' image download, held in memory.
+    private static func originalImageData(_ asset: PHAsset, limit: TimeInterval, cancelled: () -> Bool) throws -> Data {
+        let options = PHImageRequestOptions()
+        options.version = .original
+        options.deliveryMode = .highQualityFormat
+        options.isNetworkAccessAllowed = true
+        let activity = ArchiveActivity()
+        options.progressHandler = { progress, _, _, _ in activity.progressed(progress) }
+        let box = ArchiveImageBox()
+        let completion = DispatchSemaphore(value: 0)
+        let request = PHImageManager.default().requestImageDataAndOrientation(for: asset, options: options) { data, _, _, info in
+            box.set(data, error: info?[PHImageErrorKey] as? Error)
+            completion.signal()
+        }
+        switch waitForRead(completion, activity: activity, limit: limit, firstQuiet: ArchiveActivity.stallLimit, cancelled: cancelled) {
+        case .finished:
+            break
+        case .cancelled:
+            PHImageManager.default().cancelImageRequest(request)
+            throw CancellationError()
+        case .stalled:
+            PHImageManager.default().cancelImageRequest(request)
+            throw ArchiveError.iCloudDownload
+        }
+        guard let data = box.data, !data.isEmpty else { throw ArchiveError.iCloudDownload }
+        return data
     }
 
     private static func stamp(_ url: URL, offDevice: Bool) throws -> CopyStamp {
@@ -206,9 +350,10 @@ enum VerifiedArchive {
         return !["/File Provider Storage", "/CloudStorage/", "/Containers/"].contains { path.contains($0) }
     }
 
-    private static func copyPhoto(_ id: String, to temporary: URL, wifi: ArchiveWiFi?, flush: Bool) throws -> ArchiveFingerprint {
-        guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject,
-              let resource = original(for: asset) else { throw ArchiveError.unsupportedPhoto }
+    private static func copyPhoto(_ photoID: String, part: Int? = nil, to temporary: URL, wifi: ArchiveWiFi?, flush: Bool) throws -> ArchiveFingerprint {
+        guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [photoID], options: nil).firstObject,
+              let resource = file(of: asset, part: part) else { throw ArchiveError.unsupportedPhoto }
+        let id = ArchiveParts.liveKey(photoID, part: part)
         defer { ArchiveLive.shared.downloading(id, nil) }
         // Videos can be large and iCloud or a home server may be slow, so a working copy gets plenty of time.
         let limit: TimeInterval = asset.mediaType == .video ? 3600 : 600
@@ -221,7 +366,9 @@ enum VerifiedArchive {
         case let .stalled(receivedSome):
             // Photos sometimes queues an iCloud download and never starts it. For a photo that sent
             // nothing at all, ask Photos for the original a second way before giving up.
-            guard !receivedSome, asset.mediaType == .image else { throw ArchiveError.iCloudDownload }
+            guard !receivedSome, asset.mediaType == .image, ArchiveParts.allowsImageFallback(part: part) else {
+                throw ArchiveError.iCloudDownload
+            }
             return try originalImage(asset, id: id, to: temporary, wifi: wifi, flush: flush, limit: limit)
         }
     }

@@ -114,12 +114,13 @@ enum CloudStream {
             } catch {
                 pieces.fail(error)
             }
-        case let .photo(id, _):
-            guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject,
-                  let resource = VerifiedArchive.original(for: asset) else {
+        case let .photo(photoID, _):
+            guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [photoID], options: nil).firstObject,
+                  let resource = VerifiedArchive.file(of: asset, part: item.part) else {
                 pieces.fail(ArchiveError.unsupportedPhoto)
                 return
             }
+            let id = ArchiveParts.liveKey(photoID, part: item.part)
             defer { ArchiveLive.shared.downloading(id, nil) }
             let gate = ArchiveGate()
             let options = PHAssetResourceRequestOptions()
@@ -146,7 +147,8 @@ enum CloudStream {
                 guard pieces.activity.silentFor > quiet || Date().timeIntervalSince(started) > limit else { continue }
                 gate.close()
                 manager.cancelDataRequest(request)
-                if !pieces.activity.gotData, asset.mediaType == .image, let data = originalImage(asset, id: id, limit: limit) {
+                if !pieces.activity.gotData, asset.mediaType == .image, ArchiveParts.allowsImageFallback(part: item.part),
+                   let data = originalImage(asset, id: id, limit: limit) {
                     pieces.append(data)
                 } else {
                     pieces.fail(ArchiveError.iCloudDownload)
