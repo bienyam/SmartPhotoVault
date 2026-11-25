@@ -21,10 +21,12 @@ struct ProUpgradeView: View {
                 feature("Archive up to 5 GB, with every copy checked", icon: "archivebox")
                 feature("Get archived items back, always", icon: "arrow.uturn.backward")
                 feature("Activity record and storage analysis", icon: "checkmark.shield")
+                feature("A monthly check-in reminder", icon: "bell")
             }
             Section("Added with Pro") {
                 feature("Archive without a limit", icon: "infinity")
                 feature("Choose what to archive by album, place and size", icon: "line.3.horizontal.decrease.circle")
+                feature("Daily or weekly check-ins, space alerts and reminders before big events", icon: "bell.badge")
             }
             Section {
                 ProPurchaseControls()

@@ -339,6 +339,8 @@ struct FreeUpView: View {
             return CleanupGrouper.groups(in: snapshot, insights: found, facts: facts)
         }.value
         smart = made
+        // Check-ins compare against the latest totals, including in the background.
+        if let rescue = model.rescue { CheckInCenter.shared.noteCheck(groups: made, rescue: rescue) }
     }
 
     /// Today's finds by type, each with what it holds.
@@ -589,6 +591,10 @@ struct MoreView: View {
                         Label("Activity", systemImage: "checkmark.shield")
                     }
                     .accessibilityIdentifier("more-activity")
+                    NavigationLink { CheckInsView(model: model) } label: {
+                        Label("Check-ins", systemImage: "bell.badge")
+                    }
+                    .accessibilityIdentifier("more-checkins")
                     NavigationLink { ProUpgradeView() } label: {
                         Label("TidyAway Pro", systemImage: "sparkles")
                     }
@@ -691,6 +697,7 @@ struct HelpPrivacyView: View {
                 Text("TidyAway reads the Apple Photos items you authorize. Scanning and exact duplicate matching run on your device.")
                 Text("The app stores the latest completed check and its activity log locally. The check can include Photos identifiers, file names, dates, favorite status, resource sizes and hashes, the names of your albums, and an approximate location rounded to about 1 km. The app does not transmit this information to the developer or include advertising or analytics.")
                 Text("When you choose a place on the Archive tab, the map is loaded from Apple Maps. Your photo locations stay on your \(Device.name).")
+                Text("Check-ins, if you turn them on, read free space and the last check's totals and keep a short history on this \(Device.name). Reminders before big events read your calendar on this \(Device.name) only; event names appear only in the notifications and are never saved or sent.")
                 Text("If you connect Google Drive, Google signs you in and gives TidyAway access only to the files it creates in a TidyAway Archive folder. The sign-in is kept in this \(Device.name)'s Keychain. Disconnecting removes it and revokes access; your archived copies stay in Drive.")
                 if CloudService.allCases.contains(where: \.available) {
                     Text("If you connect OneDrive, Microsoft signs you in and gives TidyAway access to your files; TidyAway only adds copies to a TidyAway folder in My files and never opens, changes or deletes anything else. If you connect Dropbox, it gives TidyAway access only to its own folder, Apps › TidyAway. The sign-in is kept in this \(Device.name)'s Keychain. Disconnecting removes it; your archived copies stay there.")

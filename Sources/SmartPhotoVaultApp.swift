@@ -10,6 +10,8 @@ struct SmartPhotoVaultApp: App {
 
     init() {
         if fast { UIView.setAnimationsEnabled(false) }
+        // Background check-ins must be registered before launch finishes.
+        CheckInBackground.register()
     }
 
     var body: some Scene {

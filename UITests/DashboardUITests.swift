@@ -194,6 +194,47 @@ final class DashboardUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Pro is unlocked."].waitForExistence(timeout: 5))
     }
 
+    func testCheckInsOpensFromMoreWithProRowsLocked() {
+        let app = XCUIApplication()
+        app.launchArguments += ["--skip-welcome", "--demo"]
+        app.launch()
+        app.tabBars.buttons["More"].tap()
+        let row = app.buttons["more-checkins"]
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        row.tap()
+        XCTAssertTrue(app.navigationBars["Check-ins"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["checkins-monthly"].exists, "Monthly is offered to everyone.")
+        XCTAssertTrue(app.buttons["checkins-weekly"].exists)
+        let note = app.descendants(matching: .any)["checkins-note"]
+        reveal(note, in: app)
+        XCTAssertTrue(note.exists, "The reminders-arrive-on-time note is shown.")
+        // Without Pro, a Pro row opens the Pro screen instead of switching on.
+        let low = app.buttons["checkins-low"]
+        reveal(low, in: app)
+        low.tap()
+        XCTAssertTrue(app.buttons["Not now"].waitForExistence(timeout: 5), "A locked row offers Pro.")
+        app.buttons["Not now"].tap()
+        let report = app.buttons["checkins-report"]
+        reveal(report, in: app)
+        report.tap()
+        XCTAssertTrue(app.navigationBars["Check-in"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["report-headline"].exists)
+    }
+
+    func testCheckInsProRowsAreSwitchesWithPro() {
+        let app = XCUIApplication()
+        app.launchArguments += ["--skip-welcome", "--demo", "--pro"]
+        app.launch()
+        app.tabBars.buttons["More"].tap()
+        app.buttons["more-checkins"].tap()
+        XCTAssertTrue(app.navigationBars["Check-ins"].waitForExistence(timeout: 5))
+        let calendar = app.switches["checkins-calendar"]
+        reveal(calendar, in: app)
+        XCTAssertTrue(calendar.exists, "With Pro the calendar row is a switch.")
+        app.buttons["checkins-daily"].tap()
+        XCTAssertTrue(app.buttons["checkins-daily"].isSelected)
+    }
+
     func testMessagesAttachmentsGuideOpensWithoutAScan() {
         let app = launch()
         app.tabBars.buttons["More"].tap()

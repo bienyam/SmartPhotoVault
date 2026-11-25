@@ -27,6 +27,13 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+        NSCalendarsFullAccessUsageDescription: If you turn on reminders before big events, TidyAway reads your calendar on this device to spot trips and events like weddings and birthdays in the next two weeks, so it can remind you to make room for photos. Nothing from your calendar is saved or sent anywhere.
+        UIBackgroundModes:
+          - fetch
+          - processing
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.bienyam.SmartPhotoVault.checkin.refresh
+          - com.bienyam.SmartPhotoVault.checkin.recount
         NSPhotoLibraryUsageDescription: TidyAway reads your photo library to find what is taking space, group photos by what they show (on your iPhone), copy the ones you choose to your archive, and put archived ones back. It deletes items only when you approve and confirm the prompt from Apple Photos.
     settings:
       base:
