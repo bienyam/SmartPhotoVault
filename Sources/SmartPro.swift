@@ -10,7 +10,7 @@ struct ArchivedPlace: Identifiable, Equatable {
     let place: String
     let records: [ArchivedRecord]
     var id: String { place }
-    var bytes: Int64 { records.reduce(0) { $0 + $1.bytes } }
+    var bytes: Int64 { records.reduce(0) { $0 + $1.totalBytes } }
 }
 
 /// Finds originals that already have a verified archive copy. Removing them always goes through the
