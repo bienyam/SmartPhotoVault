@@ -37,7 +37,7 @@ struct RootView: View {
 
     private var tabs: some View {
         TabView(selection: $tab) {
-            FreeUpView(model: model)
+            FreeUpView(model: model, openMore: { tab = .more })
                 .tabItem { Label("Free up", systemImage: "sparkles") }
                 .tag(Tab.freeUp)
             ArchiveTabView(model: model)
