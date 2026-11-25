@@ -191,6 +191,9 @@ final class DashboardUITests: XCTestCase {
         app.launch()
         app.tabBars.buttons["More"].tap()
         app.buttons["more-pro"].tap()
+        XCTAssertTrue(app.navigationBars["TidyAway Pro"].waitForExistence(timeout: 5))
+        // The Pro list is longer than one screen now; the purchase part sits below the features.
+        reveal(app.staticTexts["Pro is unlocked."], in: app)
         XCTAssertTrue(app.staticTexts["Pro is unlocked."].waitForExistence(timeout: 5))
     }
 
@@ -249,11 +252,16 @@ final class DashboardUITests: XCTestCase {
         app.buttons["more-pro"].tap()
         XCTAssertTrue(app.navigationBars["TidyAway Pro"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Monthly, or once for life. Your choice."].exists)
+        XCTAssertTrue(app.staticTexts["Archive up to 5 GB, with every copy checked"].exists)
+        // The Pro list is longer than one screen now; the purchase part sits below the features.
+        reveal(app.buttons["pro-monthly"], in: app)
         XCTAssertTrue(app.buttons["pro-monthly"].waitForExistence(timeout: 5), "The monthly option is offered.")
+        reveal(app.buttons["pro-lifetime"], in: app)
         XCTAssertTrue(app.buttons["pro-lifetime"].exists, "The lifetime option is offered.")
+        reveal(app.buttons["Terms of Use"], in: app)
         XCTAssertTrue(app.buttons["Terms of Use"].exists, "Subscription terms are linked.")
         XCTAssertTrue(app.buttons["Privacy Policy"].exists)
-        XCTAssertTrue(app.staticTexts["Archive up to 5 GB, with every copy checked"].exists)
+        reveal(app.buttons["pro-restore"], in: app)
         XCTAssertTrue(app.buttons["pro-restore"].waitForExistence(timeout: 15))
     }
 
@@ -391,6 +399,8 @@ final class DashboardUITests: XCTestCase {
         let group = app.buttons["group-large-videos"]
         XCTAssertTrue(group.waitForExistence(timeout: 15))
         group.tap()
+        XCTAssertTrue(app.navigationBars["TidyAway Pro"].waitForExistence(timeout: 5), "Opening a group shows Pro.")
+        reveal(app.buttons["pro-monthly"], in: app)
         XCTAssertTrue(app.buttons["pro-monthly"].waitForExistence(timeout: 5), "Opening a group shows Pro.")
     }
 
