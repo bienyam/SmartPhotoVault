@@ -137,6 +137,7 @@ struct BestShotsView: View {
                     Text("★ Keeping: \(keep.reason)").font(.footnote.weight(.semibold)).foregroundStyle(ArchiveStyle.safeText)
                 }
             }
+            .hiddenBehindPreview(preview != nil)
         }
         .fullScreenCover(item: $preview) { request in
             PhotoPreview(title: "Best shots", items: everyMember, request: request, selectable: [],
@@ -159,6 +160,7 @@ struct BestShotsView: View {
                 .padding(16)
                 .background(.regularMaterial)
                 .accessibilityIdentifier("best-review")
+                .hiddenBehindPreview(preview != nil)
             }
         }
         .task { await score() }

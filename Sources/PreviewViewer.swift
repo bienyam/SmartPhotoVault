@@ -141,6 +141,10 @@ struct PhotoPreview: View {
                 if let record { bottomPanel(record) }
             }
         }
+        // Nothing behind the viewer can be reached while it is open, including a list's Delete button.
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(.isModal)
+        .accessibilityIdentifier("preview-viewer")
         // The viewer is always dark, like Photos. Only this screen: the app's look is not changed.
         .environment(\.colorScheme, .dark)
         .statusBarHidden(false)
@@ -589,6 +593,12 @@ struct PreviewInfoSheet: View {
 }
 
 // MARK: - In lists and grids
+
+/// SwiftUI keeps the screen under a full-screen cover alive, so its buttons (a list's Delete among them)
+/// stay in the accessibility tree. Screens that open the viewer hide what is behind it while it is open.
+extension View {
+    func hiddenBehindPreview(_ open: Bool) -> some View { accessibilityHidden(open) }
+}
 
 /// The one choice in a touch-and-hold menu: tick or untick. Never delete.
 struct PreviewTick {

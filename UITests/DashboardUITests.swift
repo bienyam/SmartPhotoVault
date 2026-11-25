@@ -765,12 +765,26 @@ final class DashboardUITests: XCTestCase {
         XCTAssertTrue(select.waitForExistence(timeout: 5), "The viewer opens full screen.")
         XCTAssertTrue(app.buttons["preview-keep"].isSelected, "Nothing is selected for you.")
         XCTAssertTrue(app.descendants(matching: .any)["preview-position"].firstMatch.label.contains(" of "))
-        let deleting = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "delete"))
-        XCTAssertEqual(deleting.count, 0, "There is no Delete in the viewer.")
+        let viewer = app.descendants(matching: .any)["preview-viewer"].firstMatch
+        XCTAssertTrue(viewer.exists, "The viewer is one container.")
+        let deleteWord = NSPredicate(format: "label CONTAINS[c] %@", "delete")
+        // Inside the viewer there is never a Delete, and nothing behind it can be reached while it is open:
+        // the list's own "Delete 1 item" button appears once something is ticked, and it must stay hidden.
+        let deletingInViewer = viewer.buttons.matching(deleteWord)
+        let deletingAnywhere = app.buttons.matching(deleteWord)
+        XCTAssertEqual(deletingInViewer.count, 0, "There is no Delete in the viewer.")
+        XCTAssertEqual(deletingAnywhere.count, 0, "Nothing behind the viewer can be reached.")
         keepScreenshot(of: app, named: "Preview viewer")
         select.tap()
         XCTAssertTrue(select.isSelected)
-        XCTAssertEqual(deleting.count, 0, "Selecting in the viewer deletes nothing.")
+        XCTAssertEqual(deletingInViewer.count, 0, "Selecting in the viewer deletes nothing.")
+        // The full-screen cover leaves the list in the hierarchy XCUITest sees, so check what a person can do:
+        // the list's Delete must be neither tappable nor enabled while the viewer is open.
+        let listDelete = app.buttons["delete-selected"]
+        if listDelete.exists {
+            XCTAssertFalse(listDelete.isHittable, "The list's Delete can't be tapped from the viewer.")
+            XCTAssertFalse(listDelete.isEnabled, "Deleting still needs the sign-off.")
+        }
         app.buttons["preview-info"].tap()
         XCTAssertTrue(app.navigationBars["File info"].waitForExistence(timeout: 5))
         keepScreenshot(of: app, named: "Preview file info")

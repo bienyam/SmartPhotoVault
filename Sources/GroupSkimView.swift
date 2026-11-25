@@ -134,6 +134,7 @@ struct GroupSkimView: View {
                 }
             }
         }
+        .hiddenBehindPreview(preview != nil)
         .background(Brand.background)
         .onPreferenceChange(SkimVisible.self) { visible = $0 }
         .task(id: visible) {
@@ -168,6 +169,7 @@ struct GroupSkimView: View {
             }
             .padding(.horizontal, 16).padding(.vertical, 10)
             .background(.regularMaterial)
+            .hiddenBehindPreview(preview != nil)
         }
     }
 

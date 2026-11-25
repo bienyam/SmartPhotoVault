@@ -48,7 +48,8 @@ jobs:
           xcrun simctl bootstatus "$DEVICE_ID" -b
           xcrun simctl install "$DEVICE_ID" build/DerivedData/Build/Products/Debug-iphonesimulator/SmartPhotoVault.app
       - name: Test archive copy and restore without Photos authorization
-        timeout-minutes: 5
+        # The first launch of the test host on a fresh simulator has taken up to 5 minutes on its own.
+        timeout-minutes: 10
         run: >-
           xcodebuild test-without-building
           -project SmartPhotoVault.xcodeproj
@@ -60,7 +61,8 @@ jobs:
           -resultBundlePath build/ArchiveResults.xcresult
           CODE_SIGNING_ALLOWED=NO
       - name: Authorize Photos through the real system dialog
-        timeout-minutes: 5
+        # The first launch of the test host on a fresh simulator has taken up to 5 minutes on its own.
+        timeout-minutes: 10
         run: >-
           xcodebuild test-without-building
           -project SmartPhotoVault.xcodeproj
