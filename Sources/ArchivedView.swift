@@ -196,6 +196,12 @@ struct ArchivedDayView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .contextMenu {
+                        Button(selected.contains(record.id) ? "Deselect" : "Select") { toggle(record) }
+                    } preview: {
+                        // The saved small copy when the original has left this iPhone.
+                        ArchivedThumb(record: record, side: 1000).frame(width: 320, height: 420)
+                    }
                     .accessibilityIdentifier("archived-\(record.id)")
                 }
             }

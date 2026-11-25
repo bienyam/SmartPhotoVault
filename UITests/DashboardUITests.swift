@@ -747,6 +747,78 @@ final class DashboardUITests: XCTestCase {
                        "Apps must not suggest restarting the iPhone.")
     }
 
+    // MARK: - Preview before delete
+
+    func testAPictureOpensThePreviewAndSelectingThereNeverDeletes() {
+        let app = launchWithSamples()
+        let videos = app.buttons["row-videos"]
+        reveal(videos, in: app)
+        videos.tap()
+        XCTAssertTrue(app.navigationBars["Large videos"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["preview-hint"].firstMatch.exists, "The list says how looking and choosing work.")
+        let picture = app.buttons["preview-sample-11"]
+        XCTAssertTrue(picture.waitForExistence(timeout: 5), "The picture is its own button.")
+        picture.tap()
+        let select = app.buttons["preview-select"]
+        XCTAssertTrue(select.waitForExistence(timeout: 5), "The viewer opens full screen.")
+        XCTAssertTrue(app.buttons["preview-keep"].isSelected, "Nothing is selected for you.")
+        XCTAssertTrue(app.descendants(matching: .any)["preview-position"].firstMatch.label.contains(" of "))
+        let deleting = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "delete"))
+        XCTAssertEqual(deleting.count, 0, "There is no Delete in the viewer.")
+        keepScreenshot(of: app, named: "Preview viewer")
+        select.tap()
+        XCTAssertTrue(select.isSelected)
+        XCTAssertEqual(deleting.count, 0, "Selecting in the viewer deletes nothing.")
+        app.buttons["preview-info"].tap()
+        XCTAssertTrue(app.navigationBars["File info"].waitForExistence(timeout: 5))
+        keepScreenshot(of: app, named: "Preview file info")
+        app.buttons["preview-info-done"].tap()
+        app.buttons["Close"].firstMatch.tap()
+        // Back on the list: the item is ticked, and deleting still needs the sign-off.
+        let delete = app.buttons["delete-selected"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 5), "The tick made in the viewer shows on the list.")
+        XCTAssertFalse(delete.isEnabled, "Deleting still needs the sign-off.")
+        XCTAssertTrue(app.buttons["select-sample-11"].label.hasPrefix("Selected"))
+    }
+
+    func testKeepInThePreviewUnticksAndClearsTheSignOff() {
+        let app = launchWithSamples()
+        let videos = app.buttons["row-videos"]
+        reveal(videos, in: app)
+        videos.tap()
+        XCTAssertTrue(app.navigationBars["Large videos"].waitForExistence(timeout: 5))
+        app.buttons["select-sample-11"].tap()
+        let delete = app.buttons["delete-selected"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 5))
+        app.buttons["signoff"].tap()
+        XCTAssertTrue(delete.isEnabled)
+        app.buttons["preview-sample-11"].tap()
+        let keep = app.buttons["preview-keep"]
+        XCTAssertTrue(keep.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["preview-select"].isSelected, "The viewer shows what is ticked on the list.")
+        keep.tap()
+        XCTAssertTrue(keep.isSelected)
+        app.buttons["Close"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["select-sample-11"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["select-sample-11"].label.hasPrefix("Select "), "Keep unticked it.")
+        XCTAssertFalse(app.buttons["delete-selected"].exists, "Nothing selected, nothing to delete.")
+    }
+
+    func testAKeptCopyOpensViewOnly() {
+        let app = launchWithSamples()
+        reveal(app.buttons["row-duplicates"], in: app)
+        app.buttons["row-duplicates"].tap()
+        XCTAssertTrue(app.navigationBars["Duplicates"].waitForExistence(timeout: 5))
+        let kept = app.buttons["preview-sample-1"]
+        XCTAssertTrue(kept.waitForExistence(timeout: 5), "The copy that stays can still be looked at.")
+        kept.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["preview-stays"].firstMatch.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["preview-select"].exists, "The copy that stays can't be selected in the viewer either.")
+        app.buttons["Close"].firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["Duplicates"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["delete-selected"].exists)
+    }
+
     private func keepScreenshot(of app: XCUIApplication, named name: String) {
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = name

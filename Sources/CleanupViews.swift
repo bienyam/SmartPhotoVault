@@ -34,8 +34,25 @@ struct CleanupListView: View {
     @State private var working = false
     @State private var message: String?
     @State private var result: RemovedResult?
+    @State private var preview: PreviewRequest?
 
     private var kept: Set<String> { Set(sets.map(\.keep.id)) }
+    /// Everything the viewer can swipe through, in the order the list shows it.
+    private var previewItems: [AssetRecord] {
+        guard !sets.isEmpty else { return items }
+        return sets.flatMap { [$0.keep] + $0.extras } + items.filter { !inSets.contains($0.id) }
+    }
+    private var keptNotes: [String: String] {
+        Dictionary(sets.map { ($0.keep.id, "Keeping this one: \($0.because)") }, uniquingKeysWith: { first, _ in first })
+    }
+
+    private func row(_ asset: AssetRecord, selectable: Bool, note: String? = nil) -> some View {
+        AssetRow(asset: asset, selectable: selectable, selected: selected.contains(asset.id), note: note,
+                 preview: { preview = PreviewRequest(assetID: asset.id) },
+                 info: { preview = PreviewRequest(assetID: asset.id, showInfo: true) }) {
+            toggle(asset)
+        }
+    }
     private var selectable: [AssetRecord] { items.filter { !$0.favorite && !kept.contains($0.id) } }
     private var inSets: Set<String> { Set(sets.flatMap(\.extras).map(\.id)) }
     private var selectedRecords: [AssetRecord] { selectable.filter { selected.contains($0.id) } }
@@ -46,21 +63,19 @@ struct CleanupListView: View {
         List {
             if items.isEmpty {
                 Text("Nothing here right now.").foregroundStyle(.secondary)
+            } else {
+                PreviewHint(canSelect: allowsRemoval)
             }
             if sets.isEmpty {
                 ForEach(items) { asset in
-                    AssetRow(asset: asset, selectable: allowsRemoval, selected: selected.contains(asset.id)) {
-                        toggle(asset)
-                    }
+                    row(asset, selectable: allowsRemoval)
                 }
             } else {
                 ForEach(sets) { set in
                     Section("\(set.extras.count + 1) look alike · keeping 1") {
-                        AssetRow(asset: set.keep, selectable: false, selected: false, note: "Keeping this one: \(set.because)") {}
+                        row(set.keep, selectable: false, note: "Keeping this one: \(set.because)")
                         ForEach(set.extras) { asset in
-                            AssetRow(asset: asset, selectable: allowsRemoval, selected: selected.contains(asset.id)) {
-                                toggle(asset)
-                            }
+                            row(asset, selectable: allowsRemoval)
                         }
                     }
                 }
@@ -68,13 +83,16 @@ struct CleanupListView: View {
                 if !rest.isEmpty {
                     Section("Blurry, accidental and dark") {
                         ForEach(rest) { asset in
-                            AssetRow(asset: asset, selectable: allowsRemoval, selected: selected.contains(asset.id)) {
-                                toggle(asset)
-                            }
+                            row(asset, selectable: allowsRemoval)
                         }
                     }
                 }
             }
+        }
+        .fullScreenCover(item: $preview) { request in
+            PhotoPreview(title: title, items: previewItems, request: request,
+                         selectable: allowsRemoval ? Set(selectable.map(\.id)) : [], notes: keptNotes,
+                         selected: $selected, changed: { agreed = false })
         }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
@@ -154,9 +172,20 @@ struct DuplicatesListView: View {
     @State private var working = false
     @State private var message: String?
     @State private var result: RemovedResult?
+    @State private var preview: PreviewRequest?
 
     private var groups: [DuplicateGroup] { model.rescue?.duplicateGroups ?? [] }
     private var extras: [String] { model.rescue?.duplicatePlans.flatMap(\.removeIDs) ?? [] }
+    /// Every copy, the kept one first in each set, as the list shows them.
+    private var previewItems: [AssetRecord] {
+        groups.flatMap { group -> [AssetRecord] in
+            let keep = DuplicateRemovalPlan(group: group)?.keepID
+            return group.assets.sorted { a, _ in a.id == keep }
+        }
+    }
+    private var keptNotes: [String: String] {
+        Dictionary((model.rescue?.duplicatePlans ?? []).map { ($0.keepID, "Keeping this one") }, uniquingKeysWith: { first, _ in first })
+    }
     private var selectedPlans: [DuplicateRemovalPlan] {
         groups.compactMap { DuplicateRemovalPlan(group: $0, onlyRemoving: selected) }
     }
@@ -169,6 +198,8 @@ struct DuplicatesListView: View {
             if groups.isEmpty {
                 Text("No exact duplicates found among the photos and videos on this \(Device.name).")
                     .foregroundStyle(.secondary)
+            } else {
+                PreviewHint(canSelect: true)
             }
             ForEach(groups) { group in
                 let plan = DuplicateRemovalPlan(group: group)
@@ -176,7 +207,9 @@ struct DuplicatesListView: View {
                     ForEach(group.assets.sorted { a, _ in a.id == plan?.keepID }) { asset in
                         let isExtra = plan?.removeIDs.contains(asset.id) ?? false
                         AssetRow(asset: asset, selectable: isExtra, selected: selected.contains(asset.id),
-                                 note: asset.id == plan?.keepID ? "Keeping this one" : nil) {
+                                 note: asset.id == plan?.keepID ? "Keeping this one" : nil,
+                                 preview: { preview = PreviewRequest(assetID: asset.id) },
+                                 info: { preview = PreviewRequest(assetID: asset.id, showInfo: true) }) {
                             guard isExtra else { return }
                             if selected.contains(asset.id) { selected.remove(asset.id) } else { selected.insert(asset.id) }
                             agreed = false
@@ -184,6 +217,10 @@ struct DuplicatesListView: View {
                     }
                 }
             }
+        }
+        .fullScreenCover(item: $preview) { request in
+            PhotoPreview(title: "Duplicates", items: previewItems, request: request, selectable: Set(extras),
+                         notes: keptNotes, selected: $selected, changed: { agreed = false })
         }
         .navigationTitle("Duplicates")
         .navigationBarTitleDisplayMode(.inline)
@@ -230,57 +267,118 @@ struct DuplicatesListView: View {
     }
 }
 
-/// One photo or video in a cleanup list.
+/// One line at the top of a pick list saying how looking and choosing work.
+struct PreviewHint: View {
+    let canSelect: Bool
+
+    var body: some View {
+        Label(canSelect
+              ? "Tap a picture to look at it. Tap the circle to choose it. Touch and hold for a quick look."
+              : "Tap a picture to look at it. Touch and hold for a quick look.",
+              systemImage: "hand.tap")
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier("preview-hint")
+    }
+}
+
+/// One photo or video in a cleanup list. The picture opens the full-screen preview; the circle and
+/// the name choose it. Nothing here deletes.
 struct AssetRow: View {
     let asset: AssetRecord
     let selectable: Bool
     let selected: Bool
     var note: String? = nil
+    /// Opens the full-screen preview at this item. Nil where there is none.
+    var preview: (() -> Void)? = nil
+    /// Opens the preview with the file info showing.
+    var info: (() -> Void)? = nil
     let toggle: () -> Void
 
     var body: some View {
-        if selectable {
-            Button(action: toggle) { content }
-                .buttonStyle(.plain)
-                .accessibilityLabel(selected ? "Selected \(asset.filename)" : "Select \(asset.filename)")
-                .accessibilityIdentifier("select-\(asset.id)")
-        } else {
-            // Kept and review-only items aren't buttons, so they don't look tappable.
-            content
+        Group {
+            if selectable {
+                HStack(spacing: 12) {
+                    // The circle and the words are one choice to VoiceOver; the picture is its own button.
+                    Button(action: toggle) {
+                        Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                            .font(.title2)
+                            .foregroundStyle(selected ? Brand.primary : Color.secondary)
+                            .frame(minWidth: 30, minHeight: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHidden(true)
+                    thumbnail
+                    Button(action: toggle) {
+                        words
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(selected ? "Selected \(asset.filename)" : "Select \(asset.filename)")
+                    .accessibilityAddTraits(selected ? .isSelected : [])
+                    .accessibilityIdentifier("select-\(asset.id)")
+                }
+            } else {
+                // Kept and review-only items can be looked at, never chosen.
+                HStack(spacing: 12) {
+                    if note != nil {
+                        Image(systemName: "lock.fill").font(.title3).foregroundStyle(Brand.safe)
+                            .frame(width: 28).accessibilityHidden(true)
+                    } else if asset.favorite {
+                        Image(systemName: "heart.fill").font(.title3).foregroundStyle(Color.secondary)
+                            .frame(width: 28).accessibilityHidden(true)
+                    }
+                    thumbnail
+                    words
+                    Spacer(minLength: 0)
+                }
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("kept-\(asset.id)")
+            }
+        }
+        .previewMenu(assetID: asset.id, tick: tick, open: preview, info: info)
+    }
+
+    private var tick: PreviewTick? {
+        selectable ? PreviewTick(title: selected ? "Deselect" : "Select", action: toggle) : nil
+    }
+
+    @ViewBuilder
+    private var thumbnail: some View {
+        if let preview {
+            Button(action: preview) {
+                AssetThumbnail(assetID: asset.id)
+                    .overlay(alignment: .bottomTrailing) {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(4)
+                            .background(.black.opacity(0.55), in: Circle())
+                            .padding(3)
+                    }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Preview \(asset.filename)")
+            .accessibilityIdentifier("preview-\(asset.id)")
+        } else {
+            AssetThumbnail(assetID: asset.id)
         }
     }
 
-    private var content: some View {
-            HStack(spacing: 12) {
-                if selectable {
-                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                        .font(.title2)
-                        .foregroundStyle(selected ? Brand.primary : Color.secondary)
-                        .accessibilityHidden(true)
-                } else if note != nil {
-                    Image(systemName: "lock.fill").font(.title3).foregroundStyle(Brand.safe)
-                        .frame(width: 28).accessibilityHidden(true)
-                } else if asset.favorite {
-                    Image(systemName: "heart.fill").font(.title3).foregroundStyle(Color.secondary)
-                        .frame(width: 28).accessibilityHidden(true)
-                }
-                AssetThumbnail(assetID: asset.id)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(asset.filename).lineLimit(1).foregroundStyle(.primary)
-                    Text(asset.inICloud ? "\(asset.displayBytes.fileSize) · in iCloud"
-                         : asset.fingerprint == nil ? "Size unknown" : asset.bytes.fileSize)
-                        .font(.caption).foregroundStyle(.secondary)
-                    if let note {
-                        Text(note).font(.caption.weight(.semibold)).foregroundStyle(Brand.safe)
-                    } else if asset.favorite {
-                        Text("Favorite, kept").font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                Spacer(minLength: 0)
+    private var words: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(asset.filename).lineLimit(1).foregroundStyle(.primary)
+            Text(asset.inICloud ? "\(asset.displayBytes.fileSize) · in iCloud"
+                 : asset.fingerprint == nil ? "Size unknown" : asset.bytes.fileSize)
+                .font(.caption).foregroundStyle(.secondary)
+            if let note {
+                Text(note).font(.caption.weight(.semibold)).foregroundStyle(Brand.safe)
+            } else if asset.favorite {
+                Text("Favorite, kept").font(.caption).foregroundStyle(.secondary)
             }
-            .contentShape(Rectangle())
+        }
     }
 }
 

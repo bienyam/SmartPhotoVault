@@ -1100,6 +1100,15 @@ struct PhotoArchiveView: View {
                                 Image(systemName: "minus.circle").accessibilityHidden(true)
                             }
                         }
+                        .contextMenu {
+                            Button("Remove from selection") { toggle(item) }
+                        } preview: {
+                            if case .photo(let id, _) = item.source {
+                                AssetCover(assetID: id, side: 1000).frame(width: 320, height: 420)
+                            } else {
+                                Label(item.name, systemImage: "doc").padding(30)
+                            }
+                        }
                         .accessibilityLabel("Remove \(item.name) from selection")
                     }
                 }
