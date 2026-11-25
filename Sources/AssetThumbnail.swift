@@ -32,7 +32,11 @@ struct AssetThumbnail: View {
 
     private func load() {
         isVisible = true
-        guard !assetID.hasPrefix("sample-") else { return }
+        guard !assetID.hasPrefix("sample-") else {
+            // App Store pictures draw a stand-in for sample items. Nil everywhere else, so nothing changes.
+            if let picture = DemoLibrary.picture(for: assetID) { image = picture }
+            return
+        }
         let access = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         guard access == .authorized || access == .limited else { return }
         let assets = PHAsset.fetchAssets(withLocalIdentifiers: [assetID], options: nil)

@@ -33,13 +33,16 @@ final class StoreScreenshotsUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Large videos"].waitForExistence(timeout: 5))
         let pick = app.buttons["select-sample-11"]
         if pick.waitForExistence(timeout: 5) { pick.tap() }
+        // The sign-off ticked, so the picture shows Delete ready. Delete itself is never tapped.
+        let signoff = app.buttons["signoff"]
+        if signoff.waitForExistence(timeout: 5) { signoff.tap() }
         sleep(1)
         keep(app, "store-03-pick")
         app.terminate()
 
         // 4–5. Archive: groups made for you, and topics.
         app = XCUIApplication()
-        app.launchArguments += ["--skip-welcome", "--demo-archive", "--pro", "--ui-fast"]
+        app.launchArguments += ["--skip-welcome", "--demo-archive", "--pro", "--ui-fast", "--store-pictures"]
         app.launch()
         openTab("Archive", in: app)
         XCTAssertTrue(app.buttons["group-large-videos"].waitForExistence(timeout: 15))
@@ -59,8 +62,23 @@ final class StoreScreenshotsUITests: XCTestCase {
         XCTAssertTrue(next.waitForExistence(timeout: 10))
         next.tap()
         XCTAssertTrue(app.staticTexts["copy-summary"].waitForExistence(timeout: 10))
+        // A place chosen and the sign-off ticked, so the picture shows Copy ready.
+        let place = app.buttons["iCloud Drive"].firstMatch
+        XCTAssertTrue(place.waitForExistence(timeout: 5))
+        place.tap()
+        let consent = app.buttons["archive-consent"]
+        XCTAssertTrue(consent.waitForExistence(timeout: 5))
+        consent.tap()
         sleep(1)
         keep(app, "store-06-copy")
+
+        // 7. The finished screen: copied and checked. With --store-pictures nothing is really copied.
+        let copy = app.buttons["archive-copy"]
+        XCTAssertTrue(copy.isEnabled)
+        copy.tap()
+        XCTAssertTrue(app.staticTexts["completion-title"].waitForExistence(timeout: 10))
+        sleep(5)
+        keep(app, "store-07-verified")
         app.terminate()
 
         // For App Review: where Pro is bought (the in-app purchase review screenshot).

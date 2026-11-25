@@ -143,7 +143,8 @@ struct PhotoArchiveView: View {
 
     @Environment(\.locale) private var locale
     @State private var photoSelection: [PhotosPickerItem] = []
-    @State private var photoAccess = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+    // App Store pictures show the screen as it looks once Photos access is given (test-only flag).
+    @State private var photoAccess = LaunchFlags.has("--store-pictures") ? PHAuthorizationStatus.authorized : PHPhotoLibrary.authorizationStatus(for: .readWrite)
     @State private var items: [ArchiveItem] = []
     @State private var destination: URL?
     @State private var destinationKind: Destination?
@@ -724,6 +725,12 @@ struct PhotoArchiveView: View {
                 folderCheck = nil
                 // A drive chosen before is used straight away when it's plugged in.
                 if destinationKind == .drive, let status = drive.status { useSavedDrive(status.url) }
+                // App Store pictures: a stand-in folder, so the screen shows a chosen place (test-only flag).
+                if LaunchFlags.has("--store-pictures"), let kind = destinationKind, kind != .google, kind.cloud == nil {
+                    destination = DemoLibrary.archiveFolder
+                    folderCheck = FolderCheck(format: nil, readOnly: false, available: DemoLibrary.archiveFolderFree, writable: true)
+                    availableGB = "\(DemoLibrary.archiveFolderFree / 1_000_000_000)"
+                }
             }
             .task { await drive.watch() }
             if let destinationKind {
@@ -1193,9 +1200,12 @@ struct PhotoArchiveView: View {
     @ViewBuilder
     private var runCover: some View {
         if let outcome = run.outcome {
+            // App Store pictures use sample items that aren't in Photos, so the note and the Delete
+            // button are the ones a real run shows for items that can be removed (test-only flag).
+            let sample = LaunchFlags.has("--store-pictures")
             ArchiveDoneView(outcome: outcome,
-                            note: outcome.completion.flatMap(completionNote),
-                            canDelete: RemovalAfterArchive.enabled && model != nil && !(outcome.completion?.removable.isEmpty ?? true),
+                            note: sample ? outcome.completion.map(DemoLibrary.completionNote) : outcome.completion.flatMap(completionNote),
+                            canDelete: sample || (RemovalAfterArchive.enabled && model != nil && !(outcome.completion?.removable.isEmpty ?? true)),
                             openDrive: driveLink(outcome.completion?.driveFolderID),
                             delete: { removal = outcome.completion },
                             getBack: {
@@ -1596,6 +1606,15 @@ struct PhotoArchiveView: View {
     }
 
     private func beginCopy() {
+        // App Store pictures: nothing is copied; the finished screen is shown with the sample items (test-only flag).
+        if LaunchFlags.has("--store-pictures"), archiveConsent, let destination, !items.isEmpty {
+            let place = destinationKind?.rawValue ?? destination.lastPathComponent
+            run.start(items.count)
+            run.outcome = ArchiveOutcome(completion: ArchiveCompletion(items: items, bytes: self.selectedBytes, place: place, driveFolderID: nil),
+                                         failures: [], left: 0, place: place)
+            showRun = true
+            return
+        }
         guard !busy, archiveConsent, let destination, !items.isEmpty,
               availableGB.isEmpty || availableBytes != nil,
               folderCheck?.problem == nil, tooBigForDrive.isEmpty else { return }

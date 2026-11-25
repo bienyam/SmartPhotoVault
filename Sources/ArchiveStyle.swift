@@ -169,7 +169,12 @@ struct AssetCover: View {
     }
 
     private func load() {
-        guard image == nil, !assetID.hasPrefix("sample-") else { return }
+        guard image == nil else { return }
+        guard !assetID.hasPrefix("sample-") else {
+            // App Store pictures draw a stand-in for sample items. Nil everywhere else, so nothing changes.
+            if let picture = DemoLibrary.picture(for: assetID) { image = picture }
+            return
+        }
         let access = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         guard access == .authorized || access == .limited else { return }
         guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [assetID], options: nil).firstObject else {
