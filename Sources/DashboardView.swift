@@ -220,10 +220,12 @@ struct FreeUpView: View {
         case .forYou:
             if let pick = CleanupGrouper.suggestion(from: smart) { suggestion(pick) }
             smartSections
+            SmartProSection(model: model, rescue: rescue)
             heading("By type")
             typeCards(rescue)
         case .smart:
             smartSections
+            SmartProSection(model: model, rescue: rescue)
             if smart.isEmpty && !insights.running {
                 Text("No smart groups yet. They appear as TidyAway looks through your photos.")
                     .font(.subheadline).foregroundStyle(ArchiveStyle.muted)
