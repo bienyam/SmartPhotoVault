@@ -133,7 +133,8 @@ jobs:
     # The pull request already crawled exactly what lands on main.
     if: github.event_name != 'push'
     runs-on: macos-15
-    timeout-minutes: 45
+    # 1.0.1 added screens (Storage Checkup, the new More tab, preview), so the crawl has more to cover.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - name: Install project generator
@@ -157,7 +158,7 @@ jobs:
       - name: Wait for the simulator
         run: xcrun simctl bootstatus "$DEVICE_ID" -b
       - name: Crawl every screen and button
-        timeout-minutes: 30
+        timeout-minutes: 45
         # bash turns on pipefail; without it the pipe into tee hid a failed crawl behind a green check.
         shell: bash
         run: >-
