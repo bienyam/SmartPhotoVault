@@ -259,6 +259,9 @@ final class InsightModel: ObservableObject {
         let waiting = items.filter { gathered[$0.id] == nil }
         var sinceRevision = 0
         var sinceProgress = 0
+        // New results waiting to be shown. They are added to what is on screen, never swapped in
+        // whole, so results shown meanwhile (sample data in tests) are not lost.
+        var fresh: [String: PhotoInsight] = [:]
         var index = 0
         while index < waiting.count, !Task.isCancelled {
             let state = ProcessInfo.processInfo
@@ -271,7 +274,10 @@ final class InsightModel: ObservableObject {
             let batch = Array(waiting[index..<min(index + 24, waiting.count)])
             index += batch.count
             let found = await reader.read(batch)
-            for insight in found { gathered[insight.id] = insight }
+            for insight in found {
+                gathered[insight.id] = insight
+                fresh[insight.id] = insight
+            }
             await store?.append(found)
             finished += found.count
             sinceRevision += found.count
@@ -283,14 +289,15 @@ final class InsightModel: ObservableObject {
             }
             if sinceRevision >= 600 {
                 sinceRevision = 0
-                insights = gathered
+                insights.merge(fresh) { _, new in new }
+                fresh = [:]
                 done = finished
                 revision += 1
             }
         }
         done = finished
         if sinceRevision > 0 {
-            insights = gathered
+            insights.merge(fresh) { _, new in new }
             revision += 1
         }
     }

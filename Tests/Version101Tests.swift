@@ -139,7 +139,9 @@ final class Version101Tests: XCTestCase {
 
     func testLaterInstallsAreNotGrandfathered() {
         XCTAssertFalse(Grandfather.startedOnVersionOne(originalAppVersion: "\(Grandfather.lastVersionOneBuild + 1).1", production: true))
-        XCTAssertFalse(Grandfather.startedOnVersionOne(originalAppVersion: "1.0.1", production: true))
+        XCTAssertFalse(Grandfather.startedOnVersionOne(originalAppVersion: "1.0.1", production: true),
+                       "A later version string is never read as an early build number.")
+        XCTAssertFalse(Grandfather.startedOnVersionOne(originalAppVersion: "1.1", production: true))
         XCTAssertFalse(Grandfather.startedOnVersionOne(originalAppVersion: "260.1", production: true))
         XCTAssertFalse(Grandfather.startedOnVersionOne(originalAppVersion: "", production: true))
         XCTAssertFalse(Grandfather.startedOnVersionOne(originalAppVersion: "abc", production: true))
