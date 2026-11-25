@@ -136,6 +136,8 @@ enum CheckInRunner {
         let reading = currentReading(store: store)
 
         if let reading {
+            // Every look at storage adds to the free-space trend shown in the Storage Checkup.
+            if reading.totalBytes > 0 { FreeSpaceTrend.record(reading.freeBytes, at: reading.date) }
             let result = CheckInAlerts.evaluate(reading, settings: settings, state: store.alertState)
             store.alertState = result.state
             for alert in result.alerts {

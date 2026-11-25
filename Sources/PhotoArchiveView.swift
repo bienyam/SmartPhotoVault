@@ -187,6 +187,7 @@ struct PhotoArchiveView: View {
     @State private var place: PlaceArea?
     @State private var showPlacePicker = false
     @State private var showSuggested = false
+    @State private var findingSuggestions = false
     @State private var suggested: [ArchiveItem] = []
     @State private var archiveConsent = false
     @State private var restoreConsent = false
@@ -964,8 +965,12 @@ struct PhotoArchiveView: View {
                             .font(.footnote).foregroundStyle(.secondary)
                     }
                     Button { showSuggestions(from: snapshot) } label: {
-                        Label(kind == .videos ? "Show matching videos" : "Show matching photos", systemImage: "line.3.horizontal.decrease.circle")
+                        HStack(spacing: 8) {
+                            Label(kind == .videos ? "Show matching videos" : "Show matching photos", systemImage: "line.3.horizontal.decrease.circle")
+                            if findingSuggestions { ProgressView().accessibilityLabel("Looking") }
+                        }
                     }
+                    .disabled(findingSuggestions)
                     Button {
                         guard pro.unlocked else {
                             showProPushed = true
@@ -1394,36 +1399,51 @@ struct PhotoArchiveView: View {
 
     private func addPhotos(_ selection: [PhotosPickerItem]) {
         guard !selection.isEmpty else { return }
-        var skipped = 0
-        for photo in selection {
-            guard let id = photo.itemIdentifier,
-                  let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject,
-                  let resource = VerifiedArchive.primary(for: asset) else {
-                skipped += 1
-                continue
-            }
-            add(ArchiveItem(id: id, name: resource.originalFilename, source: .photo(id, expected: nil)))
-        }
-        message = skipped == 0 ? nil : "\(skipped.formatted()) selected items were unavailable with current Photos access or had an unsupported format. Run a local scan to check Photos access."
+        let ids = selection.map(\.itemIdentifier)
         photoSelection = []
+        // Looking each one up in Photos happens off the main thread, so a big selection doesn't freeze the screen.
+        Task {
+            let found = await Task.detached(priority: .userInitiated) { () -> [ArchiveItem] in
+                let known = ids.compactMap { $0 }
+                var names: [String: String] = [:]
+                PHAsset.fetchAssets(withLocalIdentifiers: known, options: nil).enumerateObjects { asset, _, _ in
+                    names[asset.localIdentifier] = VerifiedArchive.primary(for: asset)?.originalFilename
+                }
+                return known.compactMap { id in
+                    names[id].map { ArchiveItem(id: id, name: $0, source: .photo(id, expected: nil)) }
+                }
+            }.value
+            for item in found { add(item) }
+            let skipped = ids.count - found.count
+            message = skipped == 0 ? nil : "\(skipped.formatted()) selected items were unavailable with current Photos access or had an unsupported format. Run a local scan to check Photos access."
+        }
     }
 
     private func showSuggestions(from snapshot: ScanSnapshot) {
         let filter = ArchiveSuggestionFilter(olderThanYears: age.years, minimumBytes: sizeFloor.bytes, kind: kind,
                                              albumID: albumID, place: place, limit: Self.suggestionLimit)
-        let records = filter.matches(in: snapshot)
-        let assets = PHAsset.fetchAssets(withLocalIdentifiers: records.map(\.id), options: nil)
-        var names: [String: String] = [:]
-        assets.enumerateObjects { asset, _, _ in
-            names[asset.localIdentifier] = VerifiedArchive.primary(for: asset)?.originalFilename
+        guard !findingSuggestions else { return }
+        findingSuggestions = true
+        // Matching and the Photos lookups run off the main thread; a large library took seconds here.
+        Task {
+            let found = await Task.detached(priority: .userInitiated) { () -> [ArchiveItem] in
+                let records = filter.matches(in: snapshot)
+                let assets = PHAsset.fetchAssets(withLocalIdentifiers: records.map(\.id), options: nil)
+                var names: [String: String] = [:]
+                assets.enumerateObjects { asset, _, _ in
+                    names[asset.localIdentifier] = VerifiedArchive.primary(for: asset)?.originalFilename
+                }
+                return records.compactMap { record -> ArchiveItem? in
+                    guard let name = names[record.id] else { return nil }
+                    return ArchiveItem(id: record.id, name: name, source: .photo(record.id, expected: ArchivePlan.primaryFingerprint(of: record)),
+                                       size: record.displayBytes > 0 ? record.displayBytes : nil,
+                                       expectedParts: ArchivePlan.partFingerprints(of: record))
+                }
+            }.value
+            suggested = found
+            showSuggested = true
+            findingSuggestions = false
         }
-        suggested = records.compactMap { record -> ArchiveItem? in
-            guard let name = names[record.id] else { return nil }
-            return ArchiveItem(id: record.id, name: name, source: .photo(record.id, expected: ArchivePlan.primaryFingerprint(of: record)),
-                               size: record.displayBytes > 0 ? record.displayBytes : nil,
-                               expectedParts: ArchivePlan.partFingerprints(of: record))
-        }
-        showSuggested = true
     }
 
     private func add(_ item: ArchiveItem) {
@@ -1777,7 +1797,12 @@ struct PhotoArchiveView: View {
 
     /// Everything archived so far counts toward the free 5 GB.
     private func refreshArchivedBytes() {
-        archivedBytes = (try? InventoryStore.openDefault().archivedBytes()) ?? 0
+        // Read off the main thread: with a long archive list the sum takes a moment.
+        Task {
+            archivedBytes = await Task.detached(priority: .userInitiated) {
+                (try? InventoryStore.openDefault().archivedBytes()) ?? 0
+            }.value
+        }
     }
 
     private static func photoID(_ item: ArchiveItem) -> String? {
