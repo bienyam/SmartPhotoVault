@@ -235,6 +235,19 @@ final class ProStore: ObservableObject {
         return "\(value) \(name)\(value == 1 ? "" : "s")"
     }
 
+    /// A trial's length as it reads in a button: "7-day", "1-week".
+    nonisolated static func trialName(_ value: Int, _ unit: Product.SubscriptionPeriod.Unit) -> String {
+        let name: String
+        switch unit {
+        case .day: name = "day"
+        case .week: name = "week"
+        case .month: name = "month"
+        case .year: name = "year"
+        @unknown default: name = "day"
+        }
+        return "\(value)-\(name)"
+    }
+
     /// How much of the free archive allowance a selection would use, and whether it fits.
     nonisolated static func archiveAllowance(used: Int64, selection: Int64, unlocked: Bool) -> ArchiveAllowance {
         if unlocked { return .unlimited }

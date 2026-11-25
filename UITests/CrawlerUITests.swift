@@ -18,7 +18,7 @@ final class CrawlerUITests: XCTestCase {
     /// scan of the photo library, or delete. Each is listed in the report as SKIPPED.
     private let skip: [String] = [
         "Terms of Use", "Privacy Policy", "Open Settings", "google-connect", "Disconnect Google Drive", "cloud-connect", "Disconnect OneDrive", "Disconnect Dropbox",
-        "pro-monthly", "pro-lifetime", "pro-restore", "Restore purchase", "Manage subscription", "Try again",
+        "pro-monthly", "pro-lifetime", "pro-restore", "pro-sheet-start", "Restore purchase", "Manage subscription", "Try again",
         "Pick photos or videos myself", "Pick files myself", "Choose archive folder in Files",
         "Choose where to restore it", "Change folder", "archive-scan", "archive-copy", "archive-stop",
         // These open Apple's own file window, which belongs to another process and covers the app.

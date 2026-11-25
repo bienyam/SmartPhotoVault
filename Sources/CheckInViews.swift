@@ -8,7 +8,13 @@ struct CheckInsView: View {
     @ObservedObject private var center = CheckInCenter.shared
     @EnvironmentObject private var pro: ProStore
     @Environment(\.openURL) private var openURL
-    @State private var showPro = false
+    @State private var offer: ProOffer?
+
+    /// What the locked rows open: a half sheet, never the whole Pro page at once.
+    private static let proOffer = ProOffer(
+        id: "checkins", title: "More check-ins",
+        what: "adds daily or weekly check-ins, alerts when free space runs low or junk builds up, and reminders before trips and big events.",
+        found: "The monthly reminder stays free.", symbol: "bell.badge")
 
     private var settings: CheckInSettings { center.settings }
 
@@ -95,15 +101,7 @@ struct CheckInsView: View {
         }
         .navigationTitle("Check-ins")
         .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $showPro) {
-            NavigationStack {
-                ProUpgradeView()
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) { Button("Not now") { showPro = false } }
-                    }
-            }
-            .environmentObject(pro)
-        }
+        .proSheet($offer, pro: pro)
     }
 
     private var frequencyPicker: some View {
@@ -112,7 +110,7 @@ struct CheckInsView: View {
                 let chosen = settings.frequency == frequency
                 let locked = frequency.needsPro && !pro.unlocked
                 Button {
-                    if locked { showPro = true } else { change { $0.frequency = frequency } }
+                    if locked { offer = Self.proOffer } else { change { $0.frequency = frequency } }
                 } label: {
                     HStack(spacing: 3) {
                         Text(frequency.label)
@@ -154,7 +152,7 @@ struct CheckInsView: View {
                 .tint(Brand.safe)
                 .accessibilityIdentifier(id)
         } else {
-            Button { showPro = true } label: {
+            Button { offer = Self.proOffer } label: {
                 HStack {
                     rowLabel(title, detail: detail, info: nil)
                     Spacer()
