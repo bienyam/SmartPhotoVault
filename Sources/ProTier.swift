@@ -38,8 +38,9 @@ enum ProGate {
 enum Grandfather {
     static let flagKey = "grandfather.smartPicks"
     static let checkedKey = "grandfather.checkedFirstLaunch"
-    /// Every App Store build of 1.0 has a build number at or below this (the upload run number).
+    /// Every App Store build of 1.0 has a build number in this range (the upload run number).
     /// Builds of 1.0.1 are numbered higher.
+    static let firstVersionOneBuild = 100
     static let lastVersionOneBuild = 194
 
     static func isSet(in store: UserDefaults = .standard) -> Bool { store.bool(forKey: flagKey) }
@@ -52,7 +53,8 @@ enum Grandfather {
         let version = originalAppVersion.trimmingCharacters(in: .whitespaces)
         if version == "1.0" || version == "1.0.0" { return true }
         guard let build = version.split(separator: ".").first.flatMap({ Int($0) }) else { return false }
-        return build <= lastVersionOneBuild
+        // A version string such as "1.0.1" is not a 1.0 build number.
+        return (firstVersionOneBuild...lastVersionOneBuild).contains(build)
     }
 
     /// The backup signal, read once: the first time 1.0.1 opens, was there 1.0 data on this iPhone?
