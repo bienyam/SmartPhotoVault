@@ -114,6 +114,33 @@ final class Version101Tests: XCTestCase {
         XCTAssertEqual(ProStore.freeArchiveBytes, 5_000_000_000, "The free archive allowance stays 5 GB.")
     }
 
+    /// Option B, as approved: exactly these five things are Pro. Anything new must be added here on purpose.
+    func testOnlyTheApprovedFeaturesArePro() {
+        XCTAssertEqual(ProFeature.allCases, [.smartPicks, .smartPro, .archiveGroups, .unlimitedArchive, .extraCheckIns])
+    }
+
+    /// The Pro page's "Always free" list, word for word. It must match the App Store description.
+    func testTheAlwaysFreeListMatchesOptionB() {
+        XCTAssertEqual(ProPlanLists.alwaysFree.map(\.text), [
+            "Find and clear large videos, duplicates, screenshots and more",
+            "Preview any photo or video before you choose it",
+            "Archive up to 5 GB, with every copy checked",
+            "Every archive destination: a drive, Files, iCloud Drive and cloud services",
+            "Delete only after a checked copy, your sign-off and the iOS confirmation",
+            "Get archived items back, always",
+            "Favorites are never deleted",
+            "Activity record and storage analysis",
+            "Storage Score and the Storage Checkup",
+            "A monthly check-in reminder"
+        ])
+    }
+
+    func testFreeArchivingStopsOnlyPastFiveGB() {
+        XCTAssertEqual(ProStore.archiveAllowance(used: 0, selection: 4_000_000_000, unlocked: false), .fits(left: 5_000_000_000))
+        XCTAssertEqual(ProStore.archiveAllowance(used: 4_000_000_000, selection: 2_000_000_000, unlocked: false), .over(left: 1_000_000_000))
+        XCTAssertEqual(ProStore.archiveAllowance(used: 9_000_000_000, selection: 9_000_000_000, unlocked: true), .unlimited)
+    }
+
     func testFreeCheckInsKeepOnlyTheMonthlyReminder() {
         var settings = CheckInSettings()
         settings.frequency = .weekly

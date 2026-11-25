@@ -48,16 +48,16 @@ struct CheckInsView: View {
 
             Section {
                 proToggle("Free space drops below", detail: nil, isOn: \.lowSpaceOn, id: "checkins-low")
-                if pro.unlocked && settings.lowSpaceOn {
+                if pro.allows(.extraCheckIns) && settings.lowSpaceOn {
                     choice("Alert below", values: CheckInSettings.lowSpaceChoices, value: \.lowSpaceGB) { "\($0) GB" }
                 }
                 proToggle("Junk grows by", detail: nil, isOn: \.junkGrowthOn, id: "checkins-junk")
-                if pro.unlocked && settings.junkGrowthOn {
+                if pro.allows(.extraCheckIns) && settings.junkGrowthOn {
                     choice("Alert when it grows", values: CheckInSettings.junkChoices, value: \.junkGrowthGB) { "\($0) GB" }
                 }
                 proToggle("After lots of new photos", detail: "\(settings.newPhotos.formatted()) or more since the last check-in",
                           isOn: \.newPhotosOn, id: "checkins-photos")
-                if pro.unlocked && settings.newPhotosOn {
+                if pro.allows(.extraCheckIns) && settings.newPhotosOn {
                     choice("New photos", values: CheckInSettings.newPhotoChoices, value: \.newPhotos) { "\($0.formatted())" }
                 }
             } header: {
@@ -68,7 +68,7 @@ struct CheckInsView: View {
                 proToggle("Use my calendar", detail: "Trips, weddings, birthdays, games. Read on this \(Device.name) only.",
                           isOn: \.calendarOn, id: "checkins-calendar",
                           info: "When this is on, TidyAway looks at your calendar for the next 14 days to spot trips, all-day and multi-day events, and events like weddings, birthdays, concerts and games. It reminds you to make room before, and offers to help tidy the new photos after. Event names appear only in notifications on this \(Device.name). Nothing from your calendar is saved, logged or sent anywhere.")
-                if pro.unlocked && settings.calendarOn {
+                if pro.allows(.extraCheckIns) && settings.calendarOn {
                     choice("Remind me", values: CheckInSettings.daysBeforeChoices, value: \.daysBefore) {
                         $0 == 1 ? "1 day before" : "\($0) days before"
                     }
@@ -108,13 +108,13 @@ struct CheckInsView: View {
         HStack(spacing: 4) {
             ForEach(CheckInFrequency.allCases) { frequency in
                 let chosen = settings.frequency == frequency
-                let locked = frequency.needsPro && !pro.unlocked
+                let locked = frequency.needsPro && !pro.allows(.extraCheckIns)
                 Button {
                     if locked { offer = Self.proOffer } else { change { $0.frequency = frequency } }
                 } label: {
                     HStack(spacing: 3) {
                         Text(frequency.label)
-                        if locked { Image(systemName: "lock.fill").imageScale(.small) }
+                        if locked { ProBadge() }
                     }
                     .font(.subheadline.weight(.semibold))
                     .frame(maxWidth: .infinity, minHeight: 36)
@@ -134,20 +134,15 @@ struct CheckInsView: View {
     private func proHeader(_ title: String) -> some View {
         HStack(spacing: 6) {
             Text(title)
-            Text("PRO")
-                .font(.caption2.weight(.heavy))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 6).padding(.vertical, 1)
-                .background(Brand.primary, in: RoundedRectangle(cornerRadius: 5))
-                .accessibilityLabel("TidyAway Pro")
+            if !pro.allows(.extraCheckIns) { ProBadge() }
         }
     }
 
-    /// A Pro switch. Without Pro it shows a lock and opens the Pro screen instead.
+    /// A Pro switch. Without Pro it shows the PRO badge and opens the half sheet instead.
     @ViewBuilder
     private func proToggle(_ title: String, detail: String?, isOn: WritableKeyPath<CheckInSettings, Bool>,
                            id: String, info: String? = nil) -> some View {
-        if pro.unlocked {
+        if pro.allows(.extraCheckIns) {
             Toggle(isOn: binding(isOn)) { rowLabel(title, detail: detail, info: info) }
                 .tint(Brand.safe)
                 .accessibilityIdentifier(id)
@@ -156,7 +151,7 @@ struct CheckInsView: View {
                 HStack {
                     rowLabel(title, detail: detail, info: nil)
                     Spacer()
-                    Image(systemName: "lock.fill").foregroundStyle(ArchiveStyle.muted)
+                    ProBadge()
                 }
             }
             .foregroundStyle(ArchiveStyle.ink)
@@ -220,7 +215,7 @@ struct CheckInsView: View {
     }
 
     private func change(_ edit: @escaping (inout CheckInSettings) -> Void) {
-        let unlocked = pro.unlocked
+        let unlocked = pro.allows(.extraCheckIns)
         Task { await center.update(edit, pro: unlocked) }
     }
 }

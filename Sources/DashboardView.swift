@@ -442,7 +442,7 @@ struct FreeUpView: View {
 
     private func sortedDetail(_ rescue: RescueSummary) -> String {
         let ids = rescue.screenshots.items.map(\.id)
-        guard pro.unlocked else { return "Sorted by what they say" }
+        guard pro.allows(.smartPro) else { return "Sorted by what they say" }
         if sorter.running { return "Reading \(sorter.done.formatted()) of \(sorter.total.formatted())" }
         let codes = ids.filter { sorter.kinds[$0] == .loginCode }.count
         return codes > 0 ? "\(codes.formatted()) login codes found" : "Read on this \(Device.name)"
@@ -479,7 +479,7 @@ struct FreeUpView: View {
         guard !model.isDemo, let rescue = model.rescue else { return }
         archived = await Task.detached(priority: .utility) { ArchivedOnPhone.load() }.value
         await makeSets()
-        if pro.unlocked { sorter.start(rescue.screenshots.items.map(\.id)) }
+        if pro.allows(.smartPro) { sorter.start(rescue.screenshots.items.map(\.id)) }
     }
 
     private func makeSets() async {
