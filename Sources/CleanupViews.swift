@@ -353,9 +353,9 @@ struct AssetRow: View {
                     .overlay(alignment: .bottomTrailing) {
                         Image(systemName: "arrow.up.left.and.arrow.down.right")
                             .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Brand.onViewer)
                             .padding(4)
-                            .background(.black.opacity(0.55), in: Circle())
+                            .background(Brand.viewer.opacity(0.55), in: Circle())
                             .padding(3)
                     }
             }

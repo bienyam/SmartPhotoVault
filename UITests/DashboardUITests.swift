@@ -775,7 +775,7 @@ final class DashboardUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["File info"].waitForExistence(timeout: 5))
         keepScreenshot(of: app, named: "Preview file info")
         app.buttons["preview-info-done"].tap()
-        app.buttons["Close"].firstMatch.tap()
+        app.buttons["preview-done"].tap()
         // Back on the list: the item is ticked, and deleting still needs the sign-off.
         let delete = app.buttons["delete-selected"]
         XCTAssertTrue(delete.waitForExistence(timeout: 5), "The tick made in the viewer shows on the list.")
@@ -800,7 +800,7 @@ final class DashboardUITests: XCTestCase {
         XCTAssertTrue(app.buttons["preview-select"].isSelected, "The viewer shows what is ticked on the list.")
         keep.tap()
         XCTAssertTrue(keep.isSelected)
-        app.buttons["Close"].firstMatch.tap()
+        app.buttons["preview-done"].tap()
         XCTAssertTrue(app.buttons["select-sample-11"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["select-sample-11"].label.hasPrefix("Select "), "Keep unticked it.")
         XCTAssertFalse(app.buttons["delete-selected"].exists, "Nothing selected, nothing to delete.")
@@ -816,7 +816,7 @@ final class DashboardUITests: XCTestCase {
         kept.tap()
         XCTAssertTrue(app.descendants(matching: .any)["preview-stays"].firstMatch.waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["preview-select"].exists, "The copy that stays can't be selected in the viewer either.")
-        app.buttons["Close"].firstMatch.tap()
+        app.buttons["preview-done"].tap()
         XCTAssertTrue(app.navigationBars["Duplicates"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["delete-selected"].exists)
     }

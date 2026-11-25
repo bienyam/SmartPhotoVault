@@ -117,7 +117,7 @@ struct PhotoPreview: View {
 
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            Brand.viewer.ignoresSafeArea()
             TabView(selection: $current) {
                 ForEach(items) { item in
                     PreviewPage(record: item, active: item.id == current)
@@ -132,9 +132,9 @@ struct PhotoPreview: View {
                 if !moved && items.count > 1 {
                     Label("Swipe for the next one", systemImage: "arrow.left.and.right")
                         .font(.subheadline)
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Brand.onViewer)
                         .padding(.horizontal, 14).padding(.vertical, 8)
-                        .background(.black.opacity(0.55), in: Capsule())
+                        .background(Brand.viewer.opacity(0.55), in: Capsule())
                         .padding(.bottom, 10)
                         .accessibilityHidden(true)
                 }
@@ -163,20 +163,21 @@ struct PhotoPreview: View {
     private var topBar: some View {
         HStack(alignment: .center, spacing: 8) {
             Button { dismiss() } label: {
-                Image(systemName: "xmark")
-                    .font(.body.weight(.bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 44, height: 44)
-                    .background(.black.opacity(0.55), in: Circle())
+                Text("Done")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(Brand.onViewer)
+                    .padding(.horizontal, 14)
+                    .frame(minHeight: 44)
+                    .background(Brand.viewer.opacity(0.55), in: Capsule())
             }
-            .accessibilityLabel("Close")
+            .accessibilityIdentifier("preview-done")
             Spacer(minLength: 0)
             VStack(spacing: 1) {
-                Text(title).font(.headline).foregroundStyle(.white).lineLimit(1)
+                Text(title).font(.headline).foregroundStyle(Brand.onViewer).lineLimit(1)
                 Text("\(position.formatted()) of \(total.formatted())")
-                    .font(.footnote).foregroundStyle(.white.opacity(0.85))
+                    .font(.footnote).foregroundStyle(Brand.onViewer.opacity(0.85))
             }
-            .shadow(color: .black.opacity(0.6), radius: 3)
+            .shadow(color: Brand.viewer.opacity(0.6), radius: 3)
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(.isHeader)
             .accessibilityIdentifier("preview-position")
@@ -184,9 +185,9 @@ struct PhotoPreview: View {
             Button { showInfo = true } label: {
                 Image(systemName: "info.circle")
                     .font(.body.weight(.bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Brand.onViewer)
                     .frame(width: 44, height: 44)
-                    .background(.black.opacity(0.55), in: Circle())
+                    .background(Brand.viewer.opacity(0.55), in: Circle())
             }
             .accessibilityLabel("File info")
             .accessibilityIdentifier("preview-info")
@@ -200,14 +201,14 @@ struct PhotoPreview: View {
         let picked = selected.contains(record.id)
         return VStack(alignment: .leading, spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(PreviewFacts.date(record)).font(.headline).foregroundStyle(.white)
-                Text(PreviewFacts.line(record)).font(.footnote).foregroundStyle(.white.opacity(0.85))
+                Text(PreviewFacts.date(record)).font(.headline).foregroundStyle(Brand.onViewer)
+                Text(PreviewFacts.line(record)).font(.footnote).foregroundStyle(Brand.onViewer.opacity(0.85))
                 if archived[record.id] != nil {
                     Label("Already archived, copy checked", systemImage: "checkmark.circle.fill")
                         .font(.footnote.weight(.semibold)).foregroundStyle(Brand.keep)
                 }
                 Label(record.favorite ? "Favorite" : "Not a favorite", systemImage: record.favorite ? "heart.fill" : "heart")
-                    .font(.footnote).foregroundStyle(.white.opacity(0.85))
+                    .font(.footnote).foregroundStyle(Brand.onViewer.opacity(0.85))
             }
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("preview-facts")
@@ -219,7 +220,7 @@ struct PhotoPreview: View {
                         Label(words.keep, systemImage: picked ? "circle" : "checkmark")
                             .font(.headline)
                             .frame(maxWidth: .infinity, minHeight: 50)
-                            .foregroundStyle(picked ? Color.white : Brand.onKeep)
+                            .foregroundStyle(picked ? Brand.onViewer : Brand.onKeep)
                             .background(picked ? Color.clear : Brand.keep, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                             .contentShape(Rectangle())
                     }
@@ -230,7 +231,7 @@ struct PhotoPreview: View {
                         Label(picked ? words.selected : words.select, systemImage: picked ? "checkmark" : "circle")
                             .font(.headline)
                             .frame(maxWidth: .infinity, minHeight: 50)
-                            .foregroundStyle(picked ? ArchiveStyle.onAction : Color.white)
+                            .foregroundStyle(picked ? ArchiveStyle.onAction : Brand.onViewer)
                             .background(picked ? ArchiveStyle.action : Color.clear, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                             .contentShape(Rectangle())
                     }
@@ -239,10 +240,10 @@ struct PhotoPreview: View {
                     .accessibilityIdentifier("preview-select")
                 }
                 .padding(5)
-                .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 21, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 21, style: .continuous).stroke(.white.opacity(0.25), lineWidth: 1))
+                .background(Brand.viewer.opacity(0.6), in: RoundedRectangle(cornerRadius: 21, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 21, style: .continuous).stroke(Brand.onViewer.opacity(0.25), lineWidth: 1))
                 Text(words.footer)
-                    .font(.footnote).foregroundStyle(.white.opacity(0.85))
+                    .font(.footnote).foregroundStyle(Brand.onViewer.opacity(0.85))
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
                     .fixedSize(horizontal: false, vertical: true)
@@ -254,7 +255,7 @@ struct PhotoPreview: View {
                     .background(Brand.keep, in: Capsule())
                     .accessibilityIdentifier("preview-stays")
                 Text("This one stays. It can't be selected here.")
-                    .font(.footnote).foregroundStyle(.white.opacity(0.85))
+                    .font(.footnote).foregroundStyle(Brand.onViewer.opacity(0.85))
             }
         }
         .padding(.horizontal, 16)
@@ -262,7 +263,7 @@ struct PhotoPreview: View {
         .padding(.bottom, 10)
         .frame(maxWidth: 520)
         .frame(maxWidth: .infinity)
-        .background(LinearGradient(colors: [.black.opacity(0), .black.opacity(0.75)], startPoint: .top, endPoint: .bottom)
+        .background(LinearGradient(colors: [Brand.viewer.opacity(0), Brand.viewer.opacity(0.75)], startPoint: .top, endPoint: .bottom)
             .ignoresSafeArea())
     }
 
@@ -389,7 +390,7 @@ struct PreviewPage: View {
                 AssetCover(assetID: record.id, side: 600)
                     .aspectRatio(contentMode: .fit)
                     .opacity(0.6)
-                ProgressView().tint(.white).controlSize(.large)
+                ProgressView().tint(Brand.onViewer).controlSize(.large)
             case .image(let image):
                 ZoomableImage(image: image)
                     .ignoresSafeArea()
@@ -406,9 +407,9 @@ struct PreviewPage: View {
                     .overlay(alignment: .topLeading) {
                         Label("LIVE", systemImage: "livephoto")
                             .font(.caption.weight(.heavy))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Brand.onViewer)
                             .padding(.horizontal, 9).padding(.vertical, 5)
-                            .background(.black.opacity(0.55), in: Capsule())
+                            .background(Brand.viewer.opacity(0.55), in: Capsule())
                             .padding(.top, 64).padding(.leading, 16)
                             .accessibilityHidden(true)
                     }
@@ -424,7 +425,7 @@ struct PreviewPage: View {
                     Text("Sample \(isVideo ? "video" : "photo")").font(.headline)
                     Text(record.filename).font(.footnote)
                 }
-                .foregroundStyle(.white.opacity(0.85))
+                .foregroundStyle(Brand.onViewer.opacity(0.85))
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("preview-sample")
             case .missing:
@@ -438,21 +439,21 @@ struct PreviewPage: View {
                     Text("It may have left this \(Device.name), or it couldn't be loaded from iCloud.")
                         .font(.footnote).multilineTextAlignment(.center)
                 }
-                .foregroundStyle(.white.opacity(0.85))
+                .foregroundStyle(Brand.onViewer.opacity(0.85))
                 .padding(30)
             }
             if let progress = loader.progress {
                 VStack(spacing: 8) {
                     ProgressView(value: progress)
                         .progressViewStyle(.circular)
-                        .tint(.white)
+                        .tint(Brand.onViewer)
                         .controlSize(.large)
                     Text("Loading from iCloud… \(Int(progress * 100))%")
                         .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Brand.onViewer)
                 }
                 .padding(16)
-                .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .background(Brand.viewer.opacity(0.6), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("preview-icloud-progress")
             }
