@@ -208,6 +208,9 @@ final class InsightModel: ObservableObject {
     /// Changes when enough new results are in to make the groups again.
     @Published private(set) var revision = 0
 
+    /// Results as they come in. They reach `insights` in batches, so screens redraw a few times
+    /// during a long read instead of once per photo.
+    private var gathered: [String: PhotoInsight] = [:]
     private var task: Task<Void, Never>?
     private let reader = InsightReader()
     private let store = InsightStore.standard()
@@ -243,14 +246,19 @@ final class InsightModel: ObservableObject {
         }
         if !loaded, let store {
             await store.keep(only: Set(items.map(\.id)))
-            insights = await store.load()
+            gathered = await store.load()
+            insights = gathered
             loaded = true
             if !insights.isEmpty { revision += 1 }
+        } else {
+            gathered = insights
         }
         total = items.count
-        done = items.reduce(0) { $0 + (insights[$1.id] == nil ? 0 : 1) }
-        let waiting = items.filter { insights[$0.id] == nil }
+        var finished = items.reduce(0) { $0 + (gathered[$1.id] == nil ? 0 : 1) }
+        done = finished
+        let waiting = items.filter { gathered[$0.id] == nil }
         var sinceRevision = 0
+        var sinceProgress = 0
         var index = 0
         while index < waiting.count, !Task.isCancelled {
             let state = ProcessInfo.processInfo
@@ -263,15 +271,27 @@ final class InsightModel: ObservableObject {
             let batch = Array(waiting[index..<min(index + 24, waiting.count)])
             index += batch.count
             let found = await reader.read(batch)
-            for insight in found { insights[insight.id] = insight }
+            for insight in found { gathered[insight.id] = insight }
             await store?.append(found)
-            done += found.count
+            finished += found.count
             sinceRevision += found.count
+            sinceProgress += found.count
+            // The count moves about every hundred photos; the results themselves every six hundred.
+            if sinceProgress >= 96 {
+                sinceProgress = 0
+                done = finished
+            }
             if sinceRevision >= 600 {
                 sinceRevision = 0
+                insights = gathered
+                done = finished
                 revision += 1
             }
         }
-        if sinceRevision > 0 { revision += 1 }
+        done = finished
+        if sinceRevision > 0 {
+            insights = gathered
+            revision += 1
+        }
     }
 }
