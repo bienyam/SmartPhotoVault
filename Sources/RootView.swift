@@ -56,7 +56,7 @@ struct RootView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { model.refreshAuthorization() }
             // Check-ins catch up each time the app opens, since iOS may not have run one in the background.
-            if phase == .active { Task { await checkIns.catchUp(pro: pro.unlocked) } }
+            if phase == .active { Task { await checkIns.catchUp(pro: pro.allows(.extraCheckIns)) } }
         }
         .onChange(of: pro.unlocked) { _, unlocked in
             Task { await checkIns.catchUp(pro: unlocked) }

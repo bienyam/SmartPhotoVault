@@ -91,7 +91,7 @@ struct MoreView: View {
                         card {
                             NavigationLink { CheckInsView(model: model) } label: {
                                 MoreRowLabel(title: "Check-ins", icon: "bell",
-                                             value: checkIns.settings.effective(pro: pro.unlocked).frequency.label)
+                                             value: checkIns.settings.effective(pro: pro.allows(.extraCheckIns)).frequency.label)
                             }
                             .moreRow("more-checkins")
                             line

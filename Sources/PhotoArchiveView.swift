@@ -165,6 +165,8 @@ struct PhotoArchiveView: View {
     @State private var showRunDetails = false
     @State private var showReview = false
     @State private var showProPushed = false
+    /// Which Pro feature the half sheet describes.
+    @State private var lockedFeature = ProFeature.archiveGroups
     @State private var showRun = false
     @State private var groups: [SmartGroup] = []
     @State private var findingGroups = false
@@ -207,6 +209,8 @@ struct PhotoArchiveView: View {
     @State private var checkingFolder = false
     @State private var showPro = false
     @EnvironmentObject private var pro: ProStore
+    /// Groups, album and place choices and suggested videos: one rule, from `ProGate`.
+    private var groupsOpen: Bool { pro.allows(.archiveGroups) }
 
     private let accent = Brand.primary
 
@@ -343,12 +347,12 @@ struct PhotoArchiveView: View {
             recognitionNote
             if snapshot.albums != nil {
                 HStack(spacing: 10) {
-                    Button { if pro.unlocked { path.append(ArchiveRoute.albums) } else { showPro = true } } label: {
-                        Label("Albums", systemImage: pro.looksUnlocked ? "rectangle.stack" : "lock")
+                    Button { if groupsOpen { path.append(ArchiveRoute.albums) } else { askPro(.archiveGroups) } } label: {
+                        proLabel("Albums", systemImage: "rectangle.stack", locked: !groupsOpen)
                     }
                     .accessibilityIdentifier("archive-albums")
-                    Button { if pro.unlocked { path.append(ArchiveRoute.filter) } else { showPro = true } } label: {
-                        Label("Places", systemImage: pro.looksUnlocked ? "map" : "lock")
+                    Button { if groupsOpen { path.append(ArchiveRoute.filter) } else { askPro(.archiveGroups) } } label: {
+                        proLabel("Places", systemImage: "map", locked: !groupsOpen)
                     }
                     .accessibilityIdentifier("archive-places")
                 }
@@ -366,12 +370,7 @@ struct PhotoArchiveView: View {
         HStack(spacing: 8) {
             Text(text).font(.title3.weight(.heavy)).foregroundStyle(ArchiveStyle.ink)
                 .accessibilityAddTraits(.isHeader)
-            if !pro.looksUnlocked {
-                Text("PRO").font(.caption.weight(.heavy))
-                    .foregroundStyle(ArchiveStyle.onAction)
-                    .padding(.horizontal, 8).padding(.vertical, 3)
-                    .background(ArchiveStyle.action, in: RoundedRectangle(cornerRadius: 8))
-            }
+            if !groupsOpen { ProBadge() }
         }
     }
 
@@ -472,7 +471,7 @@ struct PhotoArchiveView: View {
 
     private func groupButton(_ group: SmartGroup, tall: Bool) -> some View {
         Button {
-            if pro.unlocked { path.append(ArchiveRoute.group(group.id)) } else { showPro = true }
+            if groupsOpen { path.append(ArchiveRoute.group(group.id)) } else { askPro(.archiveGroups) }
         } label: {
             ArchiveCard(title: group.title,
                         detail: "\(group.records.count.formatted()) \(group.records.count == 1 ? "item" : "items")\(group.kind == .pick ? "" : " · \(group.bytes.fileSize)")\(group.when.map { "\n\($0)" } ?? "")",
@@ -931,12 +930,12 @@ struct PhotoArchiveView: View {
                     Picker("Kind", selection: $kind) {
                         ForEach(ArchiveKind.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                     }
-                    if !pro.unlocked {
-                        Button { showProPushed = true } label: {
+                    if !groupsOpen {
+                        Button { askPro(.archiveGroups, pushed: true) } label: {
                             LabeledContent {
-                                Text("Pro").font(.caption.bold()).foregroundStyle(Brand.primary)
+                                ProBadge()
                             } label: {
-                                Label("Choose by album or place", systemImage: "lock")
+                                Label("Choose by album or place", systemImage: "line.3.horizontal.decrease.circle")
                             }
                         }
                         .accessibilityIdentifier("archive-filters-pro")
@@ -972,8 +971,8 @@ struct PhotoArchiveView: View {
                     }
                     .disabled(findingSuggestions)
                     Button {
-                        guard pro.unlocked else {
-                            showProPushed = true
+                        guard groupsOpen else {
+                            askPro(.archiveGroups, pushed: true)
                             return
                         }
                         kind = .videos
@@ -983,7 +982,7 @@ struct PhotoArchiveView: View {
                         place = nil
                         showSuggestions(from: snapshot)
                     } label: {
-                        Label("Suggest large videos", systemImage: pro.looksUnlocked ? "film.stack" : "lock")
+                        proLabel("Suggest large videos", systemImage: "film.stack", locked: !groupsOpen)
                     }
                     .accessibilityIdentifier("archive-suggest-videos")
                 }
@@ -1038,7 +1037,7 @@ struct PhotoArchiveView: View {
     private var selectedBytes: Int64 { items.compactMap { bytes(for: $0) }.reduce(Int64(0), +) }
     private var unmeasured: Int { items.filter { bytes(for: $0) == nil }.count }
     private var comparison: ArchiveCapacity { ArchiveCapacity(selected: selectedBytes, available: availableBytes) }
-    private var allowance: ArchiveAllowance { ProStore.archiveAllowance(used: archivedBytes, selection: selectedBytes, unlocked: pro.unlocked) }
+    private var allowance: ArchiveAllowance { ProStore.archiveAllowance(used: archivedBytes, selection: selectedBytes, unlocked: pro.allows(.unlimitedArchive)) }
     private var overAllowance: Bool { if case .over = allowance { return true } else { return false } }
     private var toGoogle: Bool { destinationKind == .google && google.email != nil }
     /// OneDrive or Dropbox, once connected.
@@ -1196,7 +1195,7 @@ struct PhotoArchiveView: View {
         case .over(let left):
             VStack(alignment: .leading, spacing: 8) {
                 Text("This selection is \(formattedBytes(selectedBytes)). \(formattedBytes(left)) of your free 5 GB archive is left. Remove some items, or unlock Pro to archive without a limit.")
-                Button("See TidyAway Pro") { showProPushed = true }
+                Button("See TidyAway Pro") { askPro(.unlimitedArchive, pushed: true) }
             }
             .accessibilityIdentifier("archive-allowance")
         }
@@ -1271,11 +1270,21 @@ struct PhotoArchiveView: View {
 
     /// A locked Archive feature opens the half sheet; "See all plans" there opens the Pro page.
     private func proSheet(_ shown: Binding<Bool>) -> some View {
-        ProFeatureSheet(offer: ProOffer(
-            id: "archive", title: "Archive groups and filters",
-            what: "sort your library into events, trips and topics, let you choose by album or place, suggest large videos, and archive without the 5 GB limit.",
-            found: "Archiving up to 5 GB, to any destination, stays free.", symbol: "archivebox"))
+        ProFeatureSheet(offer: .archive(lockedFeature))
             .environmentObject(pro)
+    }
+
+    private func askPro(_ feature: ProFeature, pushed: Bool = false) {
+        lockedFeature = feature
+        if pushed { showProPushed = true } else { showPro = true }
+    }
+
+    /// A Pro choice keeps its own icon and adds the PRO badge while it is locked, as on Free up.
+    private func proLabel(_ title: String, systemImage: String, locked: Bool) -> some View {
+        HStack(spacing: 6) {
+            Label(title, systemImage: systemImage)
+            if locked { ProBadge() }
+        }
     }
 
     private func setDestination(_ folder: URL) {
@@ -1859,5 +1868,21 @@ struct PhotoArchiveView: View {
 
     private func recordOutcome(_ entry: String) {
         try? InventoryStore.openDefault().log(entry)
+    }
+}
+
+extension ProOffer {
+    /// What the half sheet says for a locked Archive feature.
+    static func archive(_ feature: ProFeature) -> ProOffer {
+        switch feature {
+        case .unlimitedArchive:
+            ProOffer(id: "archive-unlimited", title: "Archive without a limit",
+                     what: "lifts the 5 GB limit, so you can copy as much as you like, to any destination.",
+                     found: "Your first 5 GB, every destination and getting items back stay free.", symbol: "infinity")
+        default:
+            ProOffer(id: "archive-groups", title: "Archive groups",
+                     what: "sorts your library into events, trips and topics, lets you choose by album or place, and suggests large videos to move.",
+                     found: "Archiving up to 5 GB, to any destination, stays free.", symbol: "rectangle.stack")
+        }
     }
 }
