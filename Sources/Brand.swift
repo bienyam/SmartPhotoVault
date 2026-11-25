@@ -34,7 +34,13 @@ enum Brand {
     /// The plan card on More and the PRO badge: navy in both modes.
     static let navy = Color(light: 0x1F2547, dark: 0x2A3158)
     static let onNavy = Color(light: 0xFFFFFF, dark: 0xFFFFFF)
+    /// In dark mode the plan card keeps its lead with a tangerine edge.
+    static let navyEdge = Color(light: 0x1F2547, dark: 0xFF8A5C)
     static let navyAccent = Color(light: 0xFF9D76, dark: 0xFF9D76)
+    /// The Appearance swatches show each look as it is, whatever the current mode.
+    static let swatchLight = Color(light: 0xFFF7EE, dark: 0xFFF7EE)
+    static let swatchDark = Color(light: 0x171B34, dark: 0x171B34)
+    static let swatchEdge = Color(light: 0xD9C9B8, dark: 0x5A6080)
     /// Storage Score bands. Green for A and B, amber for C, deep amber for D and E. Never red.
     static let scoreAmber = Color(light: 0xD98A0B, dark: 0xF2B544)
     static let scoreDeepAmber = Color(light: 0xB5600A, dark: 0xE8923A)

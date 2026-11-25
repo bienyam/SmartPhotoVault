@@ -265,6 +265,10 @@ enum ArchiveAllowance: Equatable {
 /// The Pro purchase controls, reused wherever Pro is offered: monthly or once, with the
 /// subscription terms Apple requires shown next to the buttons.
 struct ProPurchaseControls: View {
+    /// The Pro page pins the plans to the bottom of the screen and keeps the terms in the page.
+    enum Part { case all, plans, terms }
+
+    var part = Part.all
     @EnvironmentObject private var pro: ProStore
     @Environment(\.openURL) private var openURL
 
@@ -273,33 +277,47 @@ struct ProPurchaseControls: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if pro.testerAccess, pro.plan == .none {
-                Label("Pro is on for testers. Buying below is free in TestFlight.", systemImage: "checkmark.seal.fill")
-                    .foregroundStyle(Brand.safe)
-                    .accessibilityIdentifier("pro-tester")
-            }
-            // Never block on the App Store: the buttons work while the check finishes.
-            switch pro.plan {
-            case .lifetime:
-                Label("Pro is unlocked.", systemImage: "checkmark.seal.fill")
-                    .foregroundStyle(Brand.safe)
-                    .accessibilityIdentifier("pro-unlocked")
-            case .monthly, .yearly:
-                Label(pro.plan == .yearly ? "Pro is unlocked. Yearly plan." : "Pro is unlocked. Monthly plan.", systemImage: "checkmark.seal.fill")
-                    .foregroundStyle(Brand.safe)
-                    .accessibilityIdentifier("pro-unlocked")
-                Button("Manage subscription") {
-                    Task {
-                        if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
-                            try? await AppStore.showManageSubscriptions(in: scene)
-                        }
+            if part != .terms { plans }
+            if part != .plans, pro.plan == .none { terms }
+        }
+        .buttonStyle(.borderless)
+    }
+
+    /// The plan buttons, or what is already unlocked, with the App Store's progress and notices.
+    @ViewBuilder
+    private var plans: some View {
+        if pro.testerAccess, pro.plan == .none {
+            Label("Pro is on for testers. Buying below is free in TestFlight.", systemImage: "checkmark.seal.fill")
+                .foregroundStyle(Brand.safe)
+                .accessibilityIdentifier("pro-tester")
+        }
+        // Never block on the App Store: the buttons work while the check finishes.
+        switch pro.plan {
+        case .lifetime:
+            Label("Pro is unlocked.", systemImage: "checkmark.seal.fill")
+                .foregroundStyle(Brand.safe)
+                .accessibilityIdentifier("pro-unlocked")
+        case .monthly, .yearly:
+            Label(pro.plan == .yearly ? "Pro is unlocked. Yearly plan." : "Pro is unlocked. Monthly plan.", systemImage: "checkmark.seal.fill")
+                .foregroundStyle(Brand.safe)
+                .accessibilityIdentifier("pro-unlocked")
+            Button("Manage subscription") {
+                Task {
+                    if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
+                        try? await AppStore.showManageSubscriptions(in: scene)
                     }
                 }
-                if let lifetime = pro.lifetime {
-                    Button("Switch to lifetime for \(lifetime.displayPrice)") { Task { await pro.purchase(lifetime) } }
-                        .disabled(pro.busy)
-                }
-            case .none:
+            }
+            if let lifetime = pro.lifetime {
+                Button("Switch to lifetime for \(lifetime.displayPrice)") { Task { await pro.purchase(lifetime) } }
+                    .disabled(pro.busy)
+            }
+        case .none:
+            // Pinned to the bottom of the Pro page the plans sit side by side; elsewhere, one under another.
+            let layout = part == .plans
+                ? AnyLayout(HStackLayout(alignment: .top, spacing: 8))
+                : AnyLayout(VStackLayout(alignment: .leading, spacing: 10))
+            layout {
                 option(title: pro.monthly.map { "\($0.displayPrice) a month" } ?? "Monthly",
                        detail: ProStore.trialLine(for: pro.monthly, eligible: pro.trialEligible, per: "month") ?? "Cancel anytime.",
                        product: pro.monthly, productID: ProStore.monthlyID, prominent: false, id: "pro-monthly")
@@ -310,35 +328,40 @@ struct ProPurchaseControls: View {
                 }
                 option(title: pro.lifetime.map { "\($0.displayPrice) once" } ?? "Lifetime",
                        detail: "Pay once, keep Pro.", product: pro.lifetime, productID: ProStore.lifetimeID, prominent: true, id: "pro-lifetime")
-                Text(renewalTerms)
-                    .font(.footnote).foregroundStyle(.secondary)
-                HStack(spacing: 16) {
-                    Button("Terms of Use") { openURL(Self.termsURL) }
-                    Button("Privacy Policy") { openURL(Self.privacyURL) }
-                }
-                .font(.footnote)
-                Button("Restore purchase") { Task { await pro.restore() } }
-                    .disabled(pro.busy)
-                    .accessibilityIdentifier("pro-restore")
             }
-            if pro.connecting {
-                HStack(spacing: 8) {
-                    ProgressView()
-                    Text("Connecting to the App Store…")
-                }
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(ArchiveStyle.muted)
-                .accessibilityElement(children: .combine)
-                .accessibilityIdentifier("pro-connecting")
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        if pro.connecting {
+            HStack(spacing: 8) {
+                ProgressView()
+                Text("Connecting to the App Store…")
             }
-            if let notice = pro.notice {
-                Text(notice).font(.footnote).foregroundStyle(.secondary)
-                if pro.monthly == nil && pro.yearly == nil && pro.lifetime == nil && !pro.unlocked {
-                    Button("Try again") { Task { await pro.loadProducts() } }
-                }
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(ArchiveStyle.muted)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("pro-connecting")
+        }
+        if let notice = pro.notice {
+            Text(notice).font(.footnote).foregroundStyle(.secondary)
+            if pro.monthly == nil && pro.yearly == nil && pro.lifetime == nil && !pro.unlocked {
+                Button("Try again") { Task { await pro.loadProducts() } }
             }
         }
-        .buttonStyle(.borderless)
+    }
+
+    /// Apple's subscription terms, the links they require, and Restore.
+    @ViewBuilder
+    private var terms: some View {
+        Text(renewalTerms)
+            .font(.footnote).foregroundStyle(.secondary)
+        HStack(spacing: 16) {
+            Button("Terms of Use") { openURL(Self.termsURL) }
+            Button("Privacy Policy") { openURL(Self.privacyURL) }
+        }
+        .font(.footnote)
+        Button("Restore purchase") { Task { await pro.restore() } }
+            .disabled(pro.busy)
+            .accessibilityIdentifier("pro-restore")
     }
 
     /// Apple's required subscription terms, including what happens when a free trial ends.
@@ -361,7 +384,7 @@ struct ProPurchaseControls: View {
         } label: {
             VStack(spacing: 2) {
                 HStack(spacing: 8) {
-                    Text(title).font(.headline)
+                    Text(title).font(.headline).lineLimit(2).minimumScaleFactor(0.75)
                     // The price is still on its way: a tap now buys as soon as it arrives.
                     if waiting {
                         ProgressView()
@@ -370,8 +393,12 @@ struct ProPurchaseControls: View {
                     }
                 }
                 Text(waiting ? "Getting the price from the App Store…" : detail).font(.caption)
+                    .lineLimit(3).minimumScaleFactor(0.85)
             }
-            .frame(maxWidth: .infinity, minHeight: 56)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, minHeight: 56, maxHeight: .infinity)
             .foregroundStyle(prominent ? ArchiveStyle.onAction : Brand.primary)
             .background(prominent ? ArchiveStyle.action : Brand.surface, in: RoundedRectangle(cornerRadius: 14))
         }

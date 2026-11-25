@@ -171,10 +171,11 @@ final class DashboardUITests: XCTestCase {
     func testEveryMoreRowOpens() {
         let app = launch()
         app.tabBars.buttons["More"].tap()
-        let rows = ["more-activity": "Activity", "more-pro": "TidyAway Pro",
-                    "guide-messages": "Messages attachments", "more-explainer": "Where your storage goes",
-                    "more-optimize": "Keep smaller copies", "more-icloud-downloads": "Remove a file download",
-                    "more-help": "Help & privacy"]
+        // Top to bottom, as the page is laid out.
+        let rows = [("more-pro", "TidyAway Pro"), ("more-checkins", "Check-ins"), ("more-insights", "Storage insights"),
+                    ("more-activity", "Activity"), ("more-places", "Archive places"), ("more-tips", "Tips"),
+                    ("more-appearance", "Appearance"), ("more-help", "Help & FAQ"), ("more-privacy", "Privacy"),
+                    ("more-contact", "Contact us")]
         for (id, title) in rows {
             let row = app.buttons[id]
             reveal(row, in: app)
@@ -184,6 +185,79 @@ final class DashboardUITests: XCTestCase {
             app.navigationBars.buttons.element(boundBy: 0).tap()
             XCTAssertTrue(app.navigationBars["More"].waitForExistence(timeout: 5))
         }
+        XCTAssertTrue(app.buttons["more-restore"].exists, "Restore Purchases is one tap from More.")
+        let rate = app.buttons["more-rate"]
+        reveal(rate, in: app)
+        XCTAssertTrue(rate.exists)
+        XCTAssertTrue(app.staticTexts["more-version"].label.hasPrefix("TidyAway 1."), "The version line closes the page.")
+        keepScreenshot(of: app, named: "More tab")
+    }
+
+    /// Regression guard: every tip that shipped is still there, behind the one Tips row.
+    func testEveryTipIsStillUnderTips() {
+        let app = launch()
+        app.tabBars.buttons["More"].tap()
+        let tips = app.buttons["more-tips"]
+        reveal(tips, in: app)
+        XCTAssertTrue(tips.label.contains("This week:"), "The row previews one tip. \(tips.label)")
+        tips.tap()
+        XCTAssertTrue(app.navigationBars["Tips"].waitForExistence(timeout: 5))
+        let rows = [("guide-messages", "Messages attachments"), ("more-explainer", "Where your storage goes"),
+                    ("more-optimize", "Keep smaller copies"), ("more-icloud-downloads", "Remove a file download")]
+        for (id, title) in rows {
+            let row = app.buttons[id]
+            XCTAssertTrue(row.waitForExistence(timeout: 5), "\(id) is missing")
+            row.tap()
+            XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 5), "\(id) should open \(title)")
+            app.navigationBars.buttons.element(boundBy: 0).tap()
+            XCTAssertTrue(app.navigationBars["Tips"].waitForExistence(timeout: 5))
+        }
+        XCTAssertTrue(app.buttons["Free iCloud Drive downloads"].exists || app.staticTexts["Free iCloud Drive downloads"].exists,
+                      "The iCloud Drive tool keeps its own label.")
+    }
+
+    func testAppearanceIsChosenAndKept() {
+        var app = launch()
+        app.tabBars.buttons["More"].tap()
+        var row = app.buttons["more-appearance"]
+        reveal(row, in: app)
+        row.tap()
+        XCTAssertTrue(app.navigationBars["Appearance"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.tabBars.buttons["More"].exists, "The tab bar stays on Appearance.")
+        app.buttons["appearance-dark"].tap()
+        XCTAssertTrue(app.buttons["appearance-dark"].isSelected)
+        XCTAssertFalse(app.buttons["appearance-system"].isSelected)
+        keepScreenshot(of: app, named: "Appearance dark")
+        app.terminate()
+
+        app = launch()
+        keepScreenshot(of: app, named: "Home dark")
+        app.tabBars.buttons["More"].tap()
+        row = app.buttons["more-appearance"]
+        reveal(row, in: app)
+        XCTAssertTrue(row.label.contains("Dark"), "The choice is kept between launches. \(row.label)")
+        keepScreenshot(of: app, named: "More dark")
+        row.tap()
+        // Back to the default, so later tests and pictures follow the iPhone again.
+        app.buttons["appearance-system"].tap()
+        XCTAssertTrue(app.buttons["appearance-system"].isSelected)
+    }
+
+    func testHelpAndPrivacyKeepEveryParagraph() {
+        let app = launch()
+        app.tabBars.buttons["More"].tap()
+        let help = app.buttons["more-help"]
+        reveal(help, in: app)
+        help.tap()
+        XCTAssertTrue(app.navigationBars["Help & FAQ"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Free up finds the biggest things")).firstMatch.exists)
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Archive copies photos and files")).firstMatch.exists)
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        let privacy = app.buttons["more-privacy"]
+        reveal(privacy, in: app)
+        privacy.tap()
+        XCTAssertTrue(app.navigationBars["Privacy"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "TidyAway reads the Apple Photos items you authorize")).firstMatch.exists)
     }
 
     func testProUnlockedShowsAsUnlocked() {
@@ -242,6 +316,9 @@ final class DashboardUITests: XCTestCase {
     func testMessagesAttachmentsGuideOpensWithoutAScan() {
         let app = launch()
         app.tabBars.buttons["More"].tap()
+        let tips = app.buttons["more-tips"]
+        reveal(tips, in: app)
+        tips.tap()
         app.buttons["guide-messages"].tap()
         XCTAssertTrue(app.navigationBars["Messages attachments"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Wait for the list to load, then tap Messages."].exists)
@@ -659,8 +736,11 @@ final class DashboardUITests: XCTestCase {
     func testStorageTipHasNoRestartAdvice() {
         let app = launch()
         app.tabBars.buttons["More"].tap()
+        let tips = app.buttons["more-tips"]
+        reveal(tips, in: app)
+        tips.tap()
         let row = app.buttons["more-explainer"]
-        reveal(row, in: app)
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
         row.tap()
         XCTAssertTrue(app.navigationBars["Where your storage goes"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "restart")).firstMatch.exists,

@@ -34,6 +34,10 @@ If you turn on check-ins, TidyAway sends notifications from your iPhone on the s
 
 If you turn on reminders before big events, TidyAway asks for access to your calendar and reads events in the next two weeks on your iPhone, to spot trips and events such as weddings and birthdays. An event's name appears only in the notification on your iPhone. Nothing from your calendar is saved, logged, or sent anywhere. Turning the switch off, or removing calendar access in Settings, stops it.
 
+## Storage Score, Storage Checkup and appearance
+
+The Storage Score and the storage bar are worked out on your iPhone from its free and total space and the size of your photos and videos. The Storage Checkup and Storage insights keep a short history of free space (sizes and dates only) on your iPhone, so they can show how it changed. Your choice of Light or Dark is kept on your iPhone. None of this is sent anywhere.
+
 ## Purchases
 
 TidyAway Pro is sold through Apple. Apple handles payment; the app only learns whether Pro is active.
@@ -42,4 +46,4 @@ TidyAway Pro is sold through Apple. Apple handles payment; the app only learns w
 
 For privacy questions, use the [TidyAway support page](https://github.com/bienyam/SmartPhotoVault/issues). Issues are public, so leave out personal photos and library information.
 
-Last updated: November 23, 2026.
+Last updated: November 25, 2026.
