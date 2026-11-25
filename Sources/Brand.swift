@@ -41,6 +41,9 @@ enum Brand {
     static let swatchLight = Color(light: 0xFFF7EE, dark: 0xFFF7EE)
     static let swatchDark = Color(light: 0x171B34, dark: 0x171B34)
     static let swatchEdge = Color(light: 0xD9C9B8, dark: 0x5A6080)
+    /// The full-screen preview is black with white type in both modes, as in Photos.
+    static let viewer = Color(light: 0x000000, dark: 0x000000)
+    static let onViewer = Color(light: 0xFFFFFF, dark: 0xFFFFFF)
     /// Storage Score bands. Green for A and B, amber for C, deep amber for D and E. Never red.
     static let scoreAmber = Color(light: 0xD98A0B, dark: 0xF2B544)
     static let scoreDeepAmber = Color(light: 0xB5600A, dark: 0xE8923A)

@@ -50,6 +50,19 @@ struct BestShotsView: View {
     @State private var scores: [String: ShotScore] = [:]
     @State private var chosen: [String: String] = [:]
     @State private var scored = 0
+    @State private var preview: PreviewRequest?
+    /// Best shots only looks here; choosing what goes happens on the review list.
+    @State private var nothing: Set<String> = []
+
+    private var everyMember: [AssetRecord] { sets.flatMap { members($0) } }
+    private var bestNotes: [String: String] {
+        var notes: [String: String] = [:]
+        for set in sets {
+            let keep = keeper(set)
+            notes[keep.id] = "★ Best shot: \(keep.reason)"
+        }
+        return notes
+    }
 
     /// The original kept photo stays protected when it is a favorite or an edited photo.
     private func isProtected(_ set: KeepSet) -> Bool { set.because != "the sharpest" }
@@ -110,7 +123,12 @@ struct BestShotsView: View {
                                         }
                                 }
                                 .buttonStyle(.plain)
+                                .previewMenu(assetID: record.id,
+                                             tick: record.id == keep.id ? nil : PreviewTick(title: "Keep this photo instead", action: { chosen[set.id] = record.id }),
+                                             open: { preview = PreviewRequest(assetID: record.id) },
+                                             info: { preview = PreviewRequest(assetID: record.id, showInfo: true) })
                                 .accessibilityLabel(record.id == keep.id ? "Kept photo" : "Keep this photo instead")
+                                .accessibilityHint("Touch and hold to look at it full screen")
                                 .accessibilityIdentifier(record.id == keep.id ? "best-kept" : "best-other")
                             }
                         }
@@ -119,6 +137,11 @@ struct BestShotsView: View {
                     Text("★ Keeping: \(keep.reason)").font(.footnote.weight(.semibold)).foregroundStyle(ArchiveStyle.safeText)
                 }
             }
+            .hiddenBehindPreview(preview != nil)
+        }
+        .fullScreenCover(item: $preview) { request in
+            PhotoPreview(title: "Best shots", items: everyMember, request: request, selectable: [],
+                         notes: bestNotes, selected: $nothing)
         }
         .navigationTitle("Best shots")
         .navigationBarTitleDisplayMode(.inline)
@@ -137,6 +160,7 @@ struct BestShotsView: View {
                 .padding(16)
                 .background(.regularMaterial)
                 .accessibilityIdentifier("best-review")
+                .hiddenBehindPreview(preview != nil)
             }
         }
         .task { await score() }
