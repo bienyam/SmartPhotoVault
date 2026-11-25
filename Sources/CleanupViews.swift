@@ -168,6 +168,14 @@ struct CleanupListView: View {
     }
 }
 
+extension DuplicateGroup {
+    /// The kept copy first, then the others in the order they came. A stable, valid ordering
+    /// (sorting with "a is the kept one" alone is not one, and can shuffle the list).
+    static func keptFirst(_ assets: [AssetRecord], keep: String?) -> [AssetRecord] {
+        assets.filter { $0.id == keep } + assets.filter { $0.id != keep }
+    }
+}
+
 /// Exact duplicates: one copy of each group is kept and labelled; the extra copies can be selected.
 struct DuplicatesListView: View {
     @ObservedObject var model: DashboardModel
@@ -184,7 +192,7 @@ struct DuplicatesListView: View {
     private var previewItems: [AssetRecord] {
         groups.flatMap { group -> [AssetRecord] in
             let keep = DuplicateRemovalPlan(group: group)?.keepID
-            return group.assets.sorted { a, _ in a.id == keep }
+            return DuplicateGroup.keptFirst(group.assets, keep: keep)
         }
     }
     private var keptNotes: [String: String] {
@@ -209,7 +217,7 @@ struct DuplicatesListView: View {
             ForEach(groups) { group in
                 let plan = DuplicateRemovalPlan(group: group)
                 Section("\(group.assets.count) identical · keeping 1") {
-                    ForEach(group.assets.sorted { a, _ in a.id == plan?.keepID }) { asset in
+                    ForEach(DuplicateGroup.keptFirst(group.assets, keep: plan?.keepID)) { asset in
                         let isExtra = plan?.removeIDs.contains(asset.id) ?? false
                         AssetRow(asset: asset, selectable: isExtra, selected: selected.contains(asset.id),
                                  note: asset.id == plan?.keepID ? "Keeping this one" : nil,

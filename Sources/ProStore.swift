@@ -43,6 +43,8 @@ final class ProStore: ObservableObject {
     var connecting: Bool { busy || waitingToBuy != nil }
     private var updates: Task<Void, Never>?
     private var productLoad: Task<Void, Never>?
+    /// Identifies the queued buy, so one cancelled with its screen is never carried out later.
+    private var queuedBuy: UUID?
 
     /// The one question every screen asks before opening a Pro feature.
     func allows(_ feature: ProFeature) -> Bool {
@@ -129,15 +131,28 @@ final class ProStore: ObservableObject {
             return
         }
         guard waitingToBuy == nil else { return }
+        let ticket = UUID()
+        queuedBuy = ticket
         waitingToBuy = id
         notice = nil
         await loadProducts()
+        // The sheet or page that queued it has closed: don't start a purchase nobody is looking at.
+        guard queuedBuy == ticket else { return }
+        queuedBuy = nil
         waitingToBuy = nil
         if let product = product(id) {
             await purchase(product)
         } else if notice == nil {
             notice = "Couldn't reach the App Store. Check your connection and try again."
         }
+    }
+
+    /// Drops a plan tapped before its price arrived. Called when the screen that queued it goes away
+    /// ("Not now", a swipe down, or navigating away). A purchase already with the App Store is not touched.
+    func cancelQueuedBuy() {
+        guard waitingToBuy != nil else { return }
+        queuedBuy = nil
+        waitingToBuy = nil
     }
 
     private func fetchProducts() async {

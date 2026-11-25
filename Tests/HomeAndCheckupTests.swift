@@ -54,6 +54,29 @@ final class HomeAndCheckupTests: XCTestCase {
         XCTAssertEqual(totals.total, 3_000, "The estimate never counts one photo twice.")
     }
 
+    func testTotalsLeaveOutFavoritesAndKeptPhotos() {
+        let favoriteShot = photo("s1", bytes: 5_000, screenshot: true, favorite: true)
+        let shot = photo("s2", bytes: 1_000, screenshot: true)
+        let keep = photo("k1", bytes: 7_000)
+        let extra = photo("k2", bytes: 3_000)
+        let favoriteBlurry = photo("b1", bytes: 9_000, favorite: true)
+        let summary = rescue([favoriteShot, shot, keep, extra, favoriteBlurry])
+        let set = KeepSet(keep: keep, extras: [extra], because: "the sharpest")
+        // Even if a group were to hold a favorite or the kept photo, neither can be selected, so neither counts.
+        let smart = [CleanupGroup(id: "look-alike", tier: .probably, title: "Look-alike shots", why: "", info: "",
+                                  items: [keep, extra, favoriteBlurry], sets: [set])]
+        let totals = TidyTotals.make(rescue: summary, smart: smart, archived: [], sets: [set])
+        XCTAssertEqual(totals.shelves[TidyRow.Shelf.safe.rawValue], 1_000, "The favorite screenshot is never counted.")
+        XCTAssertEqual(totals.shelves[TidyRow.Shelf.look.rawValue], 3_000, "Only the extra look-alike counts.")
+        XCTAssertEqual(totals.total, 4_000, "The estimate matches what can actually be selected.")
+    }
+
+    func testDuplicatesListKeepsTheKeptCopyFirstInOrder() {
+        let a = photo("a"), b = photo("b"), c = photo("c"), d = photo("d")
+        XCTAssertEqual(DuplicateGroup.keptFirst([a, b, c, d], keep: "c").map(\.id), ["c", "a", "b", "d"])
+        XCTAssertEqual(DuplicateGroup.keptFirst([a, b], keep: nil).map(\.id), ["a", "b"])
+    }
+
     func testEmptyLibraryTotalsAreZero() {
         let totals = TidyTotals.make(rescue: rescue([]), smart: [], archived: [], sets: [])
         XCTAssertEqual(totals.total, 0)

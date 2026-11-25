@@ -8,7 +8,7 @@ enum ProPlanLists {
         ("Preview any photo or video before you choose it", "eye"),
         ("Archive up to 5 GB, with every copy checked", "archivebox"),
         ("Every archive destination: a drive, Files, iCloud Drive and cloud services", "externaldrive"),
-        ("Delete only after a checked copy, your sign-off and the iOS confirmation", "checkmark.shield"),
+        ("Nothing is deleted without your sign-off and the iOS confirmation", "checkmark.shield"),
         ("Get archived items back, always", "arrow.uturn.backward"),
         ("Favorites are never deleted", "heart"),
         ("Activity record and storage analysis", "list.bullet.rectangle"),
@@ -41,7 +41,7 @@ struct ProUpgradeView: View {
             Section {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("TidyAway Pro").font(.title2.bold())
-                    Text("Monthly, or once for life. Your choice.")
+                    Text("Monthly, yearly, or once for life. Your choice.")
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 4)
@@ -72,6 +72,8 @@ struct ProUpgradeView: View {
         }
         .navigationTitle("TidyAway Pro")
         .navigationBarTitleDisplayMode(.inline)
+        // A plan tapped before its price arrived is not bought after this page has gone.
+        .onDisappear { pro.cancelQueuedBuy() }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if pinned {
                 ProPurchaseControls(part: .plans)
