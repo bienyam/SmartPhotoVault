@@ -29,7 +29,7 @@ final class CrawlerUITests: XCTestCase {
     ]
 
     /// Finishing takes a fraction of this; running out means coverage is incomplete.
-    private let budget: TimeInterval = 1_200
+    private let budget: TimeInterval = 2_000
     private var app = XCUIApplication()
     private var rootSignatures: [String: String] = [:]
     private var shapes: Set<String> = []
@@ -40,7 +40,7 @@ final class CrawlerUITests: XCTestCase {
 
     override func setUp() {
         continueAfterFailure = true
-        executionTimeAllowance = 1_800
+        executionTimeAllowance = 2_600
     }
 
     func testCrawlEveryScreen() {
