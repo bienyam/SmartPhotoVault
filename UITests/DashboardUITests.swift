@@ -778,8 +778,13 @@ final class DashboardUITests: XCTestCase {
         select.tap()
         XCTAssertTrue(select.isSelected)
         XCTAssertEqual(deletingInViewer.count, 0, "Selecting in the viewer deletes nothing.")
-        XCTAssertEqual(deletingAnywhere.count, 0, "The list's Delete stays hidden behind the viewer.")
-        XCTAssertFalse(app.buttons["delete-selected"].exists, "The list's Delete can't be reached from the viewer.")
+        // The full-screen cover leaves the list in the hierarchy XCUITest sees, so check what a person can do:
+        // the list's Delete must be neither tappable nor enabled while the viewer is open.
+        let listDelete = app.buttons["delete-selected"]
+        if listDelete.exists {
+            XCTAssertFalse(listDelete.isHittable, "The list's Delete can't be tapped from the viewer.")
+            XCTAssertFalse(listDelete.isEnabled, "Deleting still needs the sign-off.")
+        }
         app.buttons["preview-info"].tap()
         XCTAssertTrue(app.navigationBars["File info"].waitForExistence(timeout: 5))
         keepScreenshot(of: app, named: "Preview file info")
