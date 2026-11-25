@@ -61,6 +61,7 @@ struct CleanupListView: View {
 
     var body: some View {
         List {
+            Group {
             if items.isEmpty {
                 Text("Nothing here right now.").foregroundStyle(.secondary)
             } else {
@@ -88,6 +89,8 @@ struct CleanupListView: View {
                     }
                 }
             }
+            }
+            .hiddenBehindPreview(preview != nil)
         }
         .fullScreenCover(item: $preview) { request in
             PhotoPreview(title: title, items: previewItems, request: request,
@@ -134,6 +137,7 @@ struct CleanupListView: View {
                         .accessibilityIdentifier("archive-selected")
                     }
                 }
+                .hiddenBehindPreview(preview != nil)
             }
         }
         .sheet(item: $result) { RescueResultView(result: $0) }
@@ -195,6 +199,7 @@ struct DuplicatesListView: View {
 
     var body: some View {
         List {
+            Group {
             if groups.isEmpty {
                 Text("No exact duplicates found among the photos and videos on this \(Device.name).")
                     .foregroundStyle(.secondary)
@@ -217,6 +222,8 @@ struct DuplicatesListView: View {
                     }
                 }
             }
+            }
+            .hiddenBehindPreview(preview != nil)
         }
         .fullScreenCover(item: $preview) { request in
             PhotoPreview(title: "Duplicates", items: previewItems, request: request, selectable: Set(extras),
@@ -244,6 +251,7 @@ struct DuplicatesListView: View {
                 RemovalBar(count: selectedCount, bytes: selectedBytes,
                            fullText: RemovalDisclosure.duplicates(count: selectedCount),
                            working: working, message: message, agreed: $agreed, delete: delete)
+                    .hiddenBehindPreview(preview != nil)
             }
         }
         .sheet(item: $result) { RescueResultView(result: $0) }
