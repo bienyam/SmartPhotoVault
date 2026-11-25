@@ -109,6 +109,26 @@ final class Version101Tests: XCTestCase {
         }
     }
 
+    /// The check-in report (More › Storage insights, More › Check-ins, a tapped notification) opens
+    /// smart picks only for Pro and for people who started on 1.0; the by-type rows stay free.
+    func testCheckInReportSmartPicksFollowTheFreeUpRule() {
+        let smartPicks = ["look-alike", "blurry", "accidental", "dark", "expired", "old-screenshots", "screens"]
+        for id in smartPicks {
+            XCTAssertEqual(ProGate.reportFeature(id), .smartPicks, id)
+            XCTAssertFalse(ProGate.reportRowOpens(id, pro: false, grandfathered: false), "Free user: \(id) opens the half sheet.")
+            XCTAssertTrue(ProGate.reportRowOpens(id, pro: true, grandfathered: false), "Pro user: \(id) opens the list.")
+            XCTAssertTrue(ProGate.reportRowOpens(id, pro: false, grandfathered: true), "Grandfathered user: \(id) opens the list.")
+        }
+        for id in ["duplicates", "videos"] {
+            XCTAssertNil(ProGate.reportFeature(id), id)
+            XCTAssertTrue(ProGate.reportRowOpens(id, pro: false, grandfathered: false), "Free user: \(id) stays free.")
+            XCTAssertTrue(ProGate.reportRowOpens(id, pro: true, grandfathered: false), id)
+            XCTAssertTrue(ProGate.reportRowOpens(id, pro: false, grandfathered: true), id)
+        }
+        // A report row the app doesn't know yet is never handed out free by mistake.
+        XCTAssertFalse(ProGate.reportRowOpens("something-new", pro: false, grandfathered: false))
+    }
+
     func testTheByTypeListsAreNeverProFeatures() {
         XCTAssertEqual(ProGate.freeRows, ["row-duplicates", "row-videos", "row-screenshots", "row-more"])
         XCTAssertEqual(ProStore.freeArchiveBytes, 5_000_000_000, "The free archive allowance stays 5 GB.")
@@ -126,7 +146,7 @@ final class Version101Tests: XCTestCase {
             "Preview any photo or video before you choose it",
             "Archive up to 5 GB, with every copy checked",
             "Every archive destination: a drive, Files, iCloud Drive and cloud services",
-            "Delete only after a checked copy, your sign-off and the iOS confirmation",
+            "Nothing is deleted without your sign-off and the iOS confirmation",
             "Get archived items back, always",
             "Favorites are never deleted",
             "Activity record and storage analysis",

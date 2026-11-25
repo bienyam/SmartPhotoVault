@@ -138,7 +138,17 @@ struct PhotoPreview: View {
                         .padding(.bottom, 10)
                         .accessibilityHidden(true)
                 }
-                if let record { bottomPanel(record) }
+                if let record {
+                    if typeSize.isAccessibilitySize {
+                        ViewThatFits(in: .vertical) {
+                            bottomPanel(record)
+                            ScrollView { bottomPanel(record) }.scrollBounceBehavior(.basedOnSize)
+                        }
+                        .frame(maxHeight: 320)
+                    } else {
+                        bottomPanel(record)
+                    }
+                }
             }
         }
         // Nothing behind the viewer can be reached while it is open, including a list's Delete button.

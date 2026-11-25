@@ -13,7 +13,7 @@ struct CheckInsView: View {
     /// What the locked rows open: a half sheet, never the whole Pro page at once.
     private static let proOffer = ProOffer(
         id: "checkins", title: "More check-ins",
-        what: "adds daily or weekly check-ins, alerts when free space runs low or junk builds up, and reminders before trips and big events.",
+        what: "adds daily or weekly check-ins, alerts when free space runs low or clutter builds up, and reminders before trips and big events.",
         found: "The monthly reminder stays free.", symbol: "bell.badge")
 
     private var settings: CheckInSettings { center.settings }
@@ -51,7 +51,7 @@ struct CheckInsView: View {
                 if pro.allows(.extraCheckIns) && settings.lowSpaceOn {
                     choice("Alert below", values: CheckInSettings.lowSpaceChoices, value: \.lowSpaceGB) { "\($0) GB" }
                 }
-                proToggle("Junk grows by", detail: nil, isOn: \.junkGrowthOn, id: "checkins-junk")
+                proToggle("Clutter grows by", detail: nil, isOn: \.junkGrowthOn, id: "checkins-junk")
                 if pro.allows(.extraCheckIns) && settings.junkGrowthOn {
                     choice("Alert when it grows", values: CheckInSettings.junkChoices, value: \.junkGrowthGB) { "\($0) GB" }
                 }
@@ -230,6 +230,7 @@ struct CheckInReportView: View {
     var openFreeUp: (() -> Void)?
     @State private var storage = DeviceStorage.current()
     @State private var groups: [CleanupGroup] = []
+    @State private var offer: ProOffer?
 
     private var latest: CheckInReading? { center.latest }
     private var history: [CheckInReading] { Array(center.history.suffix(6)) }
@@ -283,6 +284,7 @@ struct CheckInReportView: View {
         }
         .navigationTitle("Check-in")
         .navigationBarTitleDisplayMode(.inline)
+        .proSheet($offer, pro: pro)
         .task { await makeGroups() }
     }
 
@@ -312,17 +314,34 @@ struct CheckInReportView: View {
         .sorted { $0.bytes > $1.bytes }
     }
 
+    /// Smart picks follow the same rule as on Free up: without Pro (or 1.0 grandfathering) the row
+    /// shows the PRO badge and opens the half sheet, never the list. Duplicates and Large videos stay free.
     @ViewBuilder
     private func destination(for row: Row) -> some View {
+        let locked = !ProGate.reportRowOpens(row.id, pro: pro.unlocked, grandfathered: pro.grandfathered)
         let label = HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text(row.title).font(.body.weight(.semibold))
+                HStack(spacing: 6) {
+                    Text(row.title).font(.body.weight(.semibold))
+                    if locked { ProBadge() }
+                }
                 Text(row.detail).font(.caption).foregroundStyle(ArchiveStyle.muted)
             }
             Spacer()
             Text(row.bytes.fileSize).font(.subheadline.weight(.semibold)).foregroundStyle(Brand.primary)
         }
-        if let model, let list = list(for: row.id, model: model) {
+        if locked {
+            Button {
+                offer = ProOffer(id: "report-\(row.id)", title: row.title, what: ProGate.smartPickWhat(row.id),
+                                 found: "Found on this \(Device.name): \(row.detail), about \(row.bytes.fileSize). You still approve every one.",
+                                 symbol: "sparkles")
+            } label: { label }
+            .foregroundStyle(ArchiveStyle.ink)
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityHint("Available in TidyAway Pro")
+            .accessibilityIdentifier("report-\(row.id)")
+        } else if let model, let list = list(for: row.id, model: model) {
             NavigationLink { list } label: { label }
                 .accessibilityIdentifier("report-\(row.id)")
         } else {
@@ -331,6 +350,8 @@ struct CheckInReportView: View {
     }
 
     private func list(for id: String, model: DashboardModel) -> AnyView? {
+        // Never hand out a smart-pick list without the gate, whoever calls this.
+        guard ProGate.reportRowOpens(id, pro: pro.unlocked, grandfathered: pro.grandfathered) else { return nil }
         if id == "duplicates" { return AnyView(DuplicatesListView(model: model)) }
         if id == "videos", let rescue = model.rescue {
             return AnyView(CleanupListView(title: "Large videos",

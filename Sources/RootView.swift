@@ -56,9 +56,17 @@ struct RootView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { model.refreshAuthorization() }
             // Check-ins catch up each time the app opens, since iOS may not have run one in the background.
-            if phase == .active { Task { await checkIns.catchUp(pro: pro.allows(.extraCheckIns)) } }
+            // At launch the plan isn't known yet; the catch-up then waits for it (below), so a Pro
+            // schedule is never planned as free, even for a moment.
+            if phase == .active, !pro.checking { Task { await checkIns.catchUp(pro: pro.allows(.extraCheckIns)) } }
+        }
+        .onChange(of: pro.checking) { _, checking in
+            // The first purchase check has finished: catch up once, with the plan it found.
+            if !checking { Task { await checkIns.catchUp(pro: pro.allows(.extraCheckIns)) } }
         }
         .onChange(of: pro.unlocked) { _, unlocked in
+            // While the first check runs, the catch-up above follows it.
+            guard !pro.checking else { return }
             Task { await checkIns.catchUp(pro: unlocked) }
         }
         // A tapped check-in notification opens its report.

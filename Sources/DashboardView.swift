@@ -65,7 +65,7 @@ struct FreeUpView: View {
                     .frame(maxWidth: .infinity)
                 }
             }
-            .safeAreaInset(edge: .bottom, spacing: 0) { dock }
+            .safeAreaInset(edge: .bottom, spacing: 0) { fittedDock }
             .navigationTitle("TidyAway")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -382,7 +382,7 @@ struct FreeUpView: View {
                                 detail: group.why, size: group.bytes.fileSize,
                                 count: "\(number.formatted()) \(number == 1 ? "item" : "items")",
                                 symbol: group.symbol, bytes: group.items.reduce(0) { $0 + $1.localBytes },
-                                feature: .smartPicks, what: Self.what[group.id] ?? "gathers these photos on this \(Device.name), so you can review them in one list."))
+                                feature: .smartPicks, what: ProGate.smartPickWhat(group.id)))
         }
         if !sets.isEmpty {
             let extras = sets.flatMap(\.extras)
@@ -415,17 +415,6 @@ struct FreeUpView: View {
                             symbol: "video", bytes: rescue.videoBytes, chip: "Copy first"))
         return list
     }
-
-    /// What each smart pick does, for the Pro sheet. Follows the group's name.
-    private static let what: [String: String] = [
-        "look-alike": "groups photos taken seconds apart that look nearly the same and keeps the sharpest, so you only decide what goes.",
-        "blurry": "gathers the photos that are out of focus or shaken, measured on this \(Device.name), so you can review them in one list.",
-        "accidental": "gathers pocket, floor and ceiling shots and videos under 2 seconds, so you can clear them in one pass.",
-        "dark": "gathers photos so dark that almost nothing shows, so you can review them in one list.",
-        "expired": "finds photos of receipts, tickets and parking spots more than 3 months old, recognized on this \(Device.name).",
-        "old-screenshots": "lists screenshots more than 30 days old, leaving recent ones out.",
-        "screens": "finds photos of screens, whiteboards and slides, the kind taken as a reminder."
-    ]
 
     /// Phone space first; items only in iCloud show their iCloud size.
     private func size(_ local: Int64, _ iCloud: Int64, empty: Bool) -> String {
@@ -517,6 +506,22 @@ struct FreeUpView: View {
     }
 
     // MARK: - Dock
+
+    /// At accessibility text sizes the dock would cover most of the page, so it scrolls in a capped strip.
+    @ViewBuilder
+    private var fittedDock: some View {
+        if typeSize.isAccessibilitySize {
+            // The dock as it is when it fits; otherwise the same dock in a scrolling strip.
+            ViewThatFits(in: .vertical) {
+                dock
+                ScrollView { dock }.scrollBounceBehavior(.basedOnSize)
+            }
+            .frame(maxHeight: 260)
+            .background(.ultraThinMaterial)
+        } else {
+            dock
+        }
+    }
 
     /// Docked above the tab bar: the estimate, one main button, and the way into the Storage Checkup.
     private var dock: some View {

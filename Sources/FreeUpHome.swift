@@ -426,30 +426,38 @@ struct TidyTotals: Equatable {
 
     /// Items can sit in more than one group (a duplicate screenshot, a look-alike in Best shots),
     /// so the totals count each item once. Phone space only: iCloud-only originals don't count.
+    /// Only what the lists let someone select counts: never a favorite, never the photo kept in a
+    /// look-alike set, so the estimate matches what can actually be freed.
     static func make(rescue: RescueSummary, smart: [CleanupGroup], archived: [ArchivedPlace], sets: [KeepSet]) -> TidyTotals {
         var safe: [String: Int64] = [:]
         var look: [String: Int64] = [:]
         var move: [String: Int64] = [:]
+        let favorites = Set(rescue.snapshot.assets.filter(\.favorite).map(\.id))
+        let kept = Set((sets + smart.flatMap(\.sets)).map(\.keep.id))
+        func count(_ item: AssetRecord, _ shelf: inout [String: Int64], keptStays: Bool = false) {
+            guard !item.favorite, !favorites.contains(item.id), !(keptStays && kept.contains(item.id)) else { return }
+            shelf[item.id] = item.localBytes
+        }
         for group in rescue.duplicateGroups {
             guard let plan = DuplicateRemovalPlan(group: group) else { continue }
-            for asset in group.assets where plan.removeIDs.contains(asset.id) { safe[asset.id] = asset.bytes }
+            for asset in group.assets where plan.removeIDs.contains(asset.id) && !asset.favorite { safe[asset.id] = asset.bytes }
         }
-        for item in rescue.screenshots.items { safe[item.id] = item.localBytes }
+        for item in rescue.screenshots.items { count(item, &safe) }
         for place in archived {
             for record in place.records {
-                if let photo = record.photoID { safe[photo] = max(safe[photo] ?? 0, record.totalBytes) }
+                if let photo = record.photoID, !favorites.contains(photo) { safe[photo] = max(safe[photo] ?? 0, record.totalBytes) }
             }
         }
         for group in smart {
-            for item in group.items { look[item.id] = item.localBytes }
+            for item in group.items { count(item, &look, keptStays: true) }
         }
         for set in sets {
-            for item in set.extras { look[item.id] = item.localBytes }
+            for item in set.extras { count(item, &look, keptStays: true) }
         }
         for type in rescue.otherTypes where type.category.allowsRemoval {
-            for item in type.items { look[item.id] = item.localBytes }
+            for item in type.items { count(item, &look) }
         }
-        for video in rescue.videos { move[video.id] = video.localBytes }
+        for video in rescue.videos { count(video, &move) }
 
         var totals = TidyTotals()
         totals.shelves[TidyRow.Shelf.safe.rawValue] = safe.values.reduce(0, +)
@@ -707,6 +715,8 @@ struct ProFeatureSheet: View {
         .onChange(of: pro.unlocked) { _, unlocked in
             if unlocked { dismiss() }
         }
+        // "Not now", a swipe down or leaving the screen: a plan queued here is not bought later.
+        .onDisappear { pro.cancelQueuedBuy() }
         .sheet(isPresented: $showPlans) {
             NavigationStack {
                 ProUpgradeView()

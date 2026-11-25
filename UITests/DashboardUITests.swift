@@ -329,7 +329,7 @@ final class DashboardUITests: XCTestCase {
         app.tabBars.buttons["More"].tap()
         app.buttons["more-pro"].tap()
         XCTAssertTrue(app.navigationBars["TidyAway Pro"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Monthly, or once for life. Your choice."].exists)
+        XCTAssertTrue(app.staticTexts["Monthly, yearly, or once for life. Your choice."].exists)
         XCTAssertTrue(app.staticTexts["Archive up to 5 GB, with every copy checked"].exists)
         // The Pro list is longer than one screen now; the purchase part sits below the features.
         reveal(app.buttons["pro-monthly"], in: app)

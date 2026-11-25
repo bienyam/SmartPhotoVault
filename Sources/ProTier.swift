@@ -30,6 +30,36 @@ enum ProGate {
 
     /// The Free up lists that are never behind Pro.
     static let freeRows: Set<String> = ["row-duplicates", "row-videos", "row-screenshots", "row-more"]
+
+    /// Check-in report rows that are never behind Pro: the by-type lists. Every other report row
+    /// is a smart pick and follows the same rule as on Free up.
+    static let freeReportRows: Set<String> = ["duplicates", "videos"]
+
+    /// What a check-in report row needs, by group id. Nil means free for everyone.
+    static func reportFeature(_ id: String) -> ProFeature? {
+        freeReportRows.contains(id) ? nil : .smartPicks
+    }
+
+    /// True when a check-in report row opens its list; otherwise it shows the PRO badge and the half sheet.
+    static func reportRowOpens(_ id: String, pro: Bool, grandfathered: Bool) -> Bool {
+        guard let feature = reportFeature(id) else { return true }
+        return allows(feature, pro: pro, grandfathered: grandfathered)
+    }
+
+    /// What each smart pick does, for the Pro sheet. Follows the group's name.
+    static func smartPickWhat(_ id: String) -> String {
+        smartPickTexts[id] ?? "gathers these photos on this \(Device.name), so you can review them in one list."
+    }
+
+    private static let smartPickTexts: [String: String] = [
+        "look-alike": "groups photos taken seconds apart that look nearly the same and keeps the sharpest, so you only decide what goes.",
+        "blurry": "gathers the photos that are out of focus or shaken, measured on this \(Device.name), so you can review them in one list.",
+        "accidental": "gathers pocket, floor and ceiling shots and videos under 2 seconds, so you can clear them in one pass.",
+        "dark": "gathers photos so dark that almost nothing shows, so you can review them in one list.",
+        "expired": "finds photos of receipts, tickets and parking spots more than 3 months old, recognized on this \(Device.name).",
+        "old-screenshots": "lists screenshots more than 30 days old, leaving recent ones out.",
+        "screens": "finds photos of screens, whiteboards and slides, the kind taken as a reminder."
+    ]
 }
 
 /// People who installed TidyAway 1.0 keep the smart picks on Free up free forever.

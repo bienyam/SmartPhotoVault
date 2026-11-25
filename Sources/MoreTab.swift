@@ -185,7 +185,7 @@ struct MoreView: View {
             Text("TidyAway Pro").font(.title2.weight(.heavy)).foregroundStyle(Brand.onNavy)
                 .accessibilityAddTraits(.isHeader)
             Text(pro.looksUnlocked ? "Thank you. Everything is unlocked."
-                 : "Monthly, or once for life. Your choice.")
+                 : "Monthly, yearly, or once for life. Your choice.")
                 .font(.subheadline).foregroundStyle(Brand.onNavy.opacity(0.82))
                 .fixedSize(horizontal: false, vertical: true)
             let layout = typeSize.isAccessibilitySize
