@@ -67,6 +67,8 @@ struct DeviceStorage: Equatable {
     var usedFraction: Double { total > 0 ? Double(used) / Double(total) : 0 }
 
     static func current() -> DeviceStorage? {
+        // App Store pictures show a stand-in iPhone. The flag is always off in App Store builds.
+        if LaunchFlags.has("--store-pictures") { return DemoLibrary.storage }
         let home = URL(fileURLWithPath: NSHomeDirectory())
         guard let values = try? home.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey, .volumeTotalCapacityKey]),
               let available = values.volumeAvailableCapacityForImportantUsage,

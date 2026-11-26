@@ -472,8 +472,13 @@ struct StorageCheckupView: View {
         // UI tests start each Checkup from the beginning.
         if LaunchFlags.has("--reset-checkup") { UserDefaults.standard.removeObject(forKey: CheckupProgress.key) }
         free = DeviceStorage.current()?.available ?? 0
-        progress = CheckupProgress.load() ?? CheckupProgress(free: free)
-        progress.save()
+        if let sample = DemoLibrary.checkup(free: free) {
+            // App Store pictures: one step done and free space risen. Not saved.
+            progress = sample
+        } else {
+            progress = CheckupProgress.load() ?? CheckupProgress(free: free)
+            progress.save()
+        }
         open = progress.next?.id
         FreeSpaceTrend.record(free)
         trend = FreeSpaceTrend.points()
