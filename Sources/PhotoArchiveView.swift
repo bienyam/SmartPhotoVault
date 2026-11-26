@@ -35,7 +35,7 @@ struct ArchiveScanCard: View {
                     ProgressView("Looking through your photos…")
                 }
             } else {
-                Text("TidyAway groups your events, trips and large videos, so you can move a whole group in one go.")
+                Text("TidyAway groups your events, trips and large videos from your \(Device.name) and iCloud, so you can move a whole group in one go.")
                     .foregroundStyle(ArchiveStyle.muted)
                 Button("Find my groups") { model.startDuplicateScan() }
                     .buttonStyle(ArchiveButtonStyle())
@@ -151,6 +151,8 @@ struct PhotoArchiveView: View {
     @State private var availableGB = ""
     @State private var measuredBytes: [String: Int64] = [:]
     @State private var checkedPhotos: [String: ResourceFingerprint] = [:]
+    /// Live Photos and edited photos picked by hand: the fingerprint of every file, measured before copying.
+    @State private var checkedParts: [String: [ResourceFingerprint]] = [:]
     @State private var wifi = ArchiveWiFi()
     @State private var restoreFolder: URL?
     @State private var showFiles = false
@@ -164,7 +166,10 @@ struct PhotoArchiveView: View {
     @State private var showRunDetails = false
     @State private var showReview = false
     @State private var showProPushed = false
+    /// Which Pro feature the half sheet describes.
+    @State private var lockedFeature = ProFeature.archiveGroups
     @State private var showRun = false
+    @State private var ratingTrigger = 0
     @State private var groups: [SmartGroup] = []
     @State private var findingGroups = false
     @State private var section = SmartGroup.Section.forYou
@@ -186,6 +191,7 @@ struct PhotoArchiveView: View {
     @State private var place: PlaceArea?
     @State private var showPlacePicker = false
     @State private var showSuggested = false
+    @State private var findingSuggestions = false
     @State private var suggested: [ArchiveItem] = []
     @State private var archiveConsent = false
     @State private var restoreConsent = false
@@ -205,6 +211,8 @@ struct PhotoArchiveView: View {
     @State private var checkingFolder = false
     @State private var showPro = false
     @EnvironmentObject private var pro: ProStore
+    /// Groups, album and place choices and suggested videos: one rule, from `ProGate`.
+    private var groupsOpen: Bool { pro.allows(.archiveGroups) }
 
     private let accent = Brand.primary
 
@@ -280,6 +288,7 @@ struct PhotoArchiveView: View {
             }
         }
         .fullScreenCover(isPresented: $showRun) { runCover }
+        .asksForRating(when: ratingTrigger)
         .sheet(isPresented: $showDetails) { detailsSheet }
         .sheet(isPresented: $showPro) { proSheet($showPro) }
         .sheet(item: $pickingFolder) { place in
@@ -304,7 +313,7 @@ struct PhotoArchiveView: View {
     }
 
     private static let promise = "TidyAway only adds copies to your archive. It never deletes or changes anything there, by design. Copies are full-resolution originals, checked against the originals on your \(Device.name). Your source items stay where they are."
-    private static let supported = "Photos supports JPEG and HEIC photos and single-file videos. Live Photos, slo-mo and edited videos aren't supported yet. Use Files for documents. Suggestions leave out favorites; events and trips include them, and they are never deleted."
+    private static let supported = "Photos supports JPEG and HEIC photos and single-file videos. Live Photos and edited photos are copied with every part. Slo-mo, edited videos and RAW pairs aren't supported yet. Use Files for documents. Suggestions leave out favorites; events and trips include them, and they are never deleted."
 
     // MARK: - Home
 
@@ -341,12 +350,12 @@ struct PhotoArchiveView: View {
             recognitionNote
             if snapshot.albums != nil {
                 HStack(spacing: 10) {
-                    Button { if pro.unlocked { path.append(ArchiveRoute.albums) } else { showPro = true } } label: {
-                        Label("Albums", systemImage: pro.looksUnlocked ? "rectangle.stack" : "lock")
+                    Button { if groupsOpen { path.append(ArchiveRoute.albums) } else { askPro(.archiveGroups) } } label: {
+                        proLabel("Albums", systemImage: "rectangle.stack", locked: !groupsOpen)
                     }
                     .accessibilityIdentifier("archive-albums")
-                    Button { if pro.unlocked { path.append(ArchiveRoute.filter) } else { showPro = true } } label: {
-                        Label("Places", systemImage: pro.looksUnlocked ? "map" : "lock")
+                    Button { if groupsOpen { path.append(ArchiveRoute.filter) } else { askPro(.archiveGroups) } } label: {
+                        proLabel("Places", systemImage: "map", locked: !groupsOpen)
                     }
                     .accessibilityIdentifier("archive-places")
                 }
@@ -364,12 +373,7 @@ struct PhotoArchiveView: View {
         HStack(spacing: 8) {
             Text(text).font(.title3.weight(.heavy)).foregroundStyle(ArchiveStyle.ink)
                 .accessibilityAddTraits(.isHeader)
-            if !pro.looksUnlocked {
-                Text("PRO").font(.caption.weight(.heavy))
-                    .foregroundStyle(ArchiveStyle.onAction)
-                    .padding(.horizontal, 8).padding(.vertical, 3)
-                    .background(ArchiveStyle.action, in: RoundedRectangle(cornerRadius: 8))
-            }
+            if !groupsOpen { ProBadge() }
         }
     }
 
@@ -470,7 +474,7 @@ struct PhotoArchiveView: View {
 
     private func groupButton(_ group: SmartGroup, tall: Bool) -> some View {
         Button {
-            if pro.unlocked { path.append(ArchiveRoute.group(group.id)) } else { showPro = true }
+            if groupsOpen { path.append(ArchiveRoute.group(group.id)) } else { askPro(.archiveGroups) }
         } label: {
             ArchiveCard(title: group.title,
                         detail: "\(group.records.count.formatted()) \(group.records.count == 1 ? "item" : "items")\(group.kind == .pick ? "" : " · \(group.bytes.fileSize)")\(group.when.map { "\n\($0)" } ?? "")",
@@ -653,7 +657,7 @@ struct PhotoArchiveView: View {
         startOver()
         add(ready)
         let left = records.count - ready.count
-        message = left == 0 ? nil : "\(left.formatted()) of these can't be archived yet: Live Photos, slo-mo, edited items and some formats."
+        message = left == 0 ? nil : "\(left.formatted()) of these can't be archived yet: slo-mo, edited videos and some formats."
         path = NavigationPath()
         if !items.isEmpty { path.append(ArchiveRoute.copy) }
     }
@@ -663,6 +667,7 @@ struct PhotoArchiveView: View {
         items = []
         measuredBytes = [:]
         checkedPhotos = [:]
+        checkedParts = [:]
         archiveConsent = false
         message = nil
     }
@@ -672,8 +677,9 @@ struct PhotoArchiveView: View {
         var known = Set(items.map(\.id))
         for record in records where known.insert(record.id).inserted {
             items.append(ArchiveItem(id: record.id, name: record.filename,
-                                     source: .photo(record.id, expected: record.inICloud ? nil : record.resources.first),
-                                     size: record.displayBytes > 0 ? record.displayBytes : nil))
+                                     source: .photo(record.id, expected: record.inICloud ? nil : ArchivePlan.primaryFingerprint(of: record)),
+                                     size: record.displayBytes > 0 ? record.displayBytes : nil,
+                                     expectedParts: record.inICloud ? nil : ArchivePlan.partFingerprints(of: record)))
             if record.inICloud, let size = record.cloudBytes { measuredBytes[record.id] = size }
         }
         archiveConsent = false
@@ -933,12 +939,12 @@ struct PhotoArchiveView: View {
                     Picker("Kind", selection: $kind) {
                         ForEach(ArchiveKind.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                     }
-                    if !pro.unlocked {
-                        Button { showProPushed = true } label: {
+                    if !groupsOpen {
+                        Button { askPro(.archiveGroups, pushed: true) } label: {
                             LabeledContent {
-                                Text("Pro").font(.caption.bold()).foregroundStyle(Brand.primary)
+                                ProBadge()
                             } label: {
-                                Label("Choose by album or place", systemImage: "lock")
+                                Label("Choose by album or place", systemImage: "line.3.horizontal.decrease.circle")
                             }
                         }
                         .accessibilityIdentifier("archive-filters-pro")
@@ -967,11 +973,15 @@ struct PhotoArchiveView: View {
                             .font(.footnote).foregroundStyle(.secondary)
                     }
                     Button { showSuggestions(from: snapshot) } label: {
-                        Label(kind == .videos ? "Show matching videos" : "Show matching photos", systemImage: "line.3.horizontal.decrease.circle")
+                        HStack(spacing: 8) {
+                            Label(kind == .videos ? "Show matching videos" : "Show matching photos", systemImage: "line.3.horizontal.decrease.circle")
+                            if findingSuggestions { ProgressView().accessibilityLabel("Looking") }
+                        }
                     }
+                    .disabled(findingSuggestions)
                     Button {
-                        guard pro.unlocked else {
-                            showProPushed = true
+                        guard groupsOpen else {
+                            askPro(.archiveGroups, pushed: true)
                             return
                         }
                         kind = .videos
@@ -981,7 +991,7 @@ struct PhotoArchiveView: View {
                         place = nil
                         showSuggestions(from: snapshot)
                     } label: {
-                        Label("Suggest large videos", systemImage: pro.looksUnlocked ? "film.stack" : "lock")
+                        proLabel("Suggest large videos", systemImage: "film.stack", locked: !groupsOpen)
                     }
                     .accessibilityIdentifier("archive-suggest-videos")
                 }
@@ -1036,7 +1046,7 @@ struct PhotoArchiveView: View {
     private var selectedBytes: Int64 { items.compactMap { bytes(for: $0) }.reduce(Int64(0), +) }
     private var unmeasured: Int { items.filter { bytes(for: $0) == nil }.count }
     private var comparison: ArchiveCapacity { ArchiveCapacity(selected: selectedBytes, available: availableBytes) }
-    private var allowance: ArchiveAllowance { ProStore.archiveAllowance(used: archivedBytes, selection: selectedBytes, unlocked: pro.unlocked) }
+    private var allowance: ArchiveAllowance { ProStore.archiveAllowance(used: archivedBytes, selection: selectedBytes, unlocked: pro.allows(.unlimitedArchive)) }
     private var overAllowance: Bool { if case .over = allowance { return true } else { return false } }
     private var toGoogle: Bool { destinationKind == .google && google.email != nil }
     /// OneDrive or Dropbox, once connected.
@@ -1096,6 +1106,15 @@ struct PhotoArchiveView: View {
                                 }
                                 Spacer()
                                 Image(systemName: "minus.circle").accessibilityHidden(true)
+                            }
+                        }
+                        .contextMenu {
+                            Button("Remove from selection") { toggle(item) }
+                        } preview: {
+                            if case .photo(let id, _) = item.source {
+                                AssetCover(assetID: id, side: 1000).frame(width: 320, height: 420)
+                            } else {
+                                Label(item.name, systemImage: "doc").padding(30)
                             }
                         }
                         .accessibilityLabel("Remove \(item.name) from selection")
@@ -1185,7 +1204,7 @@ struct PhotoArchiveView: View {
         case .over(let left):
             VStack(alignment: .leading, spacing: 8) {
                 Text("This selection is \(formattedBytes(selectedBytes)). \(formattedBytes(left)) of your free 5 GB archive is left. Remove some items, or unlock Pro to archive without a limit.")
-                Button("See TidyAway Pro") { showProPushed = true }
+                Button("See TidyAway Pro") { askPro(.unlimitedArchive, pushed: true) }
             }
             .accessibilityIdentifier("archive-allowance")
         }
@@ -1231,6 +1250,12 @@ struct PhotoArchiveView: View {
     }
 
     private func closeRun() {
+        // The result screen is closing: an archive that copied something counts toward the rating
+        // prompt, which may show now that nothing else is on screen.
+        if run.outcome?.completion != nil {
+            RatingPrompt.noteCompletion()
+            ratingTrigger += 1
+        }
         showRun = false
         path = NavigationPath()
     }
@@ -1261,14 +1286,23 @@ struct PhotoArchiveView: View {
         }
     }
 
+    /// A locked Archive feature opens the half sheet; "See all plans" there opens the Pro page.
     private func proSheet(_ shown: Binding<Bool>) -> some View {
-        NavigationStack {
-            ProUpgradeView()
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("Not now") { shown.wrappedValue = false } }
-                }
+        ProFeatureSheet(offer: .archive(lockedFeature))
+            .environmentObject(pro)
+    }
+
+    private func askPro(_ feature: ProFeature, pushed: Bool = false) {
+        lockedFeature = feature
+        if pushed { showProPushed = true } else { showPro = true }
+    }
+
+    /// A Pro choice keeps its own icon and adds the PRO badge while it is locked, as on Free up.
+    private func proLabel(_ title: String, systemImage: String, locked: Bool) -> some View {
+        HStack(spacing: 6) {
+            Label(title, systemImage: systemImage)
+            if locked { ProBadge() }
         }
-        .environmentObject(pro)
     }
 
     private func setDestination(_ folder: URL) {
@@ -1288,6 +1322,9 @@ struct PhotoArchiveView: View {
     }
 
     private func bytes(for item: ArchiveItem) -> Int64? {
+        // A Live Photo or edited photo is every one of its files together.
+        if let parts = item.expectedParts, !parts.isEmpty { return parts.reduce(0) { $0 + $1.bytes } }
+        if let parts = checkedParts[item.id] { return parts.reduce(0) { $0 + $1.bytes } }
         if case .photo(_, let expected?) = item.source { return expected.bytes }
         return measuredBytes[item.id]
     }
@@ -1309,13 +1346,15 @@ struct PhotoArchiveView: View {
             let result = await Task.detached(priority: .userInitiated) {
                 var sizes: [String: Int64] = [:]
                 var photos: [String: ResourceFingerprint] = [:]
+                var parts: [String: [ResourceFingerprint]] = [:]
                 let scanner = DuplicateScanner()
                 for item in selection {
                     switch item.source {
                     case .photo(let id, _):
-                        if let fingerprint = try? await scanner.archiveFingerprint(for: id) {
-                            sizes[item.id] = fingerprint.bytes
+                        if let fingerprints = try? await scanner.archiveFingerprints(for: id), let fingerprint = fingerprints.first {
+                            sizes[item.id] = fingerprints.reduce(0) { $0 + $1.bytes }
                             photos[item.id] = fingerprint
+                            if fingerprints.count > 1 { parts[item.id] = fingerprints }
                         }
                     case .file(let url):
                         let scoped = url.startAccessingSecurityScopedResource()
@@ -1325,10 +1364,11 @@ struct PhotoArchiveView: View {
                         }
                     }
                 }
-                return (sizes, photos)
+                return (sizes, photos, parts)
             }.value
             measuredBytes.merge(result.0) { _, new in new }
             checkedPhotos.merge(result.1) { _, new in new }
+            checkedParts.merge(result.2) { _, new in new }
             if result.0.count < selection.count {
                 message = "Some items are stored in iCloud, so their size shows once they are copied. TidyAway downloads them while copying."
             }
@@ -1394,35 +1434,51 @@ struct PhotoArchiveView: View {
 
     private func addPhotos(_ selection: [PhotosPickerItem]) {
         guard !selection.isEmpty else { return }
-        var skipped = 0
-        for photo in selection {
-            guard let id = photo.itemIdentifier,
-                  let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject,
-                  let resource = VerifiedArchive.original(for: asset) else {
-                skipped += 1
-                continue
-            }
-            add(ArchiveItem(id: id, name: resource.originalFilename, source: .photo(id, expected: nil)))
-        }
-        message = skipped == 0 ? nil : "\(skipped.formatted()) selected items were unavailable with current Photos access or had an unsupported format. Run a local scan to check Photos access."
+        let ids = selection.map(\.itemIdentifier)
         photoSelection = []
+        // Looking each one up in Photos happens off the main thread, so a big selection doesn't freeze the screen.
+        Task {
+            let found = await Task.detached(priority: .userInitiated) { () -> [ArchiveItem] in
+                let known = ids.compactMap { $0 }
+                var names: [String: String] = [:]
+                PHAsset.fetchAssets(withLocalIdentifiers: known, options: nil).enumerateObjects { asset, _, _ in
+                    names[asset.localIdentifier] = VerifiedArchive.primary(for: asset)?.originalFilename
+                }
+                return known.compactMap { id in
+                    names[id].map { ArchiveItem(id: id, name: $0, source: .photo(id, expected: nil)) }
+                }
+            }.value
+            for item in found { add(item) }
+            let skipped = ids.count - found.count
+            message = skipped == 0 ? nil : "\(skipped.formatted()) selected items were unavailable with current Photos access or had an unsupported format. Run a local scan to check Photos access."
+        }
     }
 
     private func showSuggestions(from snapshot: ScanSnapshot) {
         let filter = ArchiveSuggestionFilter(olderThanYears: age.years, minimumBytes: sizeFloor.bytes, kind: kind,
                                              albumID: albumID, place: place, limit: Self.suggestionLimit)
-        let records = filter.matches(in: snapshot)
-        let assets = PHAsset.fetchAssets(withLocalIdentifiers: records.map(\.id), options: nil)
-        var names: [String: String] = [:]
-        assets.enumerateObjects { asset, _, _ in
-            names[asset.localIdentifier] = VerifiedArchive.original(for: asset)?.originalFilename
+        guard !findingSuggestions else { return }
+        findingSuggestions = true
+        // Matching and the Photos lookups run off the main thread; a large library took seconds here.
+        Task {
+            let found = await Task.detached(priority: .userInitiated) { () -> [ArchiveItem] in
+                let records = filter.matches(in: snapshot)
+                let assets = PHAsset.fetchAssets(withLocalIdentifiers: records.map(\.id), options: nil)
+                var names: [String: String] = [:]
+                assets.enumerateObjects { asset, _, _ in
+                    names[asset.localIdentifier] = VerifiedArchive.primary(for: asset)?.originalFilename
+                }
+                return records.compactMap { record -> ArchiveItem? in
+                    guard let name = names[record.id] else { return nil }
+                    return ArchiveItem(id: record.id, name: name, source: .photo(record.id, expected: ArchivePlan.primaryFingerprint(of: record)),
+                                       size: record.displayBytes > 0 ? record.displayBytes : nil,
+                                       expectedParts: ArchivePlan.partFingerprints(of: record))
+                }
+            }.value
+            suggested = found
+            showSuggested = true
+            findingSuggestions = false
         }
-        suggested = records.compactMap { record -> ArchiveItem? in
-            guard let name = names[record.id] else { return nil }
-            return ArchiveItem(id: record.id, name: name, source: .photo(record.id, expected: record.resources.first),
-                               size: record.displayBytes > 0 ? record.displayBytes : nil)
-        }
-        showSuggested = true
     }
 
     private func add(_ item: ArchiveItem) {
@@ -1436,6 +1492,7 @@ struct PhotoArchiveView: View {
             items.remove(at: index)
             measuredBytes[item.id] = nil
             checkedPhotos[item.id] = nil
+            checkedParts[item.id] = nil
             archiveConsent = false
         } else {
             add(item)
@@ -1448,7 +1505,8 @@ struct PhotoArchiveView: View {
         guard !busy, archiveConsent, account.connected, !items.isEmpty else { return }
         let selection = items.map { item in
             if case let .photo(id, nil) = item.source, let measured = checkedPhotos[item.id] {
-                return ArchiveItem(id: item.id, name: item.name, source: .photo(id, expected: measured))
+                return ArchiveItem(id: item.id, name: item.name, source: .photo(id, expected: measured),
+                                   expectedParts: checkedParts[item.id])
             }
             return item
         }
@@ -1470,7 +1528,7 @@ struct PhotoArchiveView: View {
             var copies: [String: ArchivedRecord] = [:]
             var problems: [String] = []
             var copiedItems: [ArchiveItem] = []
-            await withTaskGroup(of: (ArchiveItem, Result<CloudUpload, Error>).self) { group in
+            await withTaskGroup(of: (ArchiveItem, Result<(upload: CloudUpload, parts: [ArchivedPart]), Error>).self) { group in
                 var waiting = selection[...]
                 var running = 0
                 while true {
@@ -1480,22 +1538,24 @@ struct PhotoArchiveView: View {
                         let token = try? await account.accessToken()
                         group.addTask {
                             guard let token else { return (item, .failure(CloudError.notConnected(service.name))) }
-                            return (item, await Result(awaiting: { try await CloudArchive.upload(item, to: service, token: token, folder: folder) }))
+                            return (item, await Result(awaiting: { try await CloudArchive.uploadEvery(item, to: service, token: token, folder: folder) }))
                         }
                     }
                     guard let next = await group.next() else { break }
                     let (item, outcome) = next
                     running -= 1
                     switch outcome {
-                    case .success(let uploaded):
+                    case .success(let stored):
+                        let uploaded = stored.upload
                         let record = ArchivedRecord(id: UUID().uuidString, name: uploaded.name, folderName: folder.label(in: OnlinePlace(service)),
                                                     bytes: uploaded.fingerprint.bytes, digest: uploaded.fingerprint.digest, date: Date(),
                                                     viaHomeServer: false, folderBookmark: nil, driveFileID: uploaded.fileID,
-                                                    photoID: Self.photoID(item), cloud: service, cloudHash: uploaded.serviceHash)
+                                                    photoID: Self.photoID(item), cloud: service, cloudHash: uploaded.serviceHash,
+                                                    parts: stored.parts.isEmpty ? nil : stored.parts)
                         records.append(record)
                         copiedItems.append(item)
                         run.copied += 1
-                        run.bytes += record.bytes
+                        run.bytes += record.totalBytes
                         // Saved as each item finishes, so an interrupted run keeps what it already copied.
                         if Self.save(record) { copies[item.id] = record } else { problems.append(Self.notSaved(item)) }
                     case .failure(let error):
@@ -1510,11 +1570,11 @@ struct PhotoArchiveView: View {
             failures = problems
             items.removeAll { copiedIDs.contains($0.id) }
             message = nil
-            let completion = records.isEmpty ? nil : ArchiveCompletion(items: copiedItems, bytes: records.reduce(0) { $0 + $1.bytes },
+            let completion = records.isEmpty ? nil : ArchiveCompletion(items: copiedItems, bytes: records.reduce(0) { $0 + $1.totalBytes },
                                                                        place: service.name, driveFolderID: nil, copies: copies)
             run.outcome = ArchiveOutcome(completion: completion, failures: problems,
                                          left: run.stopping ? selection.count - run.tried : 0, place: service.name)
-            recordOutcome("Archive copy to \(service.name) \(operation) completed. Verified \(records.count) of \(selection.count) items in \(Self.seconds(since: started)), \(Self.throughput(records.reduce(0) { $0 + $1.bytes }, since: started)).")
+            recordOutcome("Archive copy to \(service.name) \(operation) completed. Verified \(records.count) of \(selection.count) items in \(Self.seconds(since: started)), \(Self.throughput(records.reduce(0) { $0 + $1.totalBytes }, since: started)).")
             UIApplication.shared.isIdleTimerDisabled = false
             busy = false
         }
@@ -1525,7 +1585,8 @@ struct PhotoArchiveView: View {
         guard !busy, archiveConsent, google.connected, !items.isEmpty else { return }
         let selection = items.map { item in
             if case let .photo(id, nil) = item.source, let measured = checkedPhotos[item.id] {
-                return ArchiveItem(id: item.id, name: item.name, source: .photo(id, expected: measured))
+                return ArchiveItem(id: item.id, name: item.name, source: .photo(id, expected: measured),
+                                   expectedParts: checkedParts[item.id])
             }
             return item
         }
@@ -1549,7 +1610,7 @@ struct PhotoArchiveView: View {
                 let chosen = OnlineFolders.chosen(.google)
                 let folderID = chosen.isRoot ? try await GoogleDriveClient.archiveFolder(token: try await account.accessToken()) : chosen.id
                 driveFolder = folderID
-                await withTaskGroup(of: (ArchiveItem, Result<(fileID: String, fingerprint: ArchiveFingerprint), Error>).self) { group in
+                await withTaskGroup(of: (ArchiveItem, Result<(fileID: String, fingerprint: ArchiveFingerprint, parts: [ArchivedPart]), Error>).self) { group in
                 var waiting = selection[...]
                 var running = 0
                 while true {
@@ -1561,7 +1622,7 @@ struct PhotoArchiveView: View {
                         let token = try? await account.accessToken()
                         group.addTask {
                             guard let token else { return (item, .failure(GoogleDriveError.notConnected)) }
-                            return (item, Result { try GoogleDriveClient.streamUpload(item, folderID: folderID, token: token) })
+                            return (item, Result { try GoogleDriveClient.streamUploadEvery(item, folderID: folderID, token: token) })
                         }
                     }
                     guard let next = await group.next() else { break }
@@ -1573,11 +1634,11 @@ struct PhotoArchiveView: View {
                                                     folderName: chosen.label(in: .google), bytes: uploaded.fingerprint.bytes,
                                                     digest: uploaded.fingerprint.digest, date: Date(),
                                                     viaHomeServer: false, folderBookmark: nil, driveFileID: uploaded.fileID,
-                                                    photoID: Self.photoID(item))
+                                                    photoID: Self.photoID(item), parts: uploaded.parts.isEmpty ? nil : uploaded.parts)
                         records.append(record)
                         copiedItems.append(item)
                         run.copied += 1
-                        run.bytes += record.bytes
+                        run.bytes += record.totalBytes
                         // Saved as each item finishes, so an interrupted run keeps what it already copied.
                         if Self.save(record) { copies[item.id] = record } else { problems.append(Self.notSaved(item)) }
                     } catch {
@@ -1595,11 +1656,11 @@ struct PhotoArchiveView: View {
             failures = problems
             items.removeAll { copiedIDs.contains($0.id) }
             message = nil
-            let completion = records.isEmpty ? nil : ArchiveCompletion(items: copiedItems, bytes: records.reduce(0) { $0 + $1.bytes },
+            let completion = records.isEmpty ? nil : ArchiveCompletion(items: copiedItems, bytes: records.reduce(0) { $0 + $1.totalBytes },
                                                                        place: "Google Drive", driveFolderID: driveFolder, copies: copies)
             run.outcome = ArchiveOutcome(completion: completion, failures: problems,
                                          left: run.stopping ? selection.count - run.tried : 0, place: "Google Drive")
-            recordOutcome("Archive copy to Google Drive \(operation) completed. Verified \(records.count) of \(selection.count) items in \(Self.seconds(since: started)), \(Self.throughput(records.reduce(0) { $0 + $1.bytes }, since: started)).")
+            recordOutcome("Archive copy to Google Drive \(operation) completed. Verified \(records.count) of \(selection.count) items in \(Self.seconds(since: started)), \(Self.throughput(records.reduce(0) { $0 + $1.totalBytes }, since: started)).")
             UIApplication.shared.isIdleTimerDisabled = false
             busy = false
         }
@@ -1624,7 +1685,8 @@ struct PhotoArchiveView: View {
         let wifiCheck = wifi
         let selection = items.map { item in
             if case let .photo(id, nil) = item.source, let measured = checkedPhotos[item.id] {
-                return ArchiveItem(id: item.id, name: item.name, source: .photo(id, expected: measured))
+                return ArchiveItem(id: item.id, name: item.name, source: .photo(id, expected: measured),
+                                   expectedParts: checkedParts[item.id])
             }
             return item
         }
@@ -1639,31 +1701,36 @@ struct PhotoArchiveView: View {
         Task {
             let started = Date()
             var successes: [ArchiveReceipt] = []
+            // Every file of every item, so a Live Photo's video and an edit count toward the total.
+            var copiedBytes: Int64 = 0
             var problems: [String] = []
             var copies: [String: ArchivedRecord] = [:]
             let bookmark = Self.bookmark(for: destination)
             let check: ArchiveWiFi? = home ? wifiCheck : nil
-            await withTaskGroup(of: (ArchiveItem, Result<ArchiveReceipt, Error>).self) { group in
+            await withTaskGroup(of: (ArchiveItem, Result<(receipt: ArchiveReceipt, parts: [ArchivedPart]), Error>).self) { group in
             var waiting = selection[...]
             var running = 0
             while true {
                 while running < Self.copiesAtOnce, !run.stopping, let item = waiting.popFirst() {
                     run.currentID = Self.photoID(item)
                     running += 1
-                    group.addTask { (item, Result { try VerifiedArchive.copy(item, to: destination, wifi: check, flush: false) }) }
+                    group.addTask { (item, Result { try VerifiedArchive.copyEvery(item, to: destination, wifi: check, flush: false) }) }
                 }
                 guard let next = await group.next() else { break }
                 let (item, result) = next
                 running -= 1
                 switch result {
-                case let .success(receipt):
+                case let .success(stored):
+                    let receipt = stored.receipt
                     successes.append(receipt)
                     let record = ArchivedRecord(id: UUID().uuidString, name: receipt.url.lastPathComponent,
                                                 folderName: destination.lastPathComponent, bytes: receipt.fingerprint.bytes,
                                                 digest: receipt.fingerprint.digest, date: Date(),
-                                                viaHomeServer: home, folderBookmark: bookmark, photoID: Self.photoID(item))
+                                                viaHomeServer: home, folderBookmark: bookmark, photoID: Self.photoID(item),
+                                                parts: stored.parts.isEmpty ? nil : stored.parts)
                     run.copied += 1
-                    run.bytes += record.bytes
+                    run.bytes += record.totalBytes
+                    copiedBytes += record.totalBytes
                     // Saved as each item finishes, so an interrupted run keeps what it already copied.
                     if Self.save(record) { copies[item.id] = record } else { problems.append(Self.notSaved(item)) }
                 case let .failure(error):
@@ -1697,10 +1764,11 @@ struct PhotoArchiveView: View {
             for id in copied {
                 measuredBytes[id] = nil
                 checkedPhotos[id] = nil
+                checkedParts[id] = nil
             }
-            recordOutcome("Archive copy \(operation) completed. Verified \(copied.count) of \(selection.count) items in \(Self.seconds(since: started)), \(Self.throughput(successes.reduce(0) { $0 + $1.fingerprint.bytes }, since: started)).")
+            recordOutcome("Archive copy \(operation) completed. Verified \(copied.count) of \(selection.count) items in \(Self.seconds(since: started)), \(Self.throughput(copiedBytes, since: started)).")
             let completion = copied.isEmpty ? nil : ArchiveCompletion(items: selection.filter { copied.contains($0.id) },
-                                                                      bytes: successes.reduce(0) { $0 + $1.fingerprint.bytes },
+                                                                      bytes: copiedBytes,
                                                                       place: destination.lastPathComponent, driveFolderID: nil, copies: copies)
             run.outcome = ArchiveOutcome(completion: completion, failures: problems,
                                          left: run.stopping ? selection.count - run.tried : 0, place: destination.lastPathComponent)
@@ -1773,7 +1841,12 @@ struct PhotoArchiveView: View {
 
     /// Everything archived so far counts toward the free 5 GB.
     private func refreshArchivedBytes() {
-        archivedBytes = (try? InventoryStore.openDefault().archivedBytes()) ?? 0
+        // Read off the main thread: with a long archive list the sum takes a moment.
+        Task {
+            archivedBytes = await Task.detached(priority: .userInitiated) {
+                (try? InventoryStore.openDefault().archivedBytes()) ?? 0
+            }.value
+        }
     }
 
     private static func photoID(_ item: ArchiveItem) -> String? {
@@ -1822,5 +1895,21 @@ struct PhotoArchiveView: View {
 
     private func recordOutcome(_ entry: String) {
         try? InventoryStore.openDefault().log(entry)
+    }
+}
+
+extension ProOffer {
+    /// What the half sheet says for a locked Archive feature.
+    static func archive(_ feature: ProFeature) -> ProOffer {
+        switch feature {
+        case .unlimitedArchive:
+            ProOffer(id: "archive-unlimited", title: "Archive without a limit",
+                     what: "lifts the 5 GB limit, so you can copy as much as you like, to any destination.",
+                     found: "Your first 5 GB, every destination and getting items back stay free.", symbol: "infinity")
+        default:
+            ProOffer(id: "archive-groups", title: "Archive groups",
+                     what: "sorts your library into events, trips and topics, lets you choose by album or place, and suggests large videos to move.",
+                     found: "Archiving up to 5 GB, to any destination, stays free.", symbol: "rectangle.stack")
+        }
     }
 }

@@ -1,9 +1,13 @@
 import Foundation
 import SQLite3
 
-/// Accessed on the main actor by DashboardModel. Stores metadata, never photo bytes.
-final class InventoryStore {
+/// Stores metadata, never photo bytes. The app opens the file once and every screen shares that
+/// one connection; a lock keeps calls from the main thread and background work apart.
+final class InventoryStore: @unchecked Sendable {
     private var database: OpaquePointer?
+    private let lock = NSRecursiveLock()
+    private static let sharedLock = NSLock()
+    private static var shared: InventoryStore?
     private let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
     init(url: URL) throws {
@@ -20,7 +24,17 @@ final class InventoryStore {
 
     deinit { sqlite3_close(database) }
 
+    /// The app's own inventory, opened once and reused.
     static func openDefault() throws -> InventoryStore {
+        sharedLock.lock()
+        defer { sharedLock.unlock() }
+        if let shared { return shared }
+        let store = try openFile()
+        shared = store
+        return store
+    }
+
+    private static func openFile() throws -> InventoryStore {
         let directory = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
             .appendingPathComponent("SmartPhotoVault", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -28,6 +42,8 @@ final class InventoryStore {
     }
 
     func save(_ snapshot: ScanSnapshot) throws {
+        lock.lock()
+        defer { lock.unlock() }
         let json = String(decoding: try JSONEncoder().encode(snapshot), as: UTF8.self)
         try execute("BEGIN IMMEDIATE")
         do {
@@ -44,6 +60,8 @@ final class InventoryStore {
     }
 
     func load() throws -> ScanSnapshot? {
+        lock.lock()
+        defer { lock.unlock() }
         let statement = try prepare("SELECT payload FROM snapshot WHERE id=1")
         defer { sqlite3_finalize(statement) }
         let status = sqlite3_step(statement)
@@ -53,6 +71,8 @@ final class InventoryStore {
     }
 
     func log(_ message: String) throws {
+        lock.lock()
+        defer { lock.unlock() }
         let statement = try prepare("INSERT INTO activity(timestamp,message) VALUES(?,?)")
         defer { sqlite3_finalize(statement) }
         sqlite3_bind_double(statement, 1, Date().timeIntervalSince1970)
@@ -61,6 +81,8 @@ final class InventoryStore {
     }
 
     func saveArchived(_ records: [ArchivedRecord]) throws {
+        lock.lock()
+        defer { lock.unlock() }
         let encoder = JSONEncoder()
         for record in records {
             let json = String(decoding: try encoder.encode(record), as: UTF8.self)
@@ -75,13 +97,18 @@ final class InventoryStore {
 
     /// Total size of everything archived, without loading every record.
     func archivedBytes() throws -> Int64 {
-        let statement = try prepare("SELECT COALESCE(SUM(json_extract(payload, '$.bytes')), 0) FROM archived")
+        lock.lock()
+        defer { lock.unlock() }
+        // A Live Photo or edited photo also counts its other files; older records have none.
+        let statement = try prepare("SELECT (SELECT COALESCE(SUM(json_extract(payload, '$.bytes')), 0) FROM archived) + (SELECT COALESCE(SUM(json_extract(part.value, '$.bytes')), 0) FROM archived AS item, json_each(item.payload, '$.parts') AS part)")
         defer { sqlite3_finalize(statement) }
         guard sqlite3_step(statement) == SQLITE_ROW else { throw error() }
         return sqlite3_column_int64(statement, 0)
     }
 
     func archivedCount() throws -> Int {
+        lock.lock()
+        defer { lock.unlock() }
         let statement = try prepare("SELECT COUNT(*) FROM archived")
         defer { sqlite3_finalize(statement) }
         guard sqlite3_step(statement) == SQLITE_ROW else { throw error() }
@@ -90,6 +117,8 @@ final class InventoryStore {
 
     /// Every archived copy, newest first. No limit: an older copy must never drop out of Get back.
     func archived() throws -> [ArchivedRecord] {
+        lock.lock()
+        defer { lock.unlock() }
         let statement = try prepare("SELECT payload FROM archived ORDER BY timestamp DESC, id")
         defer { sqlite3_finalize(statement) }
         let decoder = JSONDecoder()
@@ -105,6 +134,8 @@ final class InventoryStore {
     }
 
     func activity() throws -> [ActivityEntry] {
+        lock.lock()
+        defer { lock.unlock() }
         let statement = try prepare("SELECT id,timestamp,message FROM activity ORDER BY id DESC LIMIT 100")
         defer { sqlite3_finalize(statement) }
         var entries: [ActivityEntry] = []

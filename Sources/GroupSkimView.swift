@@ -65,6 +65,22 @@ struct GroupSkimView: View {
     @State private var leftOut: Set<String> = []
     @State private var seen = 0
     @State private var visible = 0
+    @State private var preview: PreviewRequest?
+
+    /// Everything in the group, the photo that stays first in each look-alike set.
+    private var previewItems: [AssetRecord] {
+        parts.flatMap { part in (part.keep.map { [$0] } ?? []) + part.records }
+    }
+    private var keptNotes: [String: String] {
+        Dictionary(parts.compactMap { part in
+            part.keep.map { ($0.id, "Stays on your \(Device.name): \(part.because ?? "the best of this set")") }
+        }, uniquingKeysWith: { first, _ in first })
+    }
+    /// The viewer ticks what is included; the grid remembers what is left out.
+    private var included: Binding<Set<String>> {
+        Binding(get: { Set(group.records.map(\.id)).subtracting(leftOut) },
+                set: { leftOut = Set(group.records.map(\.id)).subtracting($0) })
+    }
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 3), count: 4)
     private let parts: [SkimPart]
@@ -92,7 +108,7 @@ struct GroupSkimView: View {
                     .background(ArchiveStyle.safeBack, in: Capsule())
                     .accessibilityIdentifier("skim-reason")
                 if group.notYet > 0 {
-                    Text("\(group.records.count) of \(group.total) can be archived now. Live Photos, edits and some formats can't yet.")
+                    Text("\(group.records.count) of \(group.total) can be archived now. Slo-mo, edited videos and some formats can't yet.")
                         .font(.footnote).foregroundStyle(ArchiveStyle.muted)
                 }
             }
@@ -118,12 +134,17 @@ struct GroupSkimView: View {
                 }
             }
         }
+        .hiddenBehindPreview(preview != nil)
         .background(Brand.background)
         .onPreferenceChange(SkimVisible.self) { visible = $0 }
         .task(id: visible) {
             // Rows prepared ahead of scrolling pass through the screen for an instant; only what stays counts.
             try? await Task.sleep(nanoseconds: 250_000_000)
             if !Task.isCancelled, visible > seen { seen = visible }
+        }
+        .fullScreenCover(item: $preview) { request in
+            PhotoPreview(title: group.kind == .pick ? "Your pick" : group.title, items: previewItems, request: request,
+                         selectable: Set(group.records.map(\.id)), notes: keptNotes, words: .archive, selected: included)
         }
         .navigationTitle(group.kind == .pick ? "Your pick" : group.title)
         .navigationBarTitleDisplayMode(.inline)
@@ -148,6 +169,7 @@ struct GroupSkimView: View {
             }
             .padding(.horizontal, 16).padding(.vertical, 10)
             .background(.regularMaterial)
+            .hiddenBehindPreview(preview != nil)
         }
     }
 
@@ -182,13 +204,12 @@ struct GroupSkimView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .contextMenu {
-            Button(out ? "Put back in" : "Leave out") {
-                if out { leftOut.remove(record.id) } else { leftOut.insert(record.id) }
-            }
-        } preview: {
-            AssetCover(assetID: record.id, side: 1000).frame(width: 320, height: 420)
-        }
+        .previewMenu(assetID: record.id,
+                     tick: PreviewTick(title: out ? "Put back in" : "Leave out", action: {
+                         if out { leftOut.remove(record.id) } else { leftOut.insert(record.id) }
+                     }),
+                     open: { preview = PreviewRequest(assetID: record.id) },
+                     info: { preview = PreviewRequest(assetID: record.id, showInfo: true) })
         .accessibilityLabel("\(video ? "Video" : "Photo"), \(record.createdAt?.formatted(date: .abbreviated, time: .shortened) ?? record.filename)")
         .accessibilityValue(out ? "Left out" : "Selected")
         .accessibilityAddTraits(out ? [] : .isSelected)
@@ -229,6 +250,9 @@ struct GroupSkimView: View {
             }
             .contextMenu {
                 Text("Stays on your \(Device.name): \(because ?? "the best of this set")")
+                Button { preview = PreviewRequest(assetID: record.id) } label: {
+                    Label("Open full screen", systemImage: "arrow.up.left.and.arrow.down.right")
+                }
             } preview: {
                 AssetCover(assetID: record.id, side: 1000).frame(width: 320, height: 420)
             }

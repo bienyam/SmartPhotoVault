@@ -20,6 +20,11 @@ struct PhotoInsight: Codable, Equatable, Sendable {
     var sameAs: String?
     /// Average light, 0 (black) to 255. Nil for results read before it was measured.
     var brightness: Double?
+    /// True when a face of any size was found. Nil for results read before this was checked.
+    var anyFace: Bool?
+
+    /// Whether there is a face in the photo. A close face always counts; otherwise nil until checked.
+    var hasFace: Bool? { closeFace ? true : anyFace }
 }
 
 /// Facts Photos gives for free, read again each time groups are made.
@@ -134,6 +139,7 @@ actor InsightReader {
             .sorted()
         guard item.image else { return insight }
         insight.closeFace = (faces.results ?? []).contains { $0.boundingBox.width * $0.boundingBox.height > 0.08 }
+        insight.anyFace = !(faces.results ?? []).isEmpty
         insight.sharpness = Self.sharpness(of: picture)
         insight.brightness = Self.brightness(of: picture)
         guard let mark = print.results?.first else {
@@ -148,6 +154,21 @@ actor InsightReader {
         }
         previous = (item, mark)
         return insight
+    }
+
+    /// Face check only, on the same small picture, for photos read before faces of any size were
+    /// noted. Nil when the picture can't be read right now, so it is tried again later.
+    func faces(in ids: [String]) -> [String: Bool] {
+        var found: [String: Bool] = [:]
+        for id in ids {
+            autoreleasepool {
+                guard let picture = Self.picture(id) else { return }
+                let request = VNDetectFaceRectanglesRequest()
+                guard (try? VNImageRequestHandler(cgImage: picture).perform([request])) != nil else { return }
+                found[id] = !(request.results ?? []).isEmpty
+            }
+        }
+        return found
     }
 
     private static func picture(_ id: String) -> CGImage? {
@@ -208,6 +229,9 @@ final class InsightModel: ObservableObject {
     /// Changes when enough new results are in to make the groups again.
     @Published private(set) var revision = 0
 
+    /// Results as they come in. They reach `insights` in batches, so screens redraw a few times
+    /// during a long read instead of once per photo.
+    private var gathered: [String: PhotoInsight] = [:]
     private var task: Task<Void, Never>?
     private let reader = InsightReader()
     private let store = InsightStore.standard()
@@ -243,14 +267,22 @@ final class InsightModel: ObservableObject {
         }
         if !loaded, let store {
             await store.keep(only: Set(items.map(\.id)))
-            insights = await store.load()
+            gathered = await store.load()
+            insights = gathered
             loaded = true
             if !insights.isEmpty { revision += 1 }
+        } else {
+            gathered = insights
         }
         total = items.count
-        done = items.reduce(0) { $0 + (insights[$1.id] == nil ? 0 : 1) }
-        let waiting = items.filter { insights[$0.id] == nil }
+        var finished = items.reduce(0) { $0 + (gathered[$1.id] == nil ? 0 : 1) }
+        done = finished
+        let waiting = items.filter { gathered[$0.id] == nil }
         var sinceRevision = 0
+        var sinceProgress = 0
+        // New results waiting to be shown. They are added to what is on screen, never swapped in
+        // whole, so results shown meanwhile (sample data in tests) are not lost.
+        var fresh: [String: PhotoInsight] = [:]
         var index = 0
         while index < waiting.count, !Task.isCancelled {
             let state = ProcessInfo.processInfo
@@ -263,15 +295,61 @@ final class InsightModel: ObservableObject {
             let batch = Array(waiting[index..<min(index + 24, waiting.count)])
             index += batch.count
             let found = await reader.read(batch)
-            for insight in found { insights[insight.id] = insight }
+            for insight in found {
+                gathered[insight.id] = insight
+                fresh[insight.id] = insight
+            }
             await store?.append(found)
-            done += found.count
+            finished += found.count
             sinceRevision += found.count
+            sinceProgress += found.count
+            // The count moves about every hundred photos; the results themselves every six hundred.
+            if sinceProgress >= 96 {
+                sinceProgress = 0
+                done = finished
+            }
             if sinceRevision >= 600 {
                 sinceRevision = 0
+                insights.merge(fresh) { _, new in new }
+                fresh = [:]
+                done = finished
                 revision += 1
             }
         }
-        if sinceRevision > 0 { revision += 1 }
+        done = finished
+        if sinceRevision > 0 {
+            insights.merge(fresh) { _, new in new }
+            revision += 1
+        }
+        await checkFaces(items)
+    }
+
+    /// Receipts & documents leaves out any photo with a face. Results read before faces of any size
+    /// were noted get that one check here, only for photos with a paper label, so nothing else is
+    /// read again. Until a photo is checked it stays out of the group.
+    private func checkFaces(_ items: [InsightReader.Item]) async {
+        let waiting = items.filter { item in
+            guard item.image, let insight = gathered[item.id], insight.hasFace == nil else { return false }
+            return !CleanupGrouper.paperLabels.isDisjoint(with: insight.labels)
+        }
+        guard !waiting.isEmpty else { return }
+        var changed: [PhotoInsight] = []
+        var index = 0
+        while index < waiting.count, !Task.isCancelled {
+            let batch = waiting[index..<min(index + 24, waiting.count)].map(\.id)
+            index += batch.count
+            let found = await reader.faces(in: batch)
+            for (id, face) in found {
+                guard var insight = gathered[id] else { continue }
+                insight.anyFace = face
+                gathered[id] = insight
+                changed.append(insight)
+            }
+        }
+        guard !changed.isEmpty else { return }
+        // A later line for the same photo replaces the earlier one when results are loaded.
+        await store?.append(changed)
+        insights.merge(Dictionary(changed.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })) { _, new in new }
+        revision += 1
     }
 }

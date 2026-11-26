@@ -57,19 +57,24 @@ enum SmartGrouper {
         return result
     }
 
-    /// True when the app can archive this item today as one verified original file.
+    /// True when the app can archive this item today: as one verified original file, or, for a Live
+    /// Photo or an edited photo, as its original with every other file Photos keeps for it.
     static func canArchive(_ record: AssetRecord) -> Bool {
         let subtypes = PHAssetMediaSubtype(rawValue: record.subtypes ?? 0)
-        guard !subtypes.contains(.photoLive), !subtypes.contains(.videoHighFrameRate),
+        guard !subtypes.contains(.videoHighFrameRate),
               let type = UTType(filenameExtension: (record.filename as NSString).pathExtension) else { return false }
         let image = record.mediaType == PHAssetMediaType.image.rawValue
         let video = record.mediaType == PHAssetMediaType.video.rawValue
         guard image ? (type.conforms(to: .jpeg) || type.conforms(to: .heic)) : (video && type.conforms(to: .movie)) else {
             return false
         }
+        // Not read on this iPhone yet: its files are looked at when it is copied.
         if record.inICloud { return true }
+        // A Live Photo is always more than one file, so it is never the single-file case below.
+        if ArchivePlan.supports(record) { return true }
         let resource = image ? PHAssetResourceType.photo.rawValue : PHAssetResourceType.video.rawValue
-        return record.issue == nil && record.resources.count == 1 && record.resources.first?.type == resource
+        return !subtypes.contains(.photoLive) && record.issue == nil && record.resources.count == 1
+            && record.resources.first?.type == resource
     }
 
     /// Everything in one of the person's own albums, oldest first.

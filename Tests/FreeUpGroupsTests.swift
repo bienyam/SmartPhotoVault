@@ -22,6 +22,8 @@ final class FreeUpGroupsTests: XCTestCase {
         value.brightness = light
         value.labels = labels
         value.sameAs = sameAs
+        // Checked for faces, none found. Receipts & documents leaves a photo out until that is known.
+        value.anyFace = false
         return value
     }
 

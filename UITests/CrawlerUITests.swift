@@ -18,16 +18,19 @@ final class CrawlerUITests: XCTestCase {
     /// scan of the photo library, or delete. Each is listed in the report as SKIPPED.
     private let skip: [String] = [
         "Terms of Use", "Privacy Policy", "Open Settings", "google-connect", "Disconnect Google Drive", "cloud-connect", "Disconnect OneDrive", "Disconnect Dropbox",
-        "pro-monthly", "pro-lifetime", "pro-restore", "Restore purchase", "Manage subscription", "Try again",
+        "pro-monthly", "pro-lifetime", "pro-restore", "pro-sheet-start", "more-restore", "more-rate", "contact-open",
+        "places-forget-drive", "appearance-light", "appearance-dark", "Restore purchase", "Manage subscription", "Try again",
         "Pick photos or videos myself", "Pick files myself", "Choose archive folder in Files",
         "Choose where to restore it", "Change folder", "archive-scan", "archive-copy", "archive-stop",
         // These open Apple's own file window, which belongs to another process and covers the app.
         "Choose an iCloud Drive file", "Choose a different drive or folder", "Choose a folder", "delete-selected", "free-up-space", "check-again",
-        "Check my photos instead", "Stop", "Allow Access to Photos", "See TidyAway Pro", "Switch to lifetime"
+        "Check my photos instead", "Stop", "Allow Access to Photos", "See TidyAway Pro", "Switch to lifetime",
+        // Check-ins: switching these on asks for notification and calendar access, a system prompt that covers the app.
+        "checkins-daily", "checkins-weekly", "checkins-monthly", "checkins-low", "checkins-junk", "checkins-photos", "checkins-calendar"
     ]
 
     /// Finishing takes a fraction of this; running out means coverage is incomplete.
-    private let budget: TimeInterval = 1_200
+    private let budget: TimeInterval = 2_000
     private var app = XCUIApplication()
     private var rootSignatures: [String: String] = [:]
     private var shapes: Set<String> = []
@@ -38,7 +41,7 @@ final class CrawlerUITests: XCTestCase {
 
     override func setUp() {
         continueAfterFailure = true
-        executionTimeAllowance = 1_800
+        executionTimeAllowance = 2_600
     }
 
     func testCrawlEveryScreen() {

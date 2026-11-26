@@ -412,6 +412,32 @@ enum CloudArchive {
         }
     }
 
+    /// Uploads every file of an item. A single-file item goes exactly the way it always has. A Live
+    /// Photo or edited photo is uploaded file by file, each matched against the service's own
+    /// fingerprint like a single file, and counts only when all of them are stored.
+    static func uploadEvery(_ item: ArchiveItem, to service: CloudService, token: String,
+                            folder: OnlineFolder = .root) async throws -> (upload: CloudUpload, parts: [ArchivedPart]) {
+        guard let files = try ArchiveParts.files(of: item) else {
+            return (try await upload(item, to: service, token: token, folder: folder), [])
+        }
+        return try await uploadParts(files, send: { try await upload($0, to: service, token: token, folder: folder) },
+                                     sameEdit: { files, copied in
+                                         try await Task.detached(priority: .userInitiated) { try ArchiveParts.requireSameEdit(files, copied) }.value
+                                     })
+    }
+
+    /// Every file of one item, in order. The first upload that fails stops the item and throws, and so
+    /// does an edit made while the files were going up: either way nothing is returned, so nothing is
+    /// recorded and the original stays.
+    static func uploadParts(_ files: [ArchiveItem], send: (ArchiveItem) async throws -> CloudUpload,
+                            sameEdit: ([ArchiveItem], [ArchiveFingerprint]) async throws -> Void) async throws
+        -> (upload: CloudUpload, parts: [ArchivedPart]) {
+        let uploads = try await ArchiveParts.everyAsync(files, copy: send)
+        try await sameEdit(files, uploads.map { $0.fingerprint })
+        let stored = uploads.map { StoredPart(name: $0.name, fingerprint: $0.fingerprint, fileID: $0.fileID, cloudHash: $0.serviceHash) }
+        return (uploads[0], ArchiveParts.parts(files, stored))
+    }
+
     private static func streamed(_ item: ArchiveItem, to service: CloudService, token: String, folder: OnlineFolder) async throws -> CloudUpload {
         switch service {
         case .oneDrive:

@@ -26,6 +26,12 @@ final class ProStore: ObservableObject {
     @Published private(set) var lifetime: Product?
     @Published private(set) var checking = true
     @Published private(set) var busy = false
+    /// True while the prices are on their way from the App Store.
+    @Published private(set) var loadingProducts = false
+    /// A plan tapped before its price arrived. It is bought as soon as the App Store answers.
+    @Published private(set) var waitingToBuy: String?
+    /// People who started on TidyAway 1.0 keep the smart picks on Free up for good.
+    @Published private(set) var grandfathered = Grandfather.isSet()
     @Published var notice: String?
     /// True in TestFlight builds while `TesterAccess` is on: every Pro feature works, nothing is bought.
     @Published private(set) var testerAccess = false
@@ -33,10 +39,22 @@ final class ProStore: ObservableObject {
     var unlocked: Bool { plan != .none || testerAccess }
     /// What the screens show. Testers are shown as Pro, the same as a paying customer.
     var looksUnlocked: Bool { unlocked }
+    /// True while a purchase, a restore or a price check is talking to the App Store.
+    var connecting: Bool { busy || waitingToBuy != nil }
     private var updates: Task<Void, Never>?
+    private var productLoad: Task<Void, Never>?
+    /// Identifies the queued buy, so one cancelled with its screen is never carried out later.
+    private var queuedBuy: UUID?
+
+    /// The one question every screen asks before opening a Pro feature.
+    func allows(_ feature: ProFeature) -> Bool {
+        ProGate.allows(feature, pro: unlocked, grandfathered: grandfathered)
+    }
 
     init() {
         #if DEBUG
+        // UI tests can start as someone who installed 1.0.
+        if ProcessInfo.processInfo.arguments.contains("--grandfathered") { grandfathered = true }
         // UI tests can start with Pro on to exercise the unlocked screens.
         if ProcessInfo.processInfo.arguments.contains("--pro") {
             plan = .lifetime
@@ -53,18 +71,25 @@ final class ProStore: ObservableObject {
             }
         }
         Task { await start() }
+        // Apple's record of the first installed build, asked once and kept.
+        Task { [weak self] in
+            guard let self, !self.grandfathered else { return }
+            if await Grandfather.checkAppStoreRecord() { self.grandfathered = true }
+        }
     }
 
     deinit { updates?.cancel() }
 
     func start() async {
         checking = true
+        // Prices are fetched alongside the purchase check, not after it, so the buttons are ready sooner.
+        let prices = Task { await loadProducts() }
         // Tester builds (TESTER_ACCESS, never the App Review build) unlock Pro for everyone except a
         // real App Store customer. If Apple's record can't be read, a tester build still unlocks.
         if TesterAccess.enabled { testerAccess = !(await Self.isAppStoreCustomer()) }
         await refresh()
-        await loadProducts()
         checking = false
+        await prices.value
     }
 
     /// Lifetime wins over a subscription. A subscription counts only while it hasn't expired or been revoked.
@@ -82,7 +107,57 @@ final class ProStore: ObservableObject {
         plan = found
     }
 
+    /// Fetches the prices once, however many screens ask at the same time.
     func loadProducts() async {
+        if let productLoad {
+            await productLoad.value
+            return
+        }
+        let load = Task { await fetchProducts() }
+        productLoad = load
+        await load.value
+        productLoad = nil
+    }
+
+    private func product(_ id: String) -> Product? {
+        [monthly, yearly, lifetime].compactMap { $0 }.first { $0.id == id }
+    }
+
+    /// Buys a plan. Tapped before its price has arrived, it waits for the App Store and then buys,
+    /// so the first tap is never lost.
+    func buy(_ id: String) async {
+        if let product = product(id) {
+            await purchase(product)
+            return
+        }
+        guard waitingToBuy == nil else { return }
+        let ticket = UUID()
+        queuedBuy = ticket
+        waitingToBuy = id
+        notice = nil
+        await loadProducts()
+        // The sheet or page that queued it has closed: don't start a purchase nobody is looking at.
+        guard queuedBuy == ticket else { return }
+        queuedBuy = nil
+        waitingToBuy = nil
+        if let product = product(id) {
+            await purchase(product)
+        } else if notice == nil {
+            notice = "Couldn't reach the App Store. Check your connection and try again."
+        }
+    }
+
+    /// Drops a plan tapped before its price arrived. Called when the screen that queued it goes away
+    /// ("Not now", a swipe down, or navigating away). A purchase already with the App Store is not touched.
+    func cancelQueuedBuy() {
+        guard waitingToBuy != nil else { return }
+        queuedBuy = nil
+        waitingToBuy = nil
+    }
+
+    private func fetchProducts() async {
+        loadingProducts = true
+        defer { loadingProducts = false }
         do {
             let products = try await Product.products(for: Self.productIDs)
             monthly = products.first { $0.id == Self.monthlyID }
@@ -175,6 +250,19 @@ final class ProStore: ObservableObject {
         return "\(value) \(name)\(value == 1 ? "" : "s")"
     }
 
+    /// A trial's length as it reads in a button: "7-day", "1-week".
+    nonisolated static func trialName(_ value: Int, _ unit: Product.SubscriptionPeriod.Unit) -> String {
+        let name: String
+        switch unit {
+        case .day: name = "day"
+        case .week: name = "week"
+        case .month: name = "month"
+        case .year: name = "year"
+        @unknown default: name = "day"
+        }
+        return "\(value)-\(name)"
+    }
+
     /// How much of the free archive allowance a selection would use, and whether it fits.
     nonisolated static func archiveAllowance(used: Int64, selection: Int64, unlocked: Bool) -> ArchiveAllowance {
         if unlocked { return .unlimited }
@@ -192,6 +280,10 @@ enum ArchiveAllowance: Equatable {
 /// The Pro purchase controls, reused wherever Pro is offered: monthly or once, with the
 /// subscription terms Apple requires shown next to the buttons.
 struct ProPurchaseControls: View {
+    /// The Pro page pins the plans to the bottom of the screen and keeps the terms in the page.
+    enum Part { case all, plans, terms }
+
+    var part = Part.all
     @EnvironmentObject private var pro: ProStore
     @Environment(\.openURL) private var openURL
 
@@ -200,62 +292,91 @@ struct ProPurchaseControls: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if pro.testerAccess, pro.plan == .none {
-                Label("Pro is on for testers. Buying below is free in TestFlight.", systemImage: "checkmark.seal.fill")
-                    .foregroundStyle(Brand.safe)
-                    .accessibilityIdentifier("pro-tester")
-            }
-            // Never block on the App Store: the buttons work while the check finishes.
-            switch pro.plan {
-            case .lifetime:
-                Label("Pro is unlocked.", systemImage: "checkmark.seal.fill")
-                    .foregroundStyle(Brand.safe)
-                    .accessibilityIdentifier("pro-unlocked")
-            case .monthly, .yearly:
-                Label(pro.plan == .yearly ? "Pro is unlocked. Yearly plan." : "Pro is unlocked. Monthly plan.", systemImage: "checkmark.seal.fill")
-                    .foregroundStyle(Brand.safe)
-                    .accessibilityIdentifier("pro-unlocked")
-                Button("Manage subscription") {
-                    Task {
-                        if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
-                            try? await AppStore.showManageSubscriptions(in: scene)
-                        }
+            if part != .terms { plans }
+            if part != .plans, pro.plan == .none { terms }
+        }
+        .buttonStyle(.borderless)
+    }
+
+    /// The plan buttons, or what is already unlocked, with the App Store's progress and notices.
+    @ViewBuilder
+    private var plans: some View {
+        if pro.testerAccess, pro.plan == .none {
+            Label("Pro is on for testers. Buying below is free in TestFlight.", systemImage: "checkmark.seal.fill")
+                .foregroundStyle(Brand.safe)
+                .accessibilityIdentifier("pro-tester")
+        }
+        // Never block on the App Store: the buttons work while the check finishes.
+        switch pro.plan {
+        case .lifetime:
+            Label("Pro is unlocked.", systemImage: "checkmark.seal.fill")
+                .foregroundStyle(Brand.safe)
+                .accessibilityIdentifier("pro-unlocked")
+        case .monthly, .yearly:
+            Label(pro.plan == .yearly ? "Pro is unlocked. Yearly plan." : "Pro is unlocked. Monthly plan.", systemImage: "checkmark.seal.fill")
+                .foregroundStyle(Brand.safe)
+                .accessibilityIdentifier("pro-unlocked")
+            Button("Manage subscription") {
+                Task {
+                    if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
+                        try? await AppStore.showManageSubscriptions(in: scene)
                     }
                 }
-                if let lifetime = pro.lifetime {
-                    Button("Switch to lifetime for \(lifetime.displayPrice)") { Task { await pro.purchase(lifetime) } }
-                        .disabled(pro.busy)
-                }
-            case .none:
+            }
+            if let lifetime = pro.lifetime {
+                Button("Switch to lifetime for \(lifetime.displayPrice)") { Task { await pro.purchase(lifetime) } }
+                    .disabled(pro.busy)
+            }
+        case .none:
+            // Pinned to the bottom of the Pro page the plans sit side by side; elsewhere, one under another.
+            let layout = part == .plans
+                ? AnyLayout(HStackLayout(alignment: .top, spacing: 8))
+                : AnyLayout(VStackLayout(alignment: .leading, spacing: 10))
+            layout {
                 option(title: pro.monthly.map { "\($0.displayPrice) a month" } ?? "Monthly",
                        detail: ProStore.trialLine(for: pro.monthly, eligible: pro.trialEligible, per: "month") ?? "Cancel anytime.",
-                       product: pro.monthly, prominent: false, id: "pro-monthly")
+                       product: pro.monthly, productID: ProStore.monthlyID, prominent: false, id: "pro-monthly")
                 if pro.yearly != nil {
                     option(title: pro.yearly.map { "\($0.displayPrice) a year" } ?? "Yearly",
                            detail: ProStore.trialLine(for: pro.yearly, eligible: pro.trialEligible, per: "year") ?? "Cancel anytime.",
-                           product: pro.yearly, prominent: false, id: "pro-yearly")
+                           product: pro.yearly, productID: ProStore.yearlyID, prominent: false, id: "pro-yearly")
                 }
                 option(title: pro.lifetime.map { "\($0.displayPrice) once" } ?? "Lifetime",
-                       detail: "Pay once, keep Pro.", product: pro.lifetime, prominent: true, id: "pro-lifetime")
-                Text(renewalTerms)
-                    .font(.footnote).foregroundStyle(.secondary)
-                HStack(spacing: 16) {
-                    Button("Terms of Use") { openURL(Self.termsURL) }
-                    Button("Privacy Policy") { openURL(Self.privacyURL) }
-                }
-                .font(.footnote)
-                Button("Restore purchase") { Task { await pro.restore() } }
-                    .disabled(pro.busy)
-                    .accessibilityIdentifier("pro-restore")
+                       detail: "Pay once, keep Pro.", product: pro.lifetime, productID: ProStore.lifetimeID, prominent: true, id: "pro-lifetime")
             }
-            if let notice = pro.notice {
-                Text(notice).font(.footnote).foregroundStyle(.secondary)
-                if pro.monthly == nil && pro.yearly == nil && pro.lifetime == nil && !pro.unlocked {
-                    Button("Try again") { Task { await pro.loadProducts() } }
-                }
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        if pro.connecting {
+            HStack(spacing: 8) {
+                ProgressView()
+                Text("Connecting to the App Store…")
+            }
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(ArchiveStyle.muted)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("pro-connecting")
+        }
+        if let notice = pro.notice {
+            Text(notice).font(.footnote).foregroundStyle(.secondary)
+            if pro.monthly == nil && pro.yearly == nil && pro.lifetime == nil && !pro.unlocked {
+                Button("Try again") { Task { await pro.loadProducts() } }
             }
         }
-        .buttonStyle(.borderless)
+    }
+
+    /// Apple's subscription terms, the links they require, and Restore.
+    @ViewBuilder
+    private var terms: some View {
+        Text(renewalTerms)
+            .font(.footnote).foregroundStyle(.secondary)
+        HStack(spacing: 16) {
+            Button("Terms of Use") { openURL(Self.termsURL) }
+            Button("Privacy Policy") { openURL(Self.privacyURL) }
+        }
+        .font(.footnote)
+        Button("Restore purchase") { Task { await pro.restore() } }
+            .disabled(pro.busy)
+            .accessibilityIdentifier("pro-restore")
     }
 
     /// Apple's required subscription terms, including what happens when a free trial ends.
@@ -270,19 +391,33 @@ struct ProPurchaseControls: View {
         return text + " Cancel at least 24 hours before the end of the current period in Settings, your name, Subscriptions. Payment is charged to your Apple Account."
     }
 
-    private func option(title: String, detail: String, product: Product?, prominent: Bool, id: String) -> some View {
-        Button {
-            if let product { Task { await pro.purchase(product) } } else { Task { await pro.loadProducts() } }
+    private func option(title: String, detail: String, product: Product?, productID: String, prominent: Bool, id: String) -> some View {
+        let waiting = product == nil && (pro.loadingProducts || pro.waitingToBuy == productID)
+        return Button {
+            Haptics.light()
+            Task { await pro.buy(productID) }
         } label: {
             VStack(spacing: 2) {
-                Text(title).font(.headline)
-                Text(detail).font(.caption)
+                HStack(spacing: 8) {
+                    Text(title).font(.headline).lineLimit(2).minimumScaleFactor(0.75)
+                    // The price is still on its way: a tap now buys as soon as it arrives.
+                    if waiting {
+                        ProgressView()
+                            .tint(prominent ? ArchiveStyle.onAction : Brand.primary)
+                            .accessibilityLabel("Getting the price")
+                    }
+                }
+                Text(waiting ? "Getting the price from the App Store…" : detail).font(.caption)
+                    .lineLimit(3).minimumScaleFactor(0.85)
             }
-            .frame(maxWidth: .infinity, minHeight: 56)
-            .foregroundStyle(prominent ? Color.white : Brand.primary)
-            .background(prominent ? Brand.primary : Brand.surface, in: RoundedRectangle(cornerRadius: 14))
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, minHeight: 56, maxHeight: .infinity)
+            .foregroundStyle(prominent ? ArchiveStyle.onAction : Brand.primary)
+            .background(prominent ? ArchiveStyle.action : Brand.surface, in: RoundedRectangle(cornerRadius: 14))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressableStyle())
         .disabled(pro.busy)
         .accessibilityIdentifier(id)
     }

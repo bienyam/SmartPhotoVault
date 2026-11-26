@@ -47,7 +47,27 @@ enum CleanupGrouper {
     /// Fewer than this and a group isn't worth a card.
     static let minimum = 3
 
-    static let expiredLabels: Set<String> = ["receipt", "ticket", "parking_lot", "license_plate", "checkbook"]
+    /// Receipts & documents: a photo needs one of these paper labels. "ticket" on its own is not
+    /// enough (it fires on stadiums, concerts and cinemas, where people are the subject), and
+    /// parking lots and number plates describe a scene, not a paper, so they are not here at all.
+    static let paperLabels: Set<String> = ["receipt", "document", "printed_page", "checkbook"]
+    /// Counts only together with a paper label.
+    static let paperCompanions: Set<String> = ["ticket"]
+
+    /// True when a photo's labels say it is paperwork and no face was found in it.
+    /// `hasFace` nil means the photo has not been checked for faces yet, so it is left out.
+    static func isPaperwork(labels: [String], hasFace: Bool?) -> Bool {
+        guard hasFace == false else { return false }
+        return !paperLabels.isDisjoint(with: labels)
+    }
+
+    /// The labels that put a photo in Receipts & documents, for the tests: the paper labels it
+    /// carries, plus "ticket" when a paper label is there too.
+    static func paperworkReasons(_ labels: [String]) -> Set<String> {
+        let papers = paperLabels.intersection(labels)
+        guard !papers.isEmpty else { return [] }
+        return papers.union(paperCompanions.intersection(labels))
+    }
     static let screenLabels: Set<String> = Set(Recognition.topics.filter { ["screens", "whiteboards"].contains($0.id) }.flatMap(\.labels))
 
     static func groups(in snapshot: ScanSnapshot, insights: [String: PhotoInsight], facts: [String: AssetFacts],
@@ -117,13 +137,14 @@ enum CleanupGrouper {
 
         let expired = photos { record, insight in
             guard let shot = record.createdAt, now.timeIntervalSince(shot) > receiptAge else { return false }
-            return !expiredLabels.isDisjoint(with: insight.labels)
+            return isPaperwork(labels: insight.labels, hasFace: insight.hasFace)
         }
         taken.formUnion(expired.map(\.id))
         if expired.count >= minimum {
+            // The id stays "expired": check-in history and the Pro gate are keyed by it.
             result.append(CleanupGroup(
-                id: "expired", tier: .probably, title: "Expired receipts & tickets", why: "Over 3 months old",
-                info: "Photos that look like receipts, tickets, parking spots or number plates, taken more than 3 months ago. Recognition runs on this \(Device.name) and can be wrong, so look before deleting. Nothing is selected until you choose.",
+                id: "expired", tier: .probably, title: "Receipts & documents", why: "Over 3 months old",
+                info: "Photos that look like receipts or documents, taken more than 3 months ago. Photos with a face in them are left out. Recognition runs on this \(Device.name) and can be wrong, so look before deleting. Nothing is selected until you choose.",
                 items: expired, symbol: "receipt"))
         }
 

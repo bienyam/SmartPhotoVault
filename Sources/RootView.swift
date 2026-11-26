@@ -6,6 +6,8 @@ struct RootView: View {
 
     @StateObject private var model = DashboardModel()
     @ObservedObject private var basket = ArchiveBasket.shared
+    @ObservedObject private var checkIns = CheckInCenter.shared
+    @EnvironmentObject private var pro: ProStore
     @State private var tab = Tab.freeUp
     @AppStorage("hasSeenWelcome") private var hasSeenWelcome = false
     @State private var forceWelcome = LaunchFlags.has("--reset-welcome")
@@ -35,7 +37,7 @@ struct RootView: View {
 
     private var tabs: some View {
         TabView(selection: $tab) {
-            FreeUpView(model: model)
+            FreeUpView(model: model, openMore: { tab = .more })
                 .tabItem { Label("Free up", systemImage: "sparkles") }
                 .tag(Tab.freeUp)
             ArchiveTabView(model: model)
@@ -49,9 +51,36 @@ struct RootView: View {
         .onChange(of: basket.request) { tab = .archive }
         .task {
             if LaunchFlags.has("--demo") { model.showDemo() }
+            checkIns.start()
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { model.refreshAuthorization() }
+            // Check-ins catch up each time the app opens, since iOS may not have run one in the background.
+            // At launch the plan isn't known yet; the catch-up then waits for it (below), so a Pro
+            // schedule is never planned as free, even for a moment.
+            if phase == .active, !pro.checking { Task { await checkIns.catchUp(pro: pro.allows(.extraCheckIns)) } }
+        }
+        .onChange(of: pro.checking) { _, checking in
+            // The first purchase check has finished: catch up once, with the plan it found.
+            if !checking { Task { await checkIns.catchUp(pro: pro.allows(.extraCheckIns)) } }
+        }
+        .onChange(of: pro.unlocked) { _, unlocked in
+            // While the first check runs, the catch-up above follows it.
+            guard !pro.checking else { return }
+            Task { await checkIns.catchUp(pro: unlocked) }
+        }
+        // A tapped check-in notification opens its report.
+        .sheet(isPresented: $checkIns.showReport) {
+            NavigationStack {
+                CheckInReportView(model: model, openFreeUp: {
+                    checkIns.showReport = false
+                    tab = .freeUp
+                })
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) { Button("Done") { checkIns.showReport = false } }
+                }
+            }
+            .environmentObject(pro)
         }
     }
 

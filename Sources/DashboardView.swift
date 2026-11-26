@@ -1,83 +1,162 @@
 import SwiftUI
 import Photos
 
-/// The launch tab: the Dial with one button to find space, then the finds as picture cards.
+/// The launch tab: the storage card with the Storage Score, then everything found, on three shelves
+/// by how safe it is to clear. The total and the main button stay docked above the tab bar.
 struct FreeUpView: View {
     @ObservedObject var model: DashboardModel
+    /// The gear in the header opens the More tab, where the settings live.
+    var openMore: () -> Void = {}
+    @EnvironmentObject private var pro: ProStore
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openURL
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var storage = DeviceStorage.current()
     @State private var showRecentlyDeleted = false
+    @State private var showScoreInfo = false
     @ObservedObject private var insights = InsightModel.shared
+    @ObservedObject private var sorter = ScreenshotSorter.shared
     @State private var section = FreeUpSection.forYou
     /// Smart groups from on-device recognition, remade as results come in.
     @State private var smart: [CleanupGroup] = []
+    /// Smart Pro: photos already archived, and look-alike sets for Best shots.
+    @State private var archived: [ArchivedPlace] = []
+    @State private var sets: [KeepSet] = []
+    @State private var totals: TidyTotals?
+    @State private var offer: ProOffer?
+    @AppStorage("grandfather.noteSeen") private var earlyNoteSeen = false
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    if model.isScanning {
-                        scanning
-                    } else if let rescue = model.rescue {
-                        resultDial(rescue)
-                    } else {
-                        start
-                    }
-                    problems
-                    if let rescue = model.rescue {
-                        finds(rescue)
+            ZStack {
+                // Stays put: only the cards move, passing under the frosted header.
+                HomeBackdrop()
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        // App Store pictures are made from sample data and leave this label off.
+                        if model.isDemo, !LaunchFlags.has("--store-pictures") {
+                            Label("Sample photos, not your library", systemImage: "testtube.2")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(Brand.ink)
+                        }
+                        if let storage {
+                            StorageHeroCard(storage: storage, photos: measuredPhotos, showInfo: { showScoreInfo = true }) {
+                                whatsUsingLink(storage)
+                            }
+                        }
+                        if model.isScanning {
+                            scanning
+                        } else if model.rescue == nil {
+                            start
+                        }
+                        problems
+                        if let rescue = model.rescue {
+                            finds(rescue)
+                        }
                         RecentlyDeletedCard { showRecentlyDeleted = true }
-                        footer(rescue)
-                    } else {
-                        RecentlyDeletedCard { showRecentlyDeleted = true }
+                        if let rescue = model.rescue {
+                            footer(rescue)
+                        }
+                        promise
                     }
-                }
-                .frame(maxWidth: 520)
-                .padding(20)
-                .frame(maxWidth: .infinity)
-            }
-            .background(Brand.background)
-            .safeAreaInset(edge: .bottom) {
-                if !model.isScanning, let rescue = model.rescue,
-                   rescue.duplicateCopies > 0 || !rescue.videos.isEmpty || !rescue.screenshots.items.isEmpty {
-                    nextStep(rescue)
+                    .frame(maxWidth: 520)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .frame(maxWidth: .infinity)
                 }
             }
+            .safeAreaInset(edge: .bottom, spacing: 0) { fittedDock }
             .navigationTitle("TidyAway")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    HStack(spacing: 8) {
+                        BrandMark(size: 30)
+                        Text("TidyAway").font(.title3.weight(.heavy)).foregroundStyle(Brand.ink)
+                    }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("TidyAway")
+                    .accessibilityAddTraits(.isHeader)
+                }
+                // The brand on the left is the title; the bar keeps its name for VoiceOver and tests.
+                ToolbarItem(placement: .principal) {
+                    Color.clear.frame(width: 1, height: 1).accessibilityHidden(true)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(action: openMore) {
+                        Image(systemName: "gearshape")
+                    }
+                    .tint(Brand.ink)
+                    .accessibilityLabel("Settings and more")
+                    .accessibilityIdentifier("home-settings")
+                }
+            }
+            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
             .sheet(isPresented: $showRecentlyDeleted, onDismiss: { storage = DeviceStorage.current() }) {
                 RecentlyDeletedGuide()
             }
+            .sheet(isPresented: $showScoreInfo) {
+                if let storage { ScoreInfoSheet(storage: storage, photos: measuredPhotos) }
+            }
+            .proSheet($offer, pro: pro)
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active { storage = DeviceStorage.current() }
             }
+            .onAppear { storage = DeviceStorage.current() }
             .task(id: "\(insights.revision)-\(model.rescue?.snapshot.assets.count ?? 0)-\(model.isScanning)") { await remakeSmart() }
+            .task(id: model.rescue?.snapshot.date) { await loadSmartPro() }
+            .onChange(of: insights.revision) { Task { await makeSets() } }
+            .onChange(of: pro.unlocked) { _, unlocked in
+                if unlocked, let rescue = model.rescue { sorter.start(rescue.screenshots.items.map(\.id)) }
+            }
         }
     }
 
-    // MARK: - Dial
+    // MARK: - Storage card
 
-    private var usedSummary: String {
-        storage.map { "\($0.used.fileSize) of \($0.total.fileSize) used" } ?? "Storage on this \(Device.name)"
+    /// Photos and videos on this iPhone from the last check. Sample data has no real sizes; the
+    /// App Store pictures use a stand-in share so the card looks as it does on a real library.
+    private var measuredPhotos: Int64? {
+        guard let rescue = model.rescue, let storage else { return nil }
+        if model.isDemo {
+            return LaunchFlags.has("--store-pictures") ? Int64(Double(storage.used) * 0.43) : nil
+        }
+        return min(rescue.libraryLocalBytes, storage.used)
     }
 
+    @ViewBuilder
+    private func whatsUsingLink(_ storage: DeviceStorage) -> some View {
+        if let rescue = model.rescue {
+            let photos = model.isDemo ? 0 : min(rescue.libraryLocalBytes, storage.used)
+            NavigationLink {
+                WhatsUsingView(storage: storage, photosBytes: rescue.libraryLocalBytes, isDemo: model.isDemo)
+            } label: {
+                HStack(spacing: 4) {
+                    Text(!model.isDemo && storage.used > 0 && Double(photos) / Double(storage.used) < 0.4
+                         ? "Most of your space isn't photos. See what's using it" : "See what's using it")
+                        .multilineTextAlignment(.leading)
+                    Image(systemName: "chevron.right").font(.footnote.bold())
+                }
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(ArchiveStyle.link)
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("whats-using")
+        }
+    }
+
+    // MARK: - Before and during a check
+
     private var start: some View {
-        VStack(spacing: 16) {
+        VStack(alignment: .leading, spacing: 10) {
             Text("Storage full? Get your camera back.")
-                .font(.title.bold())
-                .foregroundStyle(ArchiveStyle.ink)
-                .multilineTextAlignment(.center)
+                .font(.title2.bold())
+                .foregroundStyle(Brand.ink)
+                .fixedSize(horizontal: false, vertical: true)
                 .accessibilityAddTraits(.isHeader)
-            StorageDial(parts: [DialPart(fraction: storage?.usedFraction ?? 0, color: DialPart.photos)], summary: usedSummary) {
-                DialButton { model.startDuplicateScan() }
-            }
-            if let storage {
-                (Text("\(storage.available.fileSize) free").font(.title3.bold()).foregroundColor(ArchiveStyle.ink)
-                    + Text(" of \(storage.total.fileSize)").font(.body).foregroundColor(ArchiveStyle.muted))
-                    .multilineTextAlignment(.center)
-            }
             HStack(spacing: 2) {
                 Text("Nothing is removed until you approve it.")
                     .font(.footnote.weight(.bold))
@@ -88,114 +167,33 @@ struct FreeUpView: View {
                            text: "TidyAway looks through the photos and videos on this \(Device.name) and lists the biggest things you could remove. It reads them on your \(Device.name) and sends nothing anywhere. You choose what goes, sign off, and Apple asks you to confirm.")
             }
         }
-        .frame(maxWidth: .infinity)
+        .homeCard()
     }
 
     private var scanning: some View {
-        VStack(spacing: 14) {
-            Text("Looking through your photos").font(.title2.bold()).foregroundStyle(ArchiveStyle.ink)
-                .multilineTextAlignment(.center)
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Looking through your photos").font(.title3.bold()).foregroundStyle(Brand.ink)
                 .accessibilityAddTraits(.isHeader)
-            StorageDial(parts: [DialPart(fraction: model.total > 0 ? Double(model.completed) / Double(model.total) : 0, color: DialPart.photos)],
-                        summary: "\(model.completed.formatted()) of \(model.total.formatted()) checked") {
-                VStack(spacing: 4) {
-                    if let rescue = model.rescue {
-                        heroNumber(rescue.upToBytes.fileSize)
-                        Text("found so far").font(.subheadline).foregroundStyle(ArchiveStyle.muted)
-                    } else {
-                        ProgressView().controlSize(.large)
-                    }
-                }
-            }
+            ProgressView(value: model.total > 0 ? Double(model.completed) / Double(model.total) : 0)
+                .tint(Brand.primary)
+                .accessibilityLabel("\(model.completed.formatted()) of \(model.total.formatted()) checked")
             if model.total > 0 {
                 Text("Looking through \(model.completed.formatted()) of \(model.total.formatted())")
-                    .font(.subheadline).monospacedDigit().foregroundStyle(ArchiveStyle.muted)
+                    .font(.subheadline).monospacedDigit().foregroundStyle(Brand.muted)
+            }
+            if let rescue = model.rescue {
+                (Text(rescue.upToBytes.fileSize).font(.title2.weight(.heavy)).foregroundColor(Brand.ink)
+                    + Text(" found so far").font(.subheadline).foregroundColor(Brand.muted))
+                    .contentTransition(.numericText())
             }
             Text("The biggest finds show up first. You can start clearing them now.")
-                .font(.footnote).foregroundStyle(ArchiveStyle.muted)
-                .multilineTextAlignment(.center)
+                .font(.footnote).foregroundStyle(Brand.muted)
+                .fixedSize(horizontal: false, vertical: true)
             Button("Stop", role: .cancel) { model.cancel() }
                 .buttonStyle(ArchiveOutlineStyle())
         }
-        .frame(maxWidth: .infinity)
+        .homeCard()
     }
-
-    private func heroNumber(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 46, weight: .heavy, design: .rounded))
-            .monospacedDigit()
-            .minimumScaleFactor(0.5)
-            .lineLimit(1)
-            .foregroundStyle(ArchiveStyle.selected)
-            .contentTransition(.numericText())
-    }
-
-    private func parts(_ rescue: RescueSummary) -> [DialPart] {
-        guard let storage, storage.total > 0 else { return [] }
-        let photos = model.isDemo ? 0 : min(rescue.libraryLocalBytes, storage.used)
-        return [DialPart(fraction: Double(photos) / Double(storage.total), color: DialPart.photos),
-                DialPart(fraction: Double(max(0, storage.used - photos)) / Double(storage.total), color: DialPart.other)]
-    }
-
-    @ViewBuilder
-    private func resultDial(_ rescue: RescueSummary) -> some View {
-        VStack(spacing: 12) {
-            // App Store pictures are made from sample data and leave this label off.
-            if model.isDemo, !LaunchFlags.has("--store-pictures") {
-                Label("Sample photos, not your library", systemImage: "testtube.2")
-                    .font(.subheadline.weight(.semibold))
-            }
-            Text("You could free up to").font(.headline).foregroundStyle(ArchiveStyle.muted)
-                .accessibilityAddTraits(.isHeader)
-            StorageDial(parts: parts(rescue), summary: usedSummary) {
-                VStack(spacing: 2) {
-                    heroNumber(rescue.upToBytes.fileSize).accessibilityIdentifier("hero-bytes")
-                    Text(rescue.iCloudBytes > 0 ? "on this \(Device.name), plus \(rescue.iCloudBytes.fileSize) in iCloud" : "on this \(Device.name)")
-                        .font(.subheadline).foregroundStyle(ArchiveStyle.muted)
-                        .multilineTextAlignment(.center)
-                }
-            }
-            if let storage {
-                let photos = model.isDemo ? 0 : min(rescue.libraryLocalBytes, storage.used)
-                let rest = max(0, storage.used - photos)
-                VStack(spacing: 4) {
-                    legend(DialPart.photos, "Photos & videos", model.isDemo ? "—" : photos.fileSize)
-                    legend(DialPart.other, "Apps, System Data & other", model.isDemo ? "—" : rest.fileSize)
-                    legend(Color.gray.opacity(0.35), "Free", storage.available.fileSize)
-                }
-                NavigationLink {
-                    WhatsUsingView(storage: storage, photosBytes: rescue.libraryLocalBytes, isDemo: model.isDemo)
-                } label: {
-                    HStack(spacing: 4) {
-                        Text(!model.isDemo && storage.used > 0 && Double(photos) / Double(storage.used) < 0.4
-                             ? "Most of your space isn't photos. See what's using it" : "See what's using it")
-                            .multilineTextAlignment(.leading)
-                        Image(systemName: "chevron.right").font(.footnote.bold())
-                    }
-                    .font(.subheadline.weight(.bold))
-                    .foregroundStyle(ArchiveStyle.link)
-                    .frame(minHeight: 44)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("whats-using")
-            }
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    private func legend(_ color: Color, _ title: String, _ value: String) -> some View {
-        HStack(spacing: 8) {
-            Circle().fill(color).frame(width: 10, height: 10)
-            Text(title)
-            Spacer()
-            Text(value).foregroundStyle(ArchiveStyle.muted)
-        }
-        .font(.footnote)
-        .accessibilityElement(children: .combine)
-    }
-
-    // MARK: - Finds
 
     @ViewBuilder
     private var problems: some View {
@@ -204,7 +202,7 @@ struct FreeUpView: View {
         }
         if model.authorization == .denied || model.authorization == .restricted {
             VStack(alignment: .leading, spacing: 8) {
-                Text("TidyAway needs access to your photos to find space.")
+                Text("TidyAway needs access to your photos to find space.").foregroundStyle(Brand.ink)
                 Button("Open Settings") {
                     if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
                 }
@@ -213,23 +211,57 @@ struct FreeUpView: View {
         }
     }
 
+    // MARK: - Ready to tidy
+
     @ViewBuilder
     private func finds(_ rescue: RescueSummary) -> some View {
+        Text("Ready to tidy")
+            .font(.title2.weight(.heavy))
+            .foregroundStyle(Brand.ink)
+            .padding(.top, 4)
+            .accessibilityAddTraits(.isHeader)
         sectionPills
-        switch section {
-        case .forYou:
-            if let pick = CleanupGrouper.suggestion(from: smart) { suggestion(pick) }
-            smartSections
-            heading("By type")
-            typeCards(rescue)
-        case .smart:
-            smartSections
-            if smart.isEmpty && !insights.running {
-                Text("No smart groups yet. They appear as TidyAway looks through your photos.")
-                    .font(.subheadline).foregroundStyle(ArchiveStyle.muted)
+        if pro.grandfathered && !pro.unlocked && !earlyNoteSeen {
+            EarlySupporterNote { earlyNoteSeen = true }
+        }
+        let all = rows(rescue)
+        let shown = all.filter(shows)
+        ForEach(TidyRow.Shelf.allCases) { shelf in
+            let list = shown.filter { $0.shelf == shelf }
+            if !list.isEmpty {
+                // On one pill the shelf shows only part of itself, so its total is that part's.
+                let plain = list.reduce(Int64(0)) { $0 + $1.bytes }
+                let counted = totals?.shelves[shelf.rawValue] ?? plain
+                VStack(spacing: 0) {
+                    ShelfHeader(shelf: shelf, total: section == .forYou ? counted : plain)
+                    if shelf == .look {
+                        // Worth a look: each group as a picture card, one per row, as on Archive.
+                        Rectangle().fill(Brand.hairline).frame(height: 1)
+                        VStack(spacing: 10) {
+                            ForEach(list) { row in rowButton(row, rescue) }
+                        }
+                        .padding(.vertical, 12)
+                    } else {
+                        ForEach(list) { row in
+                            Rectangle().fill(Brand.hairline).frame(height: 1)
+                            rowButton(row, rescue)
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Brand.card, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(Brand.cardEdge, lineWidth: 1))
             }
-        case .byType:
-            typeCards(rescue)
+        }
+        if section == .smart && shown.isEmpty && !insights.running {
+            Text("No smart groups yet. They appear as TidyAway looks through your photos.")
+                .font(.subheadline).foregroundStyle(Brand.muted)
+        }
+        if insights.running && section != .byType {
+            Label("Smart groups grow as TidyAway looks through your photos: \(insights.done.formatted()) of \(insights.total.formatted()). On this \(Device.name) only.",
+                  systemImage: "sparkles")
+                .font(.footnote).foregroundStyle(Brand.muted)
         }
     }
 
@@ -254,73 +286,176 @@ struct FreeUpView: View {
         }
     }
 
-    private func heading(_ text: String) -> some View {
-        Text(text).font(.title3.weight(.heavy)).foregroundStyle(ArchiveStyle.ink)
-            .padding(.top, 6)
-            .accessibilityAddTraits(.isHeader)
+    private func shows(_ row: TidyRow) -> Bool {
+        switch section {
+        case .forYou: return true
+        case .smart: return row.kind != .type
+        case .byType: return row.kind == .type
+        }
     }
 
-    /// One suggestion that combines the safest smart groups, so the first decision is one tap.
-    private func suggestion(_ pick: CleanupGroup) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Label("Suggested for you", systemImage: "sparkles")
-                    .font(.caption.weight(.heavy))
-                    .foregroundStyle(Color(red: 1, green: 0.541, blue: 0.361))
-                Spacer()
-                CardInfo(title: "Suggested for you", text: pick.info)
-            }
-            Text(pick.title).font(.title2.bold())
-            Text(pick.why).font(.footnote).foregroundStyle(.white.opacity(0.78))
-            NavigationLink { smartList(pick) } label: {
-                Text("Review \(pick.items.count.formatted()) \(pick.items.count == 1 ? "item" : "items")")
-                    .font(.headline)
-                    .foregroundStyle(Color(red: 0.078, green: 0.086, blue: 0.122))
-                    .padding(.horizontal, 16)
-                    .frame(minHeight: 48)
-                    .background(Color(red: 1, green: 0.541, blue: 0.361), in: RoundedRectangle(cornerRadius: 14))
-            }
-            .accessibilityIdentifier("smart-for-you")
+    /// The person's own numbers for the Pro sheet: "Found on this iPhone: 1,286 items, about 3.4 GB."
+    private func found(_ row: TidyRow) -> String? {
+        var parts: [String] = []
+        if row.id == "smart-screenshots" {
+            parts.append("\(row.size) \(row.count)")
+        } else {
+            if !row.count.isEmpty { parts.append(row.count) }
+            if row.bytes > 0 { parts.append("about \(row.size)") }
         }
-        .foregroundStyle(.white)
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(LinearGradient(colors: [Color(red: 0.17, green: 0.18, blue: 0.27), Color(red: 0.078, green: 0.086, blue: 0.122)],
-                                   startPoint: .topLeading, endPoint: .bottomTrailing),
-                    in: RoundedRectangle(cornerRadius: 22))
+        guard !parts.isEmpty else { return nil }
+        return "Found on this \(Device.name): \(parts.joined(separator: ", ")). You still approve every one."
+    }
+
+    private func locked(_ row: TidyRow) -> Bool {
+        guard let feature = row.feature else { return false }
+        return !pro.allows(feature)
+    }
+
+    /// A row opens its list. A Pro row someone can't open yet shows what it is on a half sheet instead.
+    @ViewBuilder
+    private func rowButton(_ row: TidyRow, _ rescue: RescueSummary) -> some View {
+        if locked(row) {
+            Button {
+                offer = ProOffer(id: row.id, title: row.title, what: row.what, found: found(row), symbol: row.symbol)
+            } label: {
+                rowLabel(row, locked: true)
+            }
+            .buttonStyle(PressableStyle())
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityHint("Available in TidyAway Pro")
+            .accessibilityIdentifier(row.id)
+        } else {
+            NavigationLink { destination(row, rescue) } label: {
+                rowLabel(row, locked: false, yours: row.feature == .smartPicks && pro.grandfathered && !pro.unlocked)
+            }
+            .buttonStyle(PressableStyle())
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityIdentifier(row.id)
+        }
+    }
+
+    /// Worth a look groups are picture cards; the other two shelves keep their plain rows.
+    @ViewBuilder
+    private func rowLabel(_ row: TidyRow, locked: Bool, yours: Bool = false) -> some View {
+        if row.shelf == .look {
+            TidyPhotoCard(row: row, locked: locked, yours: yours)
+        } else {
+            TidyRowLabel(row: row, locked: locked, yours: yours)
+        }
     }
 
     @ViewBuilder
-    private var smartSections: some View {
-        ForEach([CleanupGroup.Tier.safe, .probably], id: \.self) { tier in
-            let list = smart.filter { $0.tier == tier }
-            if !list.isEmpty {
-                Text(tier.rawValue.uppercased())
-                    .font(.caption.weight(.heavy)).tracking(0.7)
-                    .foregroundStyle(ArchiveStyle.muted)
-                    .padding(.top, 4)
-                LazyVGrid(columns: typeSize.isAccessibilitySize ? [GridItem(.flexible())] : [GridItem(.flexible(), spacing: 10), GridItem(.flexible())], spacing: 10) {
-                    ForEach(list) { smartCard($0) }
-                }
+    private func destination(_ row: TidyRow, _ rescue: RescueSummary) -> some View {
+        switch row.id {
+        case "row-duplicates": duplicatesList
+        case "row-videos": videosList(rescue)
+        case "row-screenshots": screenshotsList(rescue)
+        case "row-more": MoreTypesView(types: rescue.otherTypes, model: model)
+        case "smart-archived": ArchivedOnPhoneView(model: model, places: archived)
+        case "smart-best": BestShotsView(model: model, sets: sets)
+        case "smart-screenshots": ScreenshotGroupsView(model: model, items: rescue.screenshots.items)
+        default:
+            if let group = smart.first(where: { "smart-\($0.id)" == row.id }) {
+                smartList(group)
+            } else {
+                Text("Nothing here right now.").foregroundStyle(.secondary)
             }
-        }
-        if insights.running {
-            Label("Smart groups grow as TidyAway looks through your photos: \(insights.done.formatted()) of \(insights.total.formatted()). On this \(Device.name) only.",
-                  systemImage: "sparkles")
-                .font(.footnote).foregroundStyle(ArchiveStyle.muted)
         }
     }
 
-    private func smartCard(_ group: CleanupGroup) -> some View {
-        ZStack(alignment: .topTrailing) {
-            NavigationLink { smartList(group) } label: {
-                ArchiveCard(title: group.title,
-                            detail: "\(group.items.count.formatted()) · \(group.bytes.fileSize)",
-                            coverID: group.coverID, why: group.why, symbol: group.symbol)
-            }
-            .find("smart-\(group.id)")
-            CardInfo(title: group.title, text: group.info)
+    /// Every group, once, on the shelf that says how safe it is to clear.
+    private func rows(_ rescue: RescueSummary) -> [TidyRow] {
+        var list: [TidyRow] = []
+
+        // Safe to clear
+        let copies = rescue.duplicateCopies
+        list.append(TidyRow(id: "row-duplicates", shelf: .safe, kind: .type, title: "Duplicates",
+                            detail: "Extra copies. One always stays.",
+                            size: copies == 0 ? "None" : rescue.duplicateBytes.fileSize,
+                            count: copies == 0 ? "" : "\(copies.formatted()) \(copies == 1 ? "copy" : "copies")",
+                            symbol: "square.on.square", bytes: rescue.duplicateBytes))
+        let shots = rescue.screenshots
+        list.append(TidyRow(id: "row-screenshots", shelf: .safe, kind: .type, title: "Screenshots",
+                            detail: "Captures you may be done with",
+                            size: size(shots.localBytes, shots.iCloudBytes, empty: shots.items.isEmpty),
+                            count: count(shots.items.count, "item", shots.localBytes, shots.iCloudBytes),
+                            symbol: "camera.viewfinder", bytes: shots.localBytes))
+        let archivedCount = Set(archived.flatMap(\.records).compactMap(\.photoID)).count
+        if archivedCount > 0 {
+            let bytes = archived.reduce(0) { $0 + $1.bytes }
+            list.append(TidyRow(id: "smart-archived", shelf: .safe, kind: .pro, title: "Already archived",
+                                detail: "A verified copy exists",
+                                size: bytes.fileSize, count: "\(archivedCount.formatted()) \(archivedCount == 1 ? "item" : "items")",
+                                symbol: "archivebox", bytes: bytes, feature: .smartPro,
+                                what: "lists photos still on this \(Device.name) that already have a verified copy in your archive, so you can free them knowing the copy is checked again first."))
         }
+
+        // Worth a look
+        for group in smart {
+            let number = group.items.count
+            list.append(TidyRow(id: "smart-\(group.id)", shelf: .look, kind: .smart, title: group.title,
+                                detail: group.why, size: group.bytes.fileSize,
+                                count: "\(number.formatted()) \(number == 1 ? "item" : "items")",
+                                symbol: group.symbol, bytes: group.items.reduce(0) { $0 + $1.localBytes },
+                                feature: .smartPicks, what: ProGate.smartPickWhat(group.id), coverID: group.coverID))
+        }
+        if !sets.isEmpty {
+            let extras = sets.flatMap(\.extras)
+            let bytes = extras.reduce(0) { $0 + $1.localBytes }
+            list.append(TidyRow(id: "smart-best", shelf: .look, kind: .pro, title: "Best shots",
+                                detail: "Best shot marked, with the reason",
+                                size: bytes > 0 ? bytes.fileSize : "\(sets.count.formatted())",
+                                count: "\(sets.count.formatted()) look-alike \(sets.count == 1 ? "set" : "sets")",
+                                symbol: "star.square.on.square", bytes: bytes, feature: .smartPro,
+                                what: "picks the photo to keep in each set of look-alike shots and says why: the sharpest, eyes open, the clearest faces. You only decide what goes.",
+                                coverID: sets.first?.keep.id))
+        }
+        if !shots.items.isEmpty {
+            list.append(TidyRow(id: "smart-screenshots", shelf: .look, kind: .pro, title: "Screenshots, read",
+                                detail: sortedDetail(rescue), size: shots.items.count.formatted(), count: "screenshots",
+                                symbol: "text.viewfinder", bytes: 0, feature: .smartPro,
+                                what: "reads the words in your screenshots on this \(Device.name) and sorts them: login codes, expired tickets, receipts, chats and maps. The words are never kept or sent.",
+                                coverID: shots.items.first?.id))
+        }
+        let kinds = rescue.otherTypes.filter { !$0.items.isEmpty }.count
+        list.append(TidyRow(id: "row-more", shelf: .look, kind: .type, title: "More types",
+                            detail: "GIFs, bursts, Live Photos and more",
+                            size: rescue.otherBytes.fileSize,
+                            count: kinds == 0 ? "" : "\(kinds) \(kinds == 1 ? "kind" : "kinds")",
+                            symbol: "square.grid.2x2", bytes: rescue.otherBytes,
+                            coverID: rescue.otherTypes.first { !$0.items.isEmpty }?.items.first?.id))
+
+        // Move it, keep it
+        list.append(TidyRow(id: "row-videos", shelf: .move, kind: .type, title: "Large videos",
+                            detail: "Best copied to your archive first",
+                            size: size(rescue.videoBytes, rescue.videoICloudBytes, empty: rescue.videos.isEmpty),
+                            count: count(rescue.videos.count, "video", rescue.videoBytes, rescue.videoICloudBytes),
+                            symbol: "video", bytes: rescue.videoBytes, chip: "Copy first"))
+        return list
+    }
+
+    /// Phone space first; items only in iCloud show their iCloud size.
+    private func size(_ local: Int64, _ iCloud: Int64, empty: Bool) -> String {
+        if empty { return "None" }
+        return local > 0 ? local.fileSize : iCloud.fileSize
+    }
+
+    private func count(_ number: Int, _ noun: String, _ local: Int64, _ iCloud: Int64) -> String {
+        guard number > 0 else { return "" }
+        let items = "\(number.formatted()) \(noun)\(number == 1 ? "" : "s")"
+        if iCloud == 0 { return items }
+        return local == 0 ? "\(items) · in iCloud" : "\(items) · +\(iCloud.fileSize) in iCloud"
+    }
+
+    private func sortedDetail(_ rescue: RescueSummary) -> String {
+        let ids = rescue.screenshots.items.map(\.id)
+        guard pro.allows(.smartPro) else { return "Sorted by what they say" }
+        if sorter.running { return "Reading \(sorter.done.formatted()) of \(sorter.total.formatted())" }
+        let codes = ids.filter { sorter.kinds[$0] == .loginCode }.count
+        return codes > 0 ? "\(codes.formatted()) login codes found" : "Read on this \(Device.name)"
     }
 
     private func smartList(_ group: CleanupGroup) -> some View {
@@ -331,7 +466,12 @@ struct FreeUpView: View {
 
     /// Remakes the smart groups from the scan and the recognition results, off the main thread.
     private func remakeSmart() async {
-        guard !model.isScanning, !model.isDemo, let snapshot = model.rescue?.snapshot else { return }
+        guard !model.isScanning, let rescue = model.rescue else { return }
+        guard !model.isDemo else {
+            await remakeTotals()
+            return
+        }
+        let snapshot = rescue.snapshot
         insights.start(snapshot.assets)
         let found = insights.insights
         let made = await Task.detached(priority: .utility) {
@@ -339,53 +479,38 @@ struct FreeUpView: View {
             return CleanupGrouper.groups(in: snapshot, insights: found, facts: facts)
         }.value
         smart = made
+        // Check-ins compare against the latest totals, including in the background.
+        if let rescue = model.rescue { CheckInCenter.shared.noteCheck(groups: made, rescue: rescue) }
+        await remakeTotals()
     }
 
-    /// Today's finds by type, each with what it holds.
-    @ViewBuilder
-    private func typeCards(_ rescue: RescueSummary) -> some View {
-        FindTag(kind: .safe)
-        ZStack(alignment: .topTrailing) {
-            NavigationLink { duplicatesList } label: {
-                ArchiveCard(title: "Duplicates",
-                            detail: rescue.duplicateCopies == 0 ? "None" : "\(rescue.duplicateCopies.formatted()) extra \(rescue.duplicateCopies == 1 ? "copy" : "copies") · \(rescue.duplicateBytes.fileSize)",
-                            coverID: rescue.duplicateGroups.first?.assets.first?.id)
-            }
-            .find("row-duplicates")
-            CardInfo(title: "Duplicates", text: "Exact copies, byte for byte. In each set one copy stays, shown first with a lock; it can't be selected and Select all never includes it. Favorites are kept. Nothing is selected until you choose.")
+    /// Photos already archived and the look-alike sets, read off the main thread.
+    private func loadSmartPro() async {
+        guard !model.isDemo, let rescue = model.rescue else { return }
+        archived = await Task.detached(priority: .utility) { ArchivedOnPhone.load() }.value
+        await makeSets()
+        if pro.allows(.smartPro) { sorter.start(rescue.screenshots.items.map(\.id)) }
+    }
+
+    private func makeSets() async {
+        guard !model.isDemo, let snapshot = model.rescue?.snapshot else { return }
+        let found = insights.insights
+        sets = await Task.detached(priority: .utility) {
+            CleanupGrouper.keepSets(in: snapshot.assets, insights: found, facts: AssetFacts.all(for: snapshot.assets))
+        }.value
+        await remakeTotals()
+    }
+
+    /// The docked total and the shelf totals, counting each item once.
+    private func remakeTotals() async {
+        guard let rescue = model.rescue else {
+            totals = nil
+            return
         }
-        FindTag(kind: .look)
-        // Not a lazy grid: every find exists from the start, also for VoiceOver.
-        let pair = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 10)) : AnyLayout(HStackLayout(spacing: 10))
-        pair {
-            ZStack(alignment: .topTrailing) {
-                NavigationLink { videosList(rescue) } label: {
-                    ArchiveCard(title: "Large videos",
-                                detail: rescue.videos.isEmpty ? "None" : split(rescue.videoBytes, rescue.videoICloudBytes),
-                                coverID: rescue.videos.first?.id)
-                }
-                .find("row-videos")
-                CardInfo(title: "Large videos", text: "The videos on this \(Device.name), largest first. Every video in the list can be selected; nothing is selected until you choose. Favorites are kept.")
-            }
-            ZStack(alignment: .topTrailing) {
-                NavigationLink { screenshotsList(rescue) } label: {
-                    ArchiveCard(title: "Screenshots",
-                                detail: rescue.screenshots.items.isEmpty ? "None" : split(rescue.screenshots.localBytes, rescue.screenshots.iCloudBytes),
-                                coverID: rescue.screenshots.items.first?.id)
-                }
-                .find("row-screenshots")
-                CardInfo(title: "Screenshots", text: CleanCategory.screenshots.guidance)
-            }
-        }
-        FindTag(kind: .decide)
-        ZStack(alignment: .topTrailing) {
-            NavigationLink { MoreTypesView(types: rescue.otherTypes, model: model) } label: {
-                ArchiveCard(title: "More types", detail: rescue.otherBytes.fileSize,
-                            coverID: rescue.otherTypes.first { !$0.items.isEmpty }?.items.first?.id)
-            }
-            .find("row-more")
-            CardInfo(title: "More types", text: "GIFs, bursts, Live Photos, slo-mo and other kinds of items, each in its own list. Nothing is selected until you choose.")
-        }
+        let groups = smart, places = archived, kept = sets
+        totals = await Task.detached(priority: .utility) {
+            TidyTotals.make(rescue: rescue, smart: groups, archived: places, sets: kept)
+        }.value
     }
 
     private var duplicatesList: some View { DuplicatesListView(model: model) }
@@ -401,25 +526,125 @@ struct FreeUpView: View {
                         items: rescue.screenshots.items, source: "Screenshots", allowsRemoval: true, model: model)
     }
 
-    /// One clear next step: the safest find first, then the biggest.
+    // MARK: - Dock
+
+    /// At accessibility text sizes the dock would cover most of the page, so it scrolls in a capped strip.
     @ViewBuilder
-    private func nextStep(_ rescue: RescueSummary) -> some View {
+    private var fittedDock: some View {
+        if typeSize.isAccessibilitySize {
+            // The dock as it is when it fits; otherwise the same dock in a scrolling strip.
+            ViewThatFits(in: .vertical) {
+                dock
+                ScrollView { dock }.scrollBounceBehavior(.basedOnSize)
+            }
+            .frame(maxHeight: 260)
+            .background(.ultraThinMaterial)
+        } else {
+            dock
+        }
+    }
+
+    /// Docked above the tab bar: the estimate, one main button, and the way into the Storage Checkup.
+    private var dock: some View {
+        VStack(spacing: 8) {
+            if !model.isScanning, let rescue = model.rescue {
+                let about = totals?.total ?? rescue.upToBytes
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        estimate(about)
+                        Spacer(minLength: 8)
+                        estimateChip
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        estimate(about)
+                        estimateChip
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                review(rescue)
+            } else if !model.isScanning {
+                Button("Free up space") { model.startDuplicateScan() }
+                    .buttonStyle(ArchiveButtonStyle())
+                    .accessibilityHint("Checks photos on this \(Device.name)")
+                    .accessibilityIdentifier("free-up-space")
+            }
+            NavigationLink { StorageCheckupView() } label: {
+                HStack(spacing: 6) {
+                    Text("Storage Checkup").font(.subheadline.weight(.bold)).foregroundStyle(ArchiveStyle.link)
+                    Image(systemName: "chevron.right").font(.caption.weight(.bold)).foregroundStyle(ArchiveStyle.link)
+                    Text("guided steps for apps and Messages").font(.footnote).foregroundStyle(Brand.muted)
+                        .lineLimit(1).minimumScaleFactor(0.8)
+                    Spacer(minLength: 0)
+                }
+                .frame(minHeight: 36)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityIdentifier("storage-checkup")
+        }
+        .frame(maxWidth: 520)
+        .padding(.horizontal, 16)
+        .padding(.top, 10)
+        .padding(.bottom, 6)
+        .frame(maxWidth: .infinity)
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .top) { Rectangle().fill(Brand.hairline).frame(height: 1) }
+    }
+
+    private func estimate(_ bytes: Int64) -> some View {
+        (Text("About \(bytes.fileSize)").font(.title2.weight(.heavy)).foregroundColor(Brand.ink)
+            + Text(" you could free").font(.subheadline).foregroundColor(Brand.muted))
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            .accessibilityIdentifier("hero-bytes")
+    }
+
+    private var estimateChip: some View {
+        Text("ESTIMATE")
+            .font(.caption2.weight(.heavy)).tracking(0.6)
+            .padding(.horizontal, 7).padding(.vertical, 3)
+            .foregroundStyle(Brand.muted)
+            .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).stroke(Brand.muted, lineWidth: 1))
+            .accessibilityLabel("Estimate")
+    }
+
+    /// One main button. It opens the suggestion (the safest smart picks together) for people who
+    /// have smart picks, otherwise the safest find first, then the biggest.
+    @ViewBuilder
+    private func review(_ rescue: RescueSummary) -> some View {
         Group {
-            if rescue.duplicateCopies > 0 {
-                NavigationLink("Review duplicates · \(rescue.duplicateBytes.fileSize)") { duplicatesList }
+            if pro.allows(.smartPicks), let pick = CleanupGrouper.suggestion(from: smart) {
+                NavigationLink("Review and free space") { smartList(pick) }
+                    .accessibilityHint("Suggested for you: \(pick.why)")
+            } else if rescue.duplicateCopies > 0 {
+                NavigationLink("Review and free space") { duplicatesList }
+                    .accessibilityHint("Opens Duplicates")
             } else if !rescue.videos.isEmpty {
-                NavigationLink("Review large videos · \(split(rescue.videoBytes, rescue.videoICloudBytes))") { videosList(rescue) }
+                NavigationLink("Review and free space") { videosList(rescue) }
+                    .accessibilityHint("Opens Large videos")
             } else if !rescue.screenshots.items.isEmpty {
-                NavigationLink("Review screenshots · \(split(rescue.screenshots.localBytes, rescue.screenshots.iCloudBytes))") { screenshotsList(rescue) }
+                NavigationLink("Review and free space") { screenshotsList(rescue) }
+                    .accessibilityHint("Opens Screenshots")
             }
         }
         .buttonStyle(ArchiveButtonStyle())
         .accessibilityIdentifier("review-next")
-        .frame(maxWidth: 520)
-        .padding(.horizontal, 20)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity)
-        .background(.regularMaterial)
+    }
+
+    // MARK: - Page bottom
+
+    private var promise: some View {
+        Label {
+            Text("Favorites are never offered. Nothing is deleted until you approve it and iOS confirms. Get back restores a copy.")
+                .fixedSize(horizontal: false, vertical: true)
+        } icon: {
+            Image(systemName: "checkmark.shield").foregroundStyle(Brand.safe)
+        }
+        .font(.footnote)
+        .foregroundStyle(Brand.muted)
+        .accessibilityIdentifier("home-promise")
     }
 
     @ViewBuilder
@@ -453,23 +678,6 @@ struct FreeUpView: View {
             .foregroundStyle(ArchiveStyle.link)
             .frame(minHeight: 44)
         }
-    }
-
-    /// "1.2 GB", "In iCloud · 4 GB" or "1.2 GB + 4 GB in iCloud": phone space first, never mixed.
-    private func split(_ local: Int64, _ iCloud: Int64) -> String {
-        if iCloud == 0 { return local.fileSize }
-        if local == 0 { return "In iCloud · \(iCloud.fileSize)" }
-        return "\(local.fileSize) + \(iCloud.fileSize) in iCloud"
-    }
-}
-
-private extension View {
-    /// A find card: one button to VoiceOver, named by its title and size.
-    func find(_ identifier: String) -> some View {
-        buttonStyle(.plain)
-            .accessibilityElement(children: .combine)
-            .accessibilityAddTraits(.isButton)
-            .accessibilityIdentifier(identifier)
     }
 }
 
@@ -577,54 +785,6 @@ struct MoreTypesView: View {
     }
 }
 
-/// Everything that isn't cleanup or archiving, one row each.
-struct MoreView: View {
-    @ObservedObject var model: DashboardModel
-
-    var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    NavigationLink { LedgerView(model: model) } label: {
-                        Label("Activity", systemImage: "checkmark.shield")
-                    }
-                    .accessibilityIdentifier("more-activity")
-                    NavigationLink { ProUpgradeView() } label: {
-                        Label("TidyAway Pro", systemImage: "sparkles")
-                    }
-                    .accessibilityIdentifier("more-pro")
-                }
-                Section("Tips") {
-                    NavigationLink { MessagesAttachmentsGuide() } label: {
-                        Label("Photos and videos in Messages", systemImage: "message")
-                    }
-                    .accessibilityIdentifier("guide-messages")
-                    NavigationLink { StorageExplainer() } label: {
-                        Label("Where your storage goes", systemImage: "internaldrive")
-                    }
-                    .accessibilityIdentifier("more-explainer")
-                    NavigationLink { CloudDownloadRemovalView() } label: {
-                        Label("Free iCloud Drive downloads", systemImage: "icloud.and.arrow.down")
-                    }
-                    .accessibilityIdentifier("more-icloud-downloads")
-                    NavigationLink { OptimizeStorageTip() } label: {
-                        Label("Keep smaller copies with iCloud", systemImage: "iphone")
-                    }
-                    .accessibilityIdentifier("more-optimize")
-                }
-                Section {
-                    NavigationLink { HelpPrivacyView(model: model) } label: {
-                        Label("Help & privacy", systemImage: "questionmark.circle")
-                    }
-                    .accessibilityIdentifier("more-help")
-                }
-            }
-            .navigationTitle("More")
-            .navigationBarTitleDisplayMode(.inline)
-        }
-    }
-}
-
 /// Storage TidyAway can't clear itself, explained plainly with the steps to clear it yourself.
 struct StorageExplainer: View {
     var body: some View {
@@ -638,7 +798,7 @@ struct StorageExplainer: View {
             }
             Section("System Data") {
                 Text("Caches, logs and temporary files that iOS manages. It grows and shrinks on its own; apps can't clear it.")
-                Text("Restarting your \(Device.name) often shrinks it. If it stays very large, updating iOS usually helps.")
+                Text("If it stays very large, updating iOS usually helps.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
             Section("Recently Deleted") {
@@ -674,35 +834,6 @@ struct OptimizeStorageTip: View {
             }
         }
         .navigationTitle("Keep smaller copies")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-}
-
-struct HelpPrivacyView: View {
-    @ObservedObject var model: DashboardModel
-
-    var body: some View {
-        List {
-            Section("How TidyAway works") {
-                Text("Free up finds the biggest things on this \(Device.name). You pick what goes, sign off, and Apple asks you to confirm. Deleted items wait in Recently Deleted for 30 days; empty it in Photos to get the space back.")
-                Text("Archive copies photos and files to a place you choose and checks every copy. It only adds copies there; it never deletes or changes anything in your archive.")
-            }
-            Section("Privacy") {
-                Text("TidyAway reads the Apple Photos items you authorize. Scanning and exact duplicate matching run on your device.")
-                Text("The app stores the latest completed check and its activity log locally. The check can include Photos identifiers, file names, dates, favorite status, resource sizes and hashes, the names of your albums, and an approximate location rounded to about 1 km. The app does not transmit this information to the developer or include advertising or analytics.")
-                Text("When you choose a place on the Archive tab, the map is loaded from Apple Maps. Your photo locations stay on your \(Device.name).")
-                Text("If you connect Google Drive, Google signs you in and gives TidyAway access only to the files it creates in a TidyAway Archive folder. The sign-in is kept in this \(Device.name)'s Keychain. Disconnecting removes it and revokes access; your archived copies stay in Drive.")
-                if CloudService.allCases.contains(where: \.available) {
-                    Text("If you connect OneDrive, Microsoft signs you in and gives TidyAway access to your files; TidyAway only adds copies to a TidyAway folder in My files and never opens, changes or deletes anything else. If you connect Dropbox, it gives TidyAway access only to its own folder, Apps › TidyAway. The sign-in is kept in this \(Device.name)'s Keychain. Disconnecting removes it; your archived copies stay there.")
-                }
-                Text("Checks read originals already available on your \(Device.name). If you approve an archive or restore, the app writes a copy to your chosen folder, downloading the original from iCloud first when it isn't on your \(Device.name). The source stays in place and the provider may sync the copy.")
-                Text("After a verified archive copy, the app keeps a local list of the file name, folder, size, checksum and date, with a reference to the folder you chose, so you can find and restore it.")
-                Text("If you approve deleting items, the app asks Apple Photos to delete exactly those items. Apple shows its own confirmation and normally keeps deleted items in Recently Deleted for up to 30 days. The approval, item count and outcome are recorded in the local activity log.")
-                Text("You can change Photos access in Settings. To remove the local data and activity log from this device, delete the app.")
-                Text("Apple handles in-app purchases.")
-            }
-        }
-        .navigationTitle("Help & privacy")
         .navigationBarTitleDisplayMode(.inline)
     }
 }
