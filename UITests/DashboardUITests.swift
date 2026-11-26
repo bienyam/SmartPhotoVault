@@ -822,6 +822,14 @@ final class DashboardUITests: XCTestCase {
     func testPillsFilterTheShelvesAndKeepEveryRowReachable() {
         let app = launchWithSamples()
         reveal(app.buttons["freeup-byType"], in: app)
+        // The bottom dock is taller than its button: with the shorter score card the pills can sit
+        // under the dock's estimate line, where a tap lands on the dock. Bring them clear of it.
+        let pill = app.buttons["freeup-byType"]
+        let dock = app.staticTexts["hero-bytes"]
+        if dock.exists && pill.frame.maxY > dock.frame.minY - 8 {
+            let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4))
+            start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -160)))
+        }
         app.buttons["freeup-byType"].tap()
         XCTAssertTrue(app.buttons["row-duplicates"].exists)
         XCTAssertTrue(app.buttons["row-videos"].exists)
