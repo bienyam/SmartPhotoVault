@@ -47,7 +47,7 @@ Mockup: `C:/Projects/Tideway/mockups/1.0.1/v101-feedback-mockup.html`. Branch `f
 - **Receipts & documents** (group id stays `expired`): needs a paper label (`CleanupGrouper.paperLabels`), a ticket counts only with one, no parking lots or number plates, no photo with a face of any size (`PhotoInsight.anyFace`; older results get a face-only check and stay out until checked), over 3 months old.
 - **Worth a look** rows are picture cards (`TidyPhotoCard`), one per row, with the PRO badge and the same half sheet. Archive is unchanged.
 - **Help & FAQ and Privacy** are accordions (`AccordionText`): closed to begin with, one open at a time, every paragraph word for word.
-- **Not backed up check** (`BackupCheck`, `BackupAlert`): after the sign-off and before Apple's confirmation, every time, when a selected item has no verified archive record. Copy first sends only those items to Archive; Delete anyway goes on. Skipped for Duplicates and Already archived (`DeleteFlow`). iCloud Photos never counts as a backup.
+- **Not backed up check** (`BackupCheck`, `BackupAlert`): after the sign-off and before Apple's confirmation, every time, when a selected item has no verified archive record. Copy first sends only those items to Archive; Delete anyway goes on. Skipped for Duplicates and Already archived (`DeleteFlow`). iCloud Photos never counts as a backup. A photo edited after it was archived is NOT backed up (`BackupLedger.covers`: same kinds of files as were copied, and not changed in Photos since the copy was recorded). Tapping outside the alert is Cancel: nothing is deleted.
 - **Rating prompt** (`RatingPrompt`): Apple's own prompt, once, after the second finished cleanup or archive, only when a result screen closes. Never in UI tests.
 
 ## Rules that must hold

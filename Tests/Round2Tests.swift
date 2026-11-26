@@ -140,10 +140,15 @@ final class BackupCheckTests: XCTestCase {
                     issue: nil, isScreenshot: false, albumIDs: [])
     }
 
-    private func record(_ id: String, photo: String?) -> ArchivedRecord {
-        ArchivedRecord(id: id, name: "\(id).mov", folderName: "Drive", bytes: 100, digest: "d-\(id)", date: now,
-                       viaHomeServer: false, folderBookmark: nil, photoID: photo)
+    private func record(_ id: String, photo: String?, parts: [Int] = [], date: Date? = nil) -> ArchivedRecord {
+        let others = parts.map { ArchivedPart(type: $0, name: "\(id)-\($0)", bytes: 10, digest: "p\($0)") }
+        return ArchivedRecord(id: id, name: "\(id).mov", folderName: "Drive", bytes: 100, digest: "d-\(id)", date: date ?? now,
+                              viaHomeServer: false, folderBookmark: nil, photoID: photo, parts: others.isEmpty ? nil : others)
     }
+
+    /// One original file, last changed an hour before the copy was recorded.
+    private var untouched: OriginalNow { OriginalNow(single: true, parts: nil, modified: now.addingTimeInterval(-3_600)) }
+    private let edit = [ArchivePlan.adjustmentData, ArchivePlan.fullSizePhoto]
 
     func testCountsBackedUpAndNotBackedUpWithTheSizeAtRisk() {
         let selected = (0..<14).map { video("v\($0)", bytes: Int64(100 + $0)) }
@@ -196,11 +201,63 @@ final class BackupCheckTests: XCTestCase {
 
     func testTheLedgerReadsPhotoIdentifiersFromArchiveRecords() {
         let records = [record("r1", photo: "p1"), record("r2", photo: "p1"), record("r3", photo: "p2"), record("r4", photo: nil)]
-        XCTAssertEqual(BackupLedger.photoIDs(in: records), ["p1", "p2"], "A file archived from Files has no photo, so it backs nothing up.")
-        XCTAssertEqual(BackupLedger.photoIDs(in: []), [])
-        let check = BackupCheck(selected: [video("p1"), video("p3")], archived: BackupLedger.photoIDs(in: records))
+        let photos = ["p1": untouched, "p2": untouched, "p3": untouched]
+        XCTAssertEqual(BackupLedger.photoIDs(in: records, now: photos), ["p1", "p2"],
+                       "A file archived from Files has no photo, so it backs nothing up.")
+        XCTAssertEqual(BackupLedger.photoIDs(in: [], now: photos), [])
+        XCTAssertEqual(BackupLedger.photoIDs(in: records, now: [:]), [], "An original Photos can't describe is not backed up.")
+        let check = BackupCheck(selected: [video("p1"), video("p3")], archived: BackupLedger.photoIDs(in: records, now: photos))
         XCTAssertEqual(check.backedUp.map(\.id), ["p1"])
         XCTAssertEqual(check.notBackedUp.map(\.id), ["p3"])
+    }
+
+    /// The copy of a photo edited after it was archived doesn't hold the edit, so deleting the photo
+    /// would lose it. It must be counted as not backed up, and the alert must show.
+    func testAPhotoEditedAfterItWasArchivedIsNotBackedUp() {
+        let before = now.addingTimeInterval(-60)
+        let later = now.addingTimeInterval(60)
+        let kinds = [ArchivePlan.photo] + edit
+        // A single-file copy: the first edit adds files beside the original.
+        let single = record("r1", photo: "p")
+        XCTAssertTrue(BackupLedger.covers(single, untouched))
+        XCTAssertTrue(BackupLedger.covers(single, OriginalNow(single: true, parts: nil, modified: now)))
+        XCTAssertFalse(BackupLedger.covers(single, OriginalNow(single: false, parts: kinds, modified: later)),
+                       "Edited after the copy: more files than were copied.")
+        XCTAssertFalse(BackupLedger.covers(single, OriginalNow(single: false, parts: kinds, modified: before)),
+                       "The kinds of files decide on their own, whatever the date says.")
+        XCTAssertFalse(BackupLedger.covers(single, OriginalNow(single: true, parts: nil, modified: later)),
+                       "Changed since the copy was recorded.")
+        XCTAssertFalse(BackupLedger.covers(single, OriginalNow(single: true, parts: nil, modified: nil)),
+                       "No date from Photos: can't tell, so not backed up.")
+
+        // An edited photo, copied with its edit: a second edit keeps the kinds and moves the date.
+        let edited = record("r2", photo: "p", parts: edit)
+        XCTAssertEqual(edited.partTypes, kinds)
+        XCTAssertTrue(BackupLedger.covers(edited, OriginalNow(single: false, parts: kinds, modified: before)))
+        XCTAssertFalse(BackupLedger.covers(edited, OriginalNow(single: false, parts: kinds, modified: later)), "Edited again after the copy.")
+        XCTAssertFalse(BackupLedger.covers(edited, OriginalNow(single: true, parts: nil, modified: before)),
+                       "Reverted: no longer the files that were copied.")
+        XCTAssertFalse(BackupLedger.covers(edited, OriginalNow(single: false, parts: kinds + [ArchivePlan.fullSizePairedVideo], modified: before)))
+
+        // Through the whole check: the edited photo is at risk, so the alert shows and counts it.
+        let inPhotos = ["kept": untouched, "changed": OriginalNow(single: false, parts: kinds, modified: later)]
+        let records = [record("a", photo: "kept"), record("b", photo: "changed")]
+        let archived = BackupLedger.photoIDs(in: records, now: inPhotos)
+        XCTAssertEqual(archived, ["kept"])
+        let check = BackupCheck.alert(for: .list, selected: [video("kept"), video("changed")], archived: archived)
+        XCTAssertEqual(check?.notBackedUp.map(\.id), ["changed"])
+        XCTAssertEqual(check?.backedUp.map(\.id), ["kept"])
+        XCTAssertEqual(check?.title, "1 of these isn't backed up")
+    }
+
+    /// Copied again after the edit: the newer record covers the photo even though the older one doesn't.
+    func testAPhotoCopiedAgainAfterAnEditIsBackedUp() {
+        let kinds = [ArchivePlan.photo] + edit
+        let old = record("old", photo: "p")
+        let fresh = record("fresh", photo: "p", parts: edit, date: now.addingTimeInterval(120))
+        let state = ["p": OriginalNow(single: false, parts: kinds, modified: now.addingTimeInterval(60))]
+        XCTAssertEqual(BackupLedger.photoIDs(in: [old], now: state), [])
+        XCTAssertEqual(BackupLedger.photoIDs(in: [fresh, old], now: state), ["p"])
     }
 }
 

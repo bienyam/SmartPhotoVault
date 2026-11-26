@@ -1,3 +1,4 @@
+import Photos
 import StoreKit
 import SwiftUI
 
@@ -22,8 +23,9 @@ enum DeleteFlow: CaseIterable {
 /// have a verified TidyAway archive copy, and how many don't.
 ///
 /// "Backed up" means a verified record in TidyAway's own archive list, the same record Already
-/// archived uses. iCloud Photos does not count: deleting from Photos removes the item from
-/// iCloud too.
+/// archived uses, and only while the item in Photos is still what was copied: a photo edited after
+/// it was archived is not backed up, because its copy doesn't hold the edit (`BackupLedger.covers`).
+/// iCloud Photos does not count: deleting from Photos removes the item from iCloud too.
 struct BackupCheck: Identifiable {
     let id = UUID()
     let backedUp: [AssetRecord]
@@ -35,7 +37,8 @@ struct BackupCheck: Identifiable {
     /// The alert shows only when something could really be lost.
     var needsAlert: Bool { !notBackedUp.isEmpty }
 
-    /// `archived` holds the Photos identifiers that have a verified archive record.
+    /// `archived` holds the Photos identifiers whose verified archive record still matches the item
+    /// as it is in Photos now (`BackupLedger.verifiedPhotoIDs`).
     init(selected: [AssetRecord], archived: Set<String>) {
         backedUp = selected.filter { archived.contains($0.id) }
         notBackedUp = selected.filter { !archived.contains($0.id) }
@@ -64,24 +67,79 @@ struct BackupCheck: Identifiable {
     var notBackedUpLine: String { "\(notBackedUp.count.formatted()) not backed up" }
 }
 
-/// The Photos identifiers that have a verified TidyAway archive copy.
+/// What Photos says about one original right now, read without opening any of its files.
+struct OriginalNow: Equatable, Sendable {
+    /// True while the item is exactly one original file, the kind a single-file copy stands for.
+    /// An edit, a crop or a trim adds files beside it, and this turns false.
+    let single: Bool
+    /// The kinds of files of a Live Photo or an edited photo, in the order Archive copies them.
+    /// Nil for a single file and for anything Archive can't copy as it is now.
+    let parts: [Int]?
+    /// When Photos last changed the item. Every edit moves it forward.
+    let modified: Date?
+}
+
+/// The Photos identifiers that have a verified TidyAway archive copy which still matches the item.
 enum BackupLedger {
-    static func photoIDs(in records: [ArchivedRecord]) -> Set<String> {
-        Set(records.compactMap(\.photoID))
+    /// True only while a verified copy still stands for the item as it is in Photos now. These are
+    /// the signs of an edit after the copy that `ArchiveProver` looks at, without the full read:
+    /// - the item must still be made of the same kinds of files that were copied (a first edit, or
+    ///   a revert, changes the kinds);
+    /// - Photos must not have changed the item since the copy was recorded (a second edit keeps
+    ///   the kinds and changes only the bytes, but it moves the modification date).
+    /// Anything else, or a date Photos doesn't give, counts as not backed up: an edit made after
+    /// the copy is not in the archive, so deleting the item would lose it. The check errs on the
+    /// side of asking; a change that isn't an edit (such as a new caption) asks too.
+    static func covers(_ record: ArchivedRecord, _ now: OriginalNow) -> Bool {
+        if record.hasParts {
+            guard now.parts == record.partTypes else { return false }
+        } else {
+            guard now.single else { return false }
+        }
+        guard let modified = now.modified else { return false }
+        return modified <= record.date
     }
 
-    /// Read from the archive list on this iPhone. If the list can't be read, nothing counts as
-    /// backed up, so the check errs on the side of asking.
-    static func verifiedPhotoIDs() -> Set<String> {
+    /// The items with at least one record that still covers them. `now` holds each item as it is
+    /// in Photos; an item missing from it has no usable original and is not backed up.
+    static func photoIDs(in records: [ArchivedRecord], now: [String: OriginalNow]) -> Set<String> {
+        var ids: Set<String> = []
+        for record in records {
+            guard let id = record.photoID, let state = now[id], covers(record, state) else { continue }
+            ids.insert(id)
+        }
+        return ids
+    }
+
+    /// Which of the selected items are backed up, read from the archive list on this iPhone and
+    /// from Photos. If the list can't be read, nothing counts as backed up, so the check errs on
+    /// the side of asking. Reads Photos, so call it off the main thread.
+    static func verifiedPhotoIDs(among selected: [String]) -> Set<String> {
         guard let records = try? InventoryStore.openDefault().archived() else { return [] }
-        return photoIDs(in: records)
+        let wanted = Set(selected)
+        let mine = records.filter { record in record.photoID.map { wanted.contains($0) } ?? false }
+        guard !mine.isEmpty else { return [] }
+        return photoIDs(in: mine, now: originals(Array(Set(mine.compactMap(\.photoID)))))
+    }
+
+    /// Each item as Photos describes it now. No file is opened or downloaded.
+    static func originals(_ ids: [String]) -> [String: OriginalNow] {
+        var found: [String: OriginalNow] = [:]
+        PHAsset.fetchAssets(withLocalIdentifiers: ids, options: nil).enumerateObjects { asset, _, _ in
+            found[asset.localIdentifier] = OriginalNow(
+                single: VerifiedArchive.original(for: asset) != nil,
+                parts: VerifiedArchive.plan(for: asset)?.map { $0.type.rawValue },
+                modified: asset.modificationDate)
+        }
+        return found
     }
 }
 
 /// The TidyAway alert shown after the sign-off and before Apple's own confirmation, when some of
 /// the selected items have no verified archive copy. Copy first sends only those items to Archive;
-/// Delete anyway goes on to Apple's confirmation; tapping outside cancels. No red: the words and
-/// the count carry the warning.
+/// Delete anyway goes on to Apple's confirmation. Tapping outside the card is Cancel: the alert
+/// closes, nothing is deleted and nothing is sent to Archive. No red: the words and the count
+/// carry the warning.
 struct BackupAlert: View {
     let check: BackupCheck
     let copyFirst: () -> Void
@@ -93,6 +151,7 @@ struct BackupAlert: View {
             Brand.viewer.opacity(0.45)
                 .ignoresSafeArea()
                 .contentShape(Rectangle())
+                // Outside the card is Cancel, never Delete.
                 .onTapGesture(perform: cancel)
                 .accessibilityHidden(true)
             // The card as it is when it fits; at the largest text sizes, the same card scrolling.

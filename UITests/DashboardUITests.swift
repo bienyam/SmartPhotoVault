@@ -200,6 +200,29 @@ final class DashboardUITests: XCTestCase {
         keepScreenshot(of: app, named: "Copy first in Archive")
     }
 
+    func testTappingOutsideTheBackupAlertCancelsAndDeletesNothing() {
+        let app = launchWithSamples()
+        let videos = app.buttons["row-videos"]
+        reveal(videos, in: app)
+        videos.tap()
+        XCTAssertTrue(app.navigationBars["Large videos"].waitForExistence(timeout: 5))
+        app.buttons["select-all"].tap()
+        let delete = app.buttons["delete-selected"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 5))
+        app.buttons["signoff"].tap()
+        delete.tap()
+        let title = app.staticTexts["backup-title"]
+        XCTAssertTrue(title.waitForExistence(timeout: 5))
+        // Above the card, on the dimmed list.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12)).tap()
+        let closed = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: title)
+        wait(for: [closed], timeout: 5)
+        XCTAssertFalse(app.staticTexts["Sample data. Nothing was removed."].exists, "Nothing was handed to Photos.")
+        XCTAssertFalse(app.staticTexts["copy-summary"].exists, "Nothing was sent to Archive either.")
+        XCTAssertTrue(app.navigationBars["Large videos"].waitForExistence(timeout: 5), "Still on the list.")
+        XCTAssertTrue(delete.exists)
+    }
+
     // MARK: - 1.0.1 round 2: Worth a look as picture cards
 
     func testWorthALookGroupsArePictureCardsWithTheSameGating() {

@@ -161,6 +161,7 @@ struct CleanupListView: View {
                             backup = nil
                             remove()
                         },
+                        // Tapping outside: the alert closes and nothing else happens. Nothing is deleted.
                         cancel: { backup = nil })
                 .presentationBackground(.clear)
         }
@@ -181,10 +182,12 @@ struct CleanupListView: View {
         let sample = model.isDemo
         working = true
         Task {
-            // Sample items have no archive copies. The archive list is read off the main thread.
+            // Sample items have no archive copies. The archive list and Photos are read off the main
+            // thread. An item counts only while its copy still matches it: edited since, not backed up.
             var archived: Set<String> = []
             if !sample {
-                archived = await Task.detached(priority: .userInitiated) { BackupLedger.verifiedPhotoIDs() }.value
+                let ids = records.map(\.id)
+                archived = await Task.detached(priority: .userInitiated) { BackupLedger.verifiedPhotoIDs(among: ids) }.value
             }
             working = false
             if let check = BackupCheck.alert(for: .list, selected: records, archived: archived) {
