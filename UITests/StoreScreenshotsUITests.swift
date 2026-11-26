@@ -38,6 +38,20 @@ final class StoreScreenshotsUITests: XCTestCase {
         if signoff.waitForExistence(timeout: 5) { signoff.tap() }
         sleep(1)
         keep(app, "store-03-pick")
+
+        // The second look: both videos picked, the sign-off ticked, Delete tapped. With sample data
+        // this only opens TidyAway's own "not backed up" check. "Delete anyway" is never tapped.
+        let other = app.buttons["select-sample-10"]
+        if other.waitForExistence(timeout: 5) { other.tap() }
+        if signoff.waitForExistence(timeout: 5) { signoff.tap() }
+        let delete = app.buttons["delete-selected"]
+        if delete.waitForExistence(timeout: 5), delete.isEnabled {
+            delete.tap()
+            if app.staticTexts["backup-title"].waitForExistence(timeout: 10) {
+                sleep(1)
+                keep(app, "store-08-second-look")
+            }
+        }
         app.terminate()
 
         // 4–5. Archive: groups made for you, and topics.
