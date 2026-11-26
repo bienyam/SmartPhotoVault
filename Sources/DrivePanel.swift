@@ -205,7 +205,7 @@ struct DriveScreen: View {
     @State private var confirmForget = false
     @Environment(\.dismiss) private var dismiss
 
-    private var bytes: Int64 { records.reduce(0) { $0 + $1.bytes } }
+    private var bytes: Int64 { records.reduce(0) { $0 + $1.totalBytes } }
 
     var body: some View {
         List {
@@ -313,10 +313,15 @@ struct DriveScreen: View {
         }
         for record in records {
             guard !Task.isCancelled else { return }
-            let folder = status.url, name = record.name
-            let expected = ArchiveProver.fingerprint(of: record)
-            let result = await Task.detached(priority: .userInitiated) {
-                Result { try VerifiedArchive.checkCopy(named: name, in: folder, expected: expected, wifi: nil, offDevice: false) }
+            let folder = status.url
+            // Every file of the item: one for most, several for a Live Photo or an edited photo.
+            let files = record.files.map { (name: $0.name, expected: ArchiveProver.fingerprint(of: $0)) }
+            let result: Result<Void, Error> = await Task.detached(priority: .userInitiated) {
+                Result {
+                    for file in files {
+                        _ = try VerifiedArchive.checkCopy(named: file.name, in: folder, expected: file.expected, wifi: nil, offDevice: false)
+                    }
+                }
             }.value
             switch result {
             case .success: exact += 1

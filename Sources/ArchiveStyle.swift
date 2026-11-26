@@ -1,5 +1,6 @@
 import Photos
 import SwiftUI
+import UIKit
 
 /// Colors for the Archive tab, chosen so text is readable (at least 4.5 to 1) in light and dark mode.
 enum ArchiveStyle {
@@ -22,6 +23,7 @@ struct ArchiveButtonStyle: ButtonStyle {
     var fill = ArchiveStyle.action
     var text = ArchiveStyle.onAction
     @Environment(\.isEnabled) private var enabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -31,12 +33,41 @@ struct ArchiveButtonStyle: ButtonStyle {
             .frame(maxWidth: .infinity, minHeight: 58)
             .foregroundStyle(text)
             .background(fill, in: RoundedRectangle(cornerRadius: 18))
-            .opacity(enabled ? (configuration.isPressed ? 0.85 : 1) : 0.45)
+            .opacity(enabled ? (configuration.isPressed ? 0.8 : 1) : 0.45)
+            // A firmer press: the button gives a little under the finger, with a light tap.
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)
+            .onChange(of: configuration.isPressed) { _, pressed in
+                if pressed { Haptics.light() }
+            }
+    }
+}
+
+/// A light tap for primary actions. Does nothing where the iPhone has haptics switched off.
+enum Haptics {
+    @MainActor
+    static func light() {
+        guard !LaunchFlags.has("--ui-fast") else { return }
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    }
+}
+
+/// The press state for cards and rows that act as buttons: a small give and a dip in brightness.
+struct PressableStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.8 : 1)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 
 /// A quieter, outlined button.
 struct ArchiveOutlineStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.subheadline.weight(.bold))
@@ -46,6 +77,8 @@ struct ArchiveOutlineStyle: ButtonStyle {
             .background(RoundedRectangle(cornerRadius: 14).stroke(ArchiveStyle.border, lineWidth: 1.5))
             .contentShape(Rectangle())
             .opacity(configuration.isPressed ? 0.7 : 1)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 

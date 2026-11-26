@@ -47,6 +47,7 @@ final class DashboardUITests: XCTestCase {
             XCTFail("Real Photos scan did not produce results: \(app.debugDescription)")
             return
         }
+        reveal(duplicates, in: app)
         duplicates.tap()
         XCTAssertTrue(app.navigationBars["Duplicates"].waitForExistence(timeout: 10))
         let fixture = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "SPV-test-")).firstMatch
@@ -170,10 +171,11 @@ final class DashboardUITests: XCTestCase {
     func testEveryMoreRowOpens() {
         let app = launch()
         app.tabBars.buttons["More"].tap()
-        let rows = ["more-activity": "Activity", "more-pro": "TidyAway Pro",
-                    "guide-messages": "Messages attachments", "more-explainer": "Where your storage goes",
-                    "more-optimize": "Keep smaller copies", "more-icloud-downloads": "Remove a file download",
-                    "more-help": "Help & privacy"]
+        // Top to bottom, as the page is laid out.
+        let rows = [("more-pro", "TidyAway Pro"), ("more-checkins", "Check-ins"), ("more-insights", "Storage insights"),
+                    ("more-activity", "Activity"), ("more-places", "Archive places"), ("more-tips", "Tips"),
+                    ("more-appearance", "Appearance"), ("more-help", "Help & FAQ"), ("more-privacy", "Privacy"),
+                    ("more-contact", "Contact us")]
         for (id, title) in rows {
             let row = app.buttons[id]
             reveal(row, in: app)
@@ -183,6 +185,79 @@ final class DashboardUITests: XCTestCase {
             app.navigationBars.buttons.element(boundBy: 0).tap()
             XCTAssertTrue(app.navigationBars["More"].waitForExistence(timeout: 5))
         }
+        XCTAssertTrue(app.buttons["more-restore"].exists, "Restore Purchases is one tap from More.")
+        let rate = app.buttons["more-rate"]
+        reveal(rate, in: app)
+        XCTAssertTrue(rate.exists)
+        XCTAssertTrue(app.staticTexts["more-version"].label.hasPrefix("TidyAway 1."), "The version line closes the page.")
+        keepScreenshot(of: app, named: "More tab")
+    }
+
+    /// Regression guard: every tip that shipped is still there, behind the one Tips row.
+    func testEveryTipIsStillUnderTips() {
+        let app = launch()
+        app.tabBars.buttons["More"].tap()
+        let tips = app.buttons["more-tips"]
+        reveal(tips, in: app)
+        XCTAssertTrue(tips.label.contains("This week:"), "The row previews one tip. \(tips.label)")
+        tips.tap()
+        XCTAssertTrue(app.navigationBars["Tips"].waitForExistence(timeout: 5))
+        let rows = [("guide-messages", "Messages attachments"), ("more-explainer", "Where your storage goes"),
+                    ("more-optimize", "Keep smaller copies"), ("more-icloud-downloads", "Remove a file download")]
+        for (id, title) in rows {
+            let row = app.buttons[id]
+            XCTAssertTrue(row.waitForExistence(timeout: 5), "\(id) is missing")
+            row.tap()
+            XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 5), "\(id) should open \(title)")
+            app.navigationBars.buttons.element(boundBy: 0).tap()
+            XCTAssertTrue(app.navigationBars["Tips"].waitForExistence(timeout: 5))
+        }
+        XCTAssertTrue(app.buttons["Free iCloud Drive downloads"].exists || app.staticTexts["Free iCloud Drive downloads"].exists,
+                      "The iCloud Drive tool keeps its own label.")
+    }
+
+    func testAppearanceIsChosenAndKept() {
+        var app = launch()
+        app.tabBars.buttons["More"].tap()
+        var row = app.buttons["more-appearance"]
+        reveal(row, in: app)
+        row.tap()
+        XCTAssertTrue(app.navigationBars["Appearance"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.tabBars.buttons["More"].exists, "The tab bar stays on Appearance.")
+        app.buttons["appearance-dark"].tap()
+        XCTAssertTrue(app.buttons["appearance-dark"].isSelected)
+        XCTAssertFalse(app.buttons["appearance-system"].isSelected)
+        keepScreenshot(of: app, named: "Appearance dark")
+        app.terminate()
+
+        app = launch()
+        keepScreenshot(of: app, named: "Home dark")
+        app.tabBars.buttons["More"].tap()
+        row = app.buttons["more-appearance"]
+        reveal(row, in: app)
+        XCTAssertTrue(row.label.contains("Dark"), "The choice is kept between launches. \(row.label)")
+        keepScreenshot(of: app, named: "More dark")
+        row.tap()
+        // Back to the default, so later tests and pictures follow the iPhone again.
+        app.buttons["appearance-system"].tap()
+        XCTAssertTrue(app.buttons["appearance-system"].isSelected)
+    }
+
+    func testHelpAndPrivacyKeepEveryParagraph() {
+        let app = launch()
+        app.tabBars.buttons["More"].tap()
+        let help = app.buttons["more-help"]
+        reveal(help, in: app)
+        help.tap()
+        XCTAssertTrue(app.navigationBars["Help & FAQ"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Free up finds the biggest things")).firstMatch.exists)
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Archive copies photos and files")).firstMatch.exists)
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        let privacy = app.buttons["more-privacy"]
+        reveal(privacy, in: app)
+        privacy.tap()
+        XCTAssertTrue(app.navigationBars["Privacy"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "TidyAway reads the Apple Photos items you authorize")).firstMatch.exists)
     }
 
     func testProUnlockedShowsAsUnlocked() {
@@ -191,12 +266,59 @@ final class DashboardUITests: XCTestCase {
         app.launch()
         app.tabBars.buttons["More"].tap()
         app.buttons["more-pro"].tap()
+        XCTAssertTrue(app.navigationBars["TidyAway Pro"].waitForExistence(timeout: 5))
+        // The Pro list is longer than one screen now; the purchase part sits below the features.
+        reveal(app.staticTexts["Pro is unlocked."], in: app)
         XCTAssertTrue(app.staticTexts["Pro is unlocked."].waitForExistence(timeout: 5))
+    }
+
+    func testCheckInsOpensFromMoreWithProRowsLocked() {
+        let app = XCUIApplication()
+        app.launchArguments += ["--skip-welcome", "--demo"]
+        app.launch()
+        app.tabBars.buttons["More"].tap()
+        let row = app.buttons["more-checkins"]
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        row.tap()
+        XCTAssertTrue(app.navigationBars["Check-ins"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["checkins-monthly"].exists, "Monthly is offered to everyone.")
+        XCTAssertTrue(app.buttons["checkins-weekly"].exists)
+        let note = app.descendants(matching: .any)["checkins-note"]
+        reveal(note, in: app)
+        XCTAssertTrue(note.exists, "The reminders-arrive-on-time note is shown.")
+        // Without Pro, a Pro row opens the Pro screen instead of switching on.
+        let low = app.buttons["checkins-low"]
+        reveal(low, in: app)
+        low.tap()
+        XCTAssertTrue(app.buttons["Not now"].waitForExistence(timeout: 5), "A locked row offers Pro.")
+        app.buttons["Not now"].tap()
+        let report = app.buttons["checkins-report"]
+        reveal(report, in: app)
+        report.tap()
+        XCTAssertTrue(app.navigationBars["Check-in"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["report-headline"].exists)
+    }
+
+    func testCheckInsProRowsAreSwitchesWithPro() {
+        let app = XCUIApplication()
+        app.launchArguments += ["--skip-welcome", "--demo", "--pro"]
+        app.launch()
+        app.tabBars.buttons["More"].tap()
+        app.buttons["more-checkins"].tap()
+        XCTAssertTrue(app.navigationBars["Check-ins"].waitForExistence(timeout: 5))
+        let calendar = app.switches["checkins-calendar"]
+        reveal(calendar, in: app)
+        XCTAssertTrue(calendar.exists, "With Pro the calendar row is a switch.")
+        app.buttons["checkins-daily"].tap()
+        XCTAssertTrue(app.buttons["checkins-daily"].isSelected)
     }
 
     func testMessagesAttachmentsGuideOpensWithoutAScan() {
         let app = launch()
         app.tabBars.buttons["More"].tap()
+        let tips = app.buttons["more-tips"]
+        reveal(tips, in: app)
+        tips.tap()
         app.buttons["guide-messages"].tap()
         XCTAssertTrue(app.navigationBars["Messages attachments"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Wait for the list to load, then tap Messages."].exists)
@@ -207,12 +329,17 @@ final class DashboardUITests: XCTestCase {
         app.tabBars.buttons["More"].tap()
         app.buttons["more-pro"].tap()
         XCTAssertTrue(app.navigationBars["TidyAway Pro"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Monthly, or once for life. Your choice."].exists)
+        XCTAssertTrue(app.staticTexts["Monthly, yearly, or once for life. Your choice."].exists)
+        XCTAssertTrue(app.staticTexts["Archive up to 5 GB, with every copy checked"].exists)
+        // The Pro list is longer than one screen now; the purchase part sits below the features.
+        reveal(app.buttons["pro-monthly"], in: app)
         XCTAssertTrue(app.buttons["pro-monthly"].waitForExistence(timeout: 5), "The monthly option is offered.")
+        reveal(app.buttons["pro-lifetime"], in: app)
         XCTAssertTrue(app.buttons["pro-lifetime"].exists, "The lifetime option is offered.")
+        reveal(app.buttons["Terms of Use"], in: app)
         XCTAssertTrue(app.buttons["Terms of Use"].exists, "Subscription terms are linked.")
         XCTAssertTrue(app.buttons["Privacy Policy"].exists)
-        XCTAssertTrue(app.staticTexts["Archive up to 5 GB, with every copy checked"].exists)
+        reveal(app.buttons["pro-restore"], in: app)
         XCTAssertTrue(app.buttons["pro-restore"].waitForExistence(timeout: 15))
     }
 
@@ -350,6 +477,10 @@ final class DashboardUITests: XCTestCase {
         let group = app.buttons["group-large-videos"]
         XCTAssertTrue(group.waitForExistence(timeout: 15))
         group.tap()
+        XCTAssertTrue(app.staticTexts["pro-sheet-title"].waitForExistence(timeout: 5), "Opening a group shows the Pro half sheet.")
+        app.buttons["pro-sheet-plans"].tap()
+        XCTAssertTrue(app.navigationBars["TidyAway Pro"].waitForExistence(timeout: 5), "See all plans opens the Pro page.")
+        reveal(app.buttons["pro-monthly"], in: app)
         XCTAssertTrue(app.buttons["pro-monthly"].waitForExistence(timeout: 5), "Opening a group shows Pro.")
     }
 
@@ -437,10 +568,13 @@ final class DashboardUITests: XCTestCase {
         let app = launchWithSamples()
         XCTAssertTrue(app.staticTexts["hero-bytes"].waitForExistence(timeout: 5))
         keepScreenshot(of: app, named: "Landing results")
-        for tag in ["Safe to clear", "Worth a look", "You decide"] {
+        XCTAssertTrue(app.descendants(matching: .any)["storage-score"].exists, "The Storage Score ring leads the page.")
+        XCTAssertTrue(app.staticTexts["Ready to tidy"].exists)
+        for tag in ["Safe to clear", "Worth a look", "Move it, keep it"] {
             XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", tag)).firstMatch.exists, tag)
         }
-        for row in ["row-duplicates", "row-videos", "row-screenshots", "row-more", "scan-details", "check-again", "review-next", "whats-using"] {
+        for row in ["row-duplicates", "row-videos", "row-screenshots", "row-more", "scan-details", "check-again", "review-next",
+                    "whats-using", "storage-checkup", "score-info", "home-settings", "freeup-forYou", "freeup-smart", "freeup-byType"] {
             XCTAssertTrue(app.buttons[row].exists, "\(row) must stay available.")
         }
         XCTAssertTrue(app.buttons["recently-deleted-card"].exists)
@@ -496,6 +630,211 @@ final class DashboardUITests: XCTestCase {
         XCTAssertFalse(app.buttons["archive-next"].exists, "Cleared: nothing left selected.")
     }
 
+    // MARK: - 1.0.1 home, Pro sheet and Storage Checkup
+
+    func testStorageScoreInfoExplainsTheScore() {
+        let app = launchWithSamples()
+        let info = app.buttons["score-info"]
+        for _ in 0..<4 where !info.isHittable { app.swipeDown() }
+        info.tap()
+        XCTAssertTrue(app.navigationBars["How the Storage Score works"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Score = free space")).firstMatch.exists)
+        XCTAssertTrue(app.staticTexts["score-yours"].exists, "It works the score out with this iPhone's own numbers.")
+        keepScreenshot(of: app, named: "Storage Score info")
+        app.buttons["score-info-done"].tap()
+        XCTAssertTrue(app.buttons["row-duplicates"].waitForExistence(timeout: 5))
+    }
+
+    func testPillsFilterTheShelvesAndKeepEveryRowReachable() {
+        let app = launchWithSamples()
+        reveal(app.buttons["freeup-byType"], in: app)
+        app.buttons["freeup-byType"].tap()
+        XCTAssertTrue(app.buttons["row-duplicates"].exists)
+        XCTAssertTrue(app.buttons["row-videos"].exists)
+        XCTAssertFalse(app.buttons["smart-screenshots"].exists, "By type leaves the smart rows out.")
+        app.buttons["freeup-smart"].tap()
+        XCTAssertTrue(app.buttons["smart-screenshots"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["row-duplicates"].exists)
+        app.buttons["freeup-forYou"].tap()
+        XCTAssertTrue(app.buttons["row-duplicates"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["smart-screenshots"].exists)
+    }
+
+    func testAProRowOpensTheHalfSheetAndNotNowClosesIt() {
+        let app = launchWithSamples()
+        let row = app.buttons["smart-screenshots"]
+        reveal(row, in: app)
+        XCTAssertTrue(row.label.contains("Pro"), "A Pro row stays visible, with its badge. \(row.label)")
+        row.tap()
+        XCTAssertTrue(app.staticTexts["pro-sheet-title"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["pro-sheet-title"].label, "Available in TidyAway Pro")
+        XCTAssertTrue(app.buttons["pro-sheet-start"].exists)
+        XCTAssertTrue(app.buttons["pro-sheet-plans"].exists)
+        keepScreenshot(of: app, named: "Pro half sheet")
+        app.buttons["pro-sheet-not-now"].tap()
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["pro-sheet-title"].exists)
+        // The free lists never ask.
+        XCTAssertFalse(app.buttons["row-duplicates"].label.contains("Pro"))
+    }
+
+    func testSeeAllPlansOpensTheProPageFromTheSheet() {
+        let app = launchWithSamples()
+        let row = app.buttons["smart-screenshots"]
+        reveal(row, in: app)
+        row.tap()
+        XCTAssertTrue(app.buttons["pro-sheet-plans"].waitForExistence(timeout: 5))
+        app.buttons["pro-sheet-plans"].tap()
+        XCTAssertTrue(app.navigationBars["TidyAway Pro"].waitForExistence(timeout: 5))
+    }
+
+    func testWithProTheSameRowOpensItsList() {
+        let app = XCUIApplication()
+        app.launchArguments += ["--skip-welcome", "--demo", "--pro"]
+        app.launch()
+        let row = app.buttons["smart-screenshots"]
+        XCTAssertTrue(row.waitForExistence(timeout: 15))
+        reveal(row, in: app)
+        row.tap()
+        XCTAssertTrue(app.navigationBars["Screenshots, read"].waitForExistence(timeout: 5))
+    }
+
+    func testTheGearOpensMore() {
+        let app = launch()
+        app.buttons["home-settings"].tap()
+        XCTAssertTrue(app.navigationBars["More"].waitForExistence(timeout: 5))
+    }
+
+    func testStorageCheckupGuidesStepsAndMeasures() {
+        let app = XCUIApplication()
+        app.launchArguments += ["--skip-welcome", "--reset-checkup"]
+        app.launch()
+        let link = app.buttons["storage-checkup"]
+        XCTAssertTrue(link.waitForExistence(timeout: 15))
+        link.tap()
+        XCTAssertTrue(app.navigationBars["Storage Checkup"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.tabBars.buttons["More"].isHittable, "The tab bar steps aside for the guided flow.")
+        XCTAssertEqual(app.staticTexts["checkup-count"].label, "0 of 7 done")
+        let path = app.staticTexts["checkup-path"]
+        XCTAssertTrue(path.exists, "Each step gives its Settings path as text.")
+        XCTAssertTrue(path.label.contains("Software Update"), path.label)
+        XCTAssertFalse(app.buttons["Open Settings"].exists, "No links into Settings.")
+        keepScreenshot(of: app, named: "Storage Checkup")
+        let measure = app.buttons["checkup-measure"]
+        for _ in 0..<5 where !measure.isHittable { app.swipeUp() }
+        measure.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["checkup-result"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["checkup-count"].label, "1 of 7 done", "Measuring marks the step.")
+        let skip = app.buttons["checkup-skip"]
+        for _ in 0..<5 where !skip.isHittable { app.swipeUp() }
+        skip.tap()
+        XCTAssertTrue(app.staticTexts["checkup-path"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["checkup-path"].label.contains("WhatsApp"), "The next step opens.")
+        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "restart")).firstMatch.exists)
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(app.tabBars.buttons["More"].waitForExistence(timeout: 5))
+    }
+
+    func testStorageTipHasNoRestartAdvice() {
+        let app = launch()
+        app.tabBars.buttons["More"].tap()
+        let tips = app.buttons["more-tips"]
+        reveal(tips, in: app)
+        tips.tap()
+        let row = app.buttons["more-explainer"]
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        row.tap()
+        XCTAssertTrue(app.navigationBars["Where your storage goes"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "restart")).firstMatch.exists,
+                       "Apps must not suggest restarting the iPhone.")
+    }
+
+    // MARK: - Preview before delete
+
+    func testAPictureOpensThePreviewAndSelectingThereNeverDeletes() {
+        let app = launchWithSamples()
+        let videos = app.buttons["row-videos"]
+        reveal(videos, in: app)
+        videos.tap()
+        XCTAssertTrue(app.navigationBars["Large videos"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["preview-hint"].firstMatch.exists, "The list says how looking and choosing work.")
+        let picture = app.buttons["preview-sample-11"]
+        XCTAssertTrue(picture.waitForExistence(timeout: 5), "The picture is its own button.")
+        picture.tap()
+        let select = app.buttons["preview-select"]
+        XCTAssertTrue(select.waitForExistence(timeout: 5), "The viewer opens full screen.")
+        XCTAssertTrue(app.buttons["preview-keep"].isSelected, "Nothing is selected for you.")
+        XCTAssertTrue(app.descendants(matching: .any)["preview-position"].firstMatch.label.contains(" of "))
+        let viewer = app.descendants(matching: .any)["preview-viewer"].firstMatch
+        XCTAssertTrue(viewer.exists, "The viewer is one container.")
+        let deleteWord = NSPredicate(format: "label CONTAINS[c] %@", "delete")
+        // Inside the viewer there is never a Delete, and nothing behind it can be reached while it is open:
+        // the list's own "Delete 1 item" button appears once something is ticked, and it must stay hidden.
+        let deletingInViewer = viewer.buttons.matching(deleteWord)
+        let deletingAnywhere = app.buttons.matching(deleteWord)
+        XCTAssertEqual(deletingInViewer.count, 0, "There is no Delete in the viewer.")
+        XCTAssertEqual(deletingAnywhere.count, 0, "Nothing behind the viewer can be reached.")
+        keepScreenshot(of: app, named: "Preview viewer")
+        select.tap()
+        XCTAssertTrue(select.isSelected)
+        XCTAssertEqual(deletingInViewer.count, 0, "Selecting in the viewer deletes nothing.")
+        // The full-screen cover leaves the list in the hierarchy XCUITest sees, so check what a person can do:
+        // the list's Delete must be neither tappable nor enabled while the viewer is open.
+        let listDelete = app.buttons["delete-selected"]
+        if listDelete.exists {
+            XCTAssertFalse(listDelete.isHittable, "The list's Delete can't be tapped from the viewer.")
+            XCTAssertFalse(listDelete.isEnabled, "Deleting still needs the sign-off.")
+        }
+        app.buttons["preview-info"].tap()
+        XCTAssertTrue(app.navigationBars["File info"].waitForExistence(timeout: 5))
+        keepScreenshot(of: app, named: "Preview file info")
+        app.buttons["preview-info-done"].tap()
+        app.buttons["preview-done"].tap()
+        // Back on the list: the item is ticked, and deleting still needs the sign-off.
+        let delete = app.buttons["delete-selected"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 5), "The tick made in the viewer shows on the list.")
+        XCTAssertFalse(delete.isEnabled, "Deleting still needs the sign-off.")
+        XCTAssertTrue(app.buttons["select-sample-11"].label.hasPrefix("Selected"))
+    }
+
+    func testKeepInThePreviewUnticksAndClearsTheSignOff() {
+        let app = launchWithSamples()
+        let videos = app.buttons["row-videos"]
+        reveal(videos, in: app)
+        videos.tap()
+        XCTAssertTrue(app.navigationBars["Large videos"].waitForExistence(timeout: 5))
+        app.buttons["select-sample-11"].tap()
+        let delete = app.buttons["delete-selected"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 5))
+        app.buttons["signoff"].tap()
+        XCTAssertTrue(delete.isEnabled)
+        app.buttons["preview-sample-11"].tap()
+        let keep = app.buttons["preview-keep"]
+        XCTAssertTrue(keep.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["preview-select"].isSelected, "The viewer shows what is ticked on the list.")
+        keep.tap()
+        XCTAssertTrue(keep.isSelected)
+        app.buttons["preview-done"].tap()
+        XCTAssertTrue(app.buttons["select-sample-11"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["select-sample-11"].label.hasPrefix("Select "), "Keep unticked it.")
+        XCTAssertFalse(app.buttons["delete-selected"].exists, "Nothing selected, nothing to delete.")
+    }
+
+    func testAKeptCopyOpensViewOnly() {
+        let app = launchWithSamples()
+        reveal(app.buttons["row-duplicates"], in: app)
+        app.buttons["row-duplicates"].tap()
+        XCTAssertTrue(app.navigationBars["Duplicates"].waitForExistence(timeout: 5))
+        let kept = app.buttons["preview-sample-1"]
+        XCTAssertTrue(kept.waitForExistence(timeout: 5), "The copy that stays can still be looked at.")
+        kept.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["preview-stays"].firstMatch.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["preview-select"].exists, "The copy that stays can't be selected in the viewer either.")
+        app.buttons["preview-done"].tap()
+        XCTAssertTrue(app.navigationBars["Duplicates"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["delete-selected"].exists)
+    }
+
     private func keepScreenshot(of app: XCUIApplication, named name: String) {
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = name
@@ -507,7 +846,8 @@ final class DashboardUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments += ["--skip-welcome"]
         app.launch()
-        XCTAssertTrue(app.navigationBars["TidyAway"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.navigationBars["TidyAway"].waitForExistence(timeout: 15)
+                      || app.tabBars.buttons["Free up"].exists)
         return app
     }
 

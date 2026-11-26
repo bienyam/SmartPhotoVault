@@ -40,7 +40,7 @@ struct ArchiveCompletion: Identifiable {
 
     /// The size of the copies of these items only.
     func bytes(of items: [ArchiveItem]) -> Int64 {
-        items.reduce(0) { $0 + (copies[$1.id]?.bytes ?? 0) }
+        items.reduce(0) { $0 + (copies[$1.id]?.totalBytes ?? 0) }
     }
 }
 
@@ -62,6 +62,9 @@ struct ArchivedRemovalView: View {
     @State private var checkedAt = Date()
     @State private var round = 0
     @State private var wifi = ArchiveWiFi()
+    /// How much of the originals the check has read again so far, so a large video never looks stuck.
+    @State private var reading = ProofProgress()
+    @State private var readBytes: Int64 = 0
     /// Bringing one copy back and checking it against its original. Removal waits for it.
     @State private var test = RestoreTest.notYet
     /// What removal is doing right now, with a count, so a long step never looks stuck.
@@ -73,9 +76,16 @@ struct ArchivedRemovalView: View {
 
     enum RestoreTest: Equatable {
         case notYet, running, passed(String), failed(String)
+        /// Two came back: the smallest copy, and the smallest Live Photo or edited photo.
+        case passedTwo(String, String)
     }
 
-    private var tested: Bool { if case .passed = test { true } else { false } }
+    private var tested: Bool {
+        switch test {
+        case .passed, .passedTwo: true
+        default: false
+        }
+    }
 
     private struct Staying: Identifiable {
         let id: String
@@ -83,7 +93,7 @@ struct ArchivedRemovalView: View {
         let reason: String
     }
 
-    private var bytes: Int64 { proofs.reduce(0) { $0 + $1.record.bytes } }
+    private var bytes: Int64 { proofs.reduce(0) { $0 + $1.record.totalBytes } }
 
     var body: some View {
         List {
@@ -94,6 +104,11 @@ struct ArchivedRemovalView: View {
                         Text("Checking every copy: \(checked) of \(total)")
                     }
                     .accessibilityIdentifier("archive-recheck")
+                    if readBytes > 0 {
+                        Text("Read \(readBytes.fileSize) of your originals so far.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                            .accessibilityIdentifier("archive-recheck-read")
+                    }
                     Text("Each copy must still be there, the same size as its original to the byte. Keep this open.")
                         .font(.footnote).foregroundStyle(.secondary)
                 } else if let phase {
@@ -171,6 +186,16 @@ struct ArchivedRemovalView: View {
         total = candidates.count
         UIApplication.shared.isIdleTimerDisabled = true
         defer { UIApplication.shared.isIdleTimerDisabled = false }
+        let progress = reading
+        progress.reset()
+        readBytes = 0
+        let watch = Task {
+            while !Task.isCancelled {
+                readBytes = progress.bytes
+                try? await Task.sleep(nanoseconds: 500_000_000)
+            }
+        }
+        defer { watch.cancel() }
         if done.copies.values.contains(where: \.viaHomeServer) {
             // The Wi-Fi check needs a moment to learn the connection.
             try? await Task.sleep(nanoseconds: 800_000_000)
@@ -189,10 +214,16 @@ struct ArchivedRemovalView: View {
                     let record = copies[item.id]
                     group.addTask {
                         (item, await Result(awaiting: {
-                            let proof = try await ArchiveProver.prove(photoID: id, record: record, wifi: network)
+                            let proof = try await ArchiveProver.prove(photoID: id, record: record, wifi: network, progress: progress)
                             // A confirmed copy the person can't see (OneDrive's app folder in work and school
                             // accounts) is not enough: its original stays.
-                            guard await CopyVisibility.canBeSeen(proof.record) else { throw HiddenCopy() }
+                            // For a Live Photo or edited photo, that goes for every one of its files.
+                            guard await CopyVisibility.canAllBeSeen(proof.record) else { throw HiddenCopy() }
+                            // A Live Photo or edited photo may go only if Photos on this iPhone says it
+                            // can build one item out of its files again.
+                            guard !proof.record.hasParts || ArchiveRestore.photosCanRebuild(proof.record.partTypes) else {
+                                throw CannotRebuild()
+                            }
                             return proof
                         }))
                     }
@@ -234,6 +265,8 @@ struct ArchivedRemovalView: View {
         switch test {
         case .passed(let name):
             check(true, "One brought back and checked", "\(name) matched its original exactly")
+        case let .passedTwo(first, second):
+            check(true, "Two brought back and checked", "\(first) and \(second) matched their originals exactly")
         case .failed(let reason):
             check(false, "Bring one back to test", reason, problem: true)
         default:
@@ -265,15 +298,25 @@ struct ArchivedRemovalView: View {
         return nil
     }
 
-    /// Downloads the smallest confirmed copy and compares it with its original's fingerprint.
+    /// Downloads the smallest confirmed copy and compares it with its original's fingerprint. When the
+    /// set holds Live Photos or edited photos, the smallest of those is brought back too, every file of it.
     private func bringOneBack() async {
-        guard let proof = proofs.min(by: { $0.record.bytes < $1.record.bytes }) else { return }
+        let chosen = RestoreTestChoice.records(from: proofs.map(\.record))
+        guard let first = chosen.first else { return }
         test = .running
         do {
-            let url = try await ArchiveRestore.verifiedCopy(proof.record, wifi: wifi)
-            try? FileManager.default.removeItem(at: url)
-            test = .passed(proof.record.name)
-            try? InventoryStore.openDefault().log("Test restore from \(done.place) matched its original.")
+            for record in chosen {
+                let urls = try await ArchiveRestore.verifiedCopies(record, wifi: wifi)
+                for url in urls { try? FileManager.default.removeItem(at: url) }
+                guard urls.count == record.files.count else { throw ArchiveError.verification }
+            }
+            if chosen.count > 1 {
+                test = .passedTwo(first.name, chosen[1].name)
+                try? InventoryStore.openDefault().log("Two test restores from \(done.place) matched their originals.")
+            } else {
+                test = .passed(first.name)
+                try? InventoryStore.openDefault().log("Test restore from \(done.place) matched its original.")
+            }
         } catch {
             test = .failed("Couldn't bring it back: \(error.localizedDescription) Your originals stay until this works.")
         }
@@ -337,6 +380,26 @@ struct ArchivedRemovalView: View {
             case .blocked(let reason): message = reason
             }
         }
+    }
+}
+
+/// Which copies the test restore brings back before anything may be deleted.
+enum RestoreTestChoice {
+    /// The smallest copy, as always. If that one is a single file and the set also holds Live Photos or
+    /// edited photos, the smallest of those as well, so a copy made of several files is always tested
+    /// when there is one.
+    static func records(from records: [ArchivedRecord]) -> [ArchivedRecord] {
+        guard let smallest = records.min(by: { $0.totalBytes < $1.totalBytes }) else { return [] }
+        if smallest.hasParts { return [smallest] }
+        guard let several = records.filter(\.hasParts).min(by: { $0.totalBytes < $1.totalBytes }) else { return [smallest] }
+        return [smallest, several]
+    }
+}
+
+/// A Live Photo or edited photo whose files are all confirmed, but Photos won't build one item from them.
+struct CannotRebuild: LocalizedError {
+    var errorDescription: String? {
+        "Photos on this \(Device.name) can't rebuild this Live Photo or edited photo from its copies, so it stays."
     }
 }
 

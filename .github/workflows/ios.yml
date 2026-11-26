@@ -19,7 +19,8 @@ jobs:
         run: python3 -m unittest discover -s Scripts/tests -v
   simulator:
     runs-on: macos-15
-    timeout-minutes: 25
+    # 1.0.1 added UI tests for the new home, More tab, Checkup and preview; the job needs longer.
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
       - name: Install project generator
@@ -47,7 +48,8 @@ jobs:
           xcrun simctl bootstatus "$DEVICE_ID" -b
           xcrun simctl install "$DEVICE_ID" build/DerivedData/Build/Products/Debug-iphonesimulator/SmartPhotoVault.app
       - name: Test archive copy and restore without Photos authorization
-        timeout-minutes: 5
+        # The first launch of the test host on a fresh simulator has taken up to 5 minutes on its own.
+        timeout-minutes: 10
         run: >-
           xcodebuild test-without-building
           -project SmartPhotoVault.xcodeproj
@@ -59,7 +61,8 @@ jobs:
           -resultBundlePath build/ArchiveResults.xcresult
           CODE_SIGNING_ALLOWED=NO
       - name: Authorize Photos through the real system dialog
-        timeout-minutes: 5
+        # The first launch of the test host on a fresh simulator has taken up to 5 minutes on its own.
+        timeout-minutes: 10
         run: >-
           xcodebuild test-without-building
           -project SmartPhotoVault.xcodeproj
@@ -71,7 +74,7 @@ jobs:
           -resultBundlePath build/AuthorizationResults.xcresult
           CODE_SIGNING_ALLOWED=NO
       - name: Test real Photos resources and app flows
-        timeout-minutes: 12
+        timeout-minutes: 30
         run: >-
           xcodebuild test-without-building
           -project SmartPhotoVault.xcodeproj
@@ -132,7 +135,8 @@ jobs:
     # The pull request already crawled exactly what lands on main.
     if: github.event_name != 'push'
     runs-on: macos-15
-    timeout-minutes: 45
+    # 1.0.1 added screens (Storage Checkup, the new More tab, preview), so the crawl has more to cover.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - name: Install project generator
@@ -156,7 +160,7 @@ jobs:
       - name: Wait for the simulator
         run: xcrun simctl bootstatus "$DEVICE_ID" -b
       - name: Crawl every screen and button
-        timeout-minutes: 30
+        timeout-minutes: 45
         # bash turns on pipefail; without it the pipe into tee hid a failed crawl behind a green check.
         shell: bash
         run: >-

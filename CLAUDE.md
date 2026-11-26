@@ -5,6 +5,7 @@ iPhone app for phone and cloud storage cleanup and archiving. Display name **Tid
 ## Product
 - Goal: small versions on the phone, full resolution in iCloud, and a third-party store as a true archive that can be pulled back on demand.
 - Archive destinations: Google Drive first (through Files), home file server, iCloud Drive, other Files locations. More "plugins" later, by demand.
+- Tabs today: Free up, Archive, More (the line below is the original plan, kept for history).
 - Tabs: Home, Clean, Archive, Archived, Ledger.
 - Pricing (owner, 2026-11-21): generous free tier; Pro is $7.99 a month (com.bienyam.SmartPhotoVault.pro.monthly, group "TidyAway Pro") or $39.99 lifetime (com.bienyam.SmartPhotoVault.storagepro), both with Family Sharing. Never weekly subscriptions.
 - Owner prefers brief, direct updates and iterating in small steps.
@@ -29,6 +30,16 @@ Doc: `TidyAway_Vision.html`. Promise: "One scan finds the junk you didn't know y
 - AI checks run on device on thumbnails (Vision); calibrate thresholds on the owner's library on his iPhone, nothing uploaded. iCloud-only sizes use the undocumented `fileSize` value for now; replace if App Review objects.
 - **Next release: storage setup advisor.** Two or three well-chosen questions about which services the person uses (iCloud, Google Drive, a drive), then a recommended setup (for example archive to Google Drive, full-size in iCloud, smaller copies on the phone) and the shortest path to configure it in the app. Not a monthly-cost calculator.
 - Quality gate: an automated UI crawler (`UITests/CrawlerUITests.swift`) taps every control on every screen with sample data and reports dead buttons, dead ends and tap depth. Run it before each TestFlight build.
+
+## 1.0.1 design (approved by the owner 2026-11-25)
+Mockup: `C:/Projects/Tideway/mockups/1.0.1/v101-final-mockup.html`. Built on `release/1.0.1`; draft PR #82 into main waits for the owner's go-ahead.
+- **Free up:** one hero card with the Storage Score ring (`StorageScore`: free ÷ total × 4, capped at 100, bands A to E, green and amber only) and the storage bar (Photos measured, the rest "worked out"). Fixed backdrop, frosted header, a gear to More. "Ready to tidy" has three shelves (Safe to clear / Worth a look / Move it, keep it), each group once as a row. Total, "Review and free space" and the Storage Checkup link are docked above the tab bar. The pills, the suggestion, every group, Recently Deleted, the iCloud note, Scan details and Check again are all still there.
+- **Storage Checkup** (`StorageCheckup.swift`): guided steps with Settings paths as text only. Never `prefs:` links, never restart advice (guideline 2.4.4). It re-measures free space and says "Free space rose X", never "TidyAway freed".
+- **More, option C:** plan card with Restore Purchases, Stay on top, one Tips row (all tips behind it), Display › Appearance (Same as iPhone / Light / Dark via `AppearanceStore`), Help (Help & FAQ, Privacy, Contact us, Rate), version line.
+- **Free vs Pro, option B** (`ProGate`): Pro = smart picks on Free up, Smart Pro, Archive groups and album/place filters, unlimited archive, extra check-ins. Free = by-type lists, 5 GB, every destination, verified delete, Get back, Activity, preview, favorites protection, Storage Checkup. Pro items stay visible with a PRO badge and open the half sheet (`ProFeatureSheet`), never at launch. Prices and trials come from StoreKit, never hard-coded.
+- **Grandfathering** (`Grandfather`): installs that started on 1.0 keep smart picks free for good. On iPhone `AppTransaction.originalAppVersion` is the build number (1.0 builds are 100 to 194), and the sandbox always reports "1.0", so it is ignored there; the backup is 1.0 data present the first time 1.0.1 opens.
+- **Preview before delete** (`PreviewViewer.swift`): free for everyone, and there is no Delete in the viewer, its info sheet or its menu.
+- UI tests: `--pro`, `--grandfathered`, `--reset-checkup` launch flags. The simulator job runs about 45 UI tests and needs its longer timeout.
 
 ## Rules that must hold
 - **HARD RULE (owner, 2026-11-21): never remove, hide or change an existing shipped feature unless that specific change is the intent of the task and the owner has asked for it.** A broad approval ("go with all ★", "trim the list") does not cover dropping a working feature; name each removal on its own and get a yes. Concrete trigger: PR #40 hid the "Other Files location", "Home file server" and "Another Apple Account" archive destinations as part of a bundled "trim destinations" decision, and the owner found them gone in TestFlight. They are restored and guarded by `testEveryArchiveDestinationIsStillOffered`. Before every PR, check the diff for anything removed or hidden that wasn't explicitly asked for.
