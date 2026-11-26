@@ -35,6 +35,9 @@ struct CleanupListView: View {
     @State private var message: String?
     @State private var result: RemovedResult?
     @State private var preview: PreviewRequest?
+    /// Set when some selected items have no verified archive copy: the alert before Apple's confirmation.
+    @State private var backup: BackupCheck?
+    @State private var ratingTrigger = 0
 
     private var kept: Set<String> { Set(sets.map(\.keep.id)) }
     /// Everything the viewer can swipe through, in the order the list shows it.
@@ -140,7 +143,28 @@ struct CleanupListView: View {
                 .hiddenBehindPreview(preview != nil)
             }
         }
-        .sheet(item: $result) { RescueResultView(result: $0) }
+        .sheet(item: $result, onDismiss: { ratingTrigger += 1 }) { RescueResultView(result: $0) }
+        .fullScreenCover(item: $backup) { check in
+            BackupAlert(check: check,
+                        copyFirst: {
+                            // Only the items without a copy go to Archive. Nothing is deleted.
+                            backup = nil
+                            agreed = false
+                            let items = check.notBackedUp
+                            // Once the alert has closed, the same hand-over as "Or archive them instead".
+                            Task { @MainActor in
+                                try? await Task.sleep(nanoseconds: 350_000_000)
+                                ArchiveBasket.shared.send(items)
+                            }
+                        },
+                        deleteAnyway: {
+                            backup = nil
+                            remove()
+                        },
+                        cancel: { backup = nil })
+                .presentationBackground(.clear)
+        }
+        .asksForRating(when: ratingTrigger)
         .onChange(of: selected) { message = nil }
     }
 
@@ -150,9 +174,32 @@ struct CleanupListView: View {
         agreed = false
     }
 
+    /// Delete was tapped, with the sign-off ticked. Before Apple's confirmation, check whether every
+    /// selected item has a verified archive copy; if some don't, ask first. Every time.
     private func delete() {
         let records = selectedRecords
+        let sample = model.isDemo
+        working = true
+        Task {
+            // Sample items have no archive copies. The archive list is read off the main thread.
+            var archived: Set<String> = []
+            if !sample {
+                archived = await Task.detached(priority: .userInitiated) { BackupLedger.verifiedPhotoIDs() }.value
+            }
+            working = false
+            if let check = BackupCheck.alert(for: .list, selected: records, archived: archived) {
+                backup = check
+            } else {
+                remove()
+            }
+        }
+    }
+
+    /// Hands the selection to Photos, which shows Apple's own confirmation.
+    private func remove() {
+        let records = selectedRecords
         let bytes = selectedBytes
+        guard !records.isEmpty else { return }
         working = true
         Task {
             let outcome = await model.removeItems(records.map(\.id), bytes: bytes, from: source)
@@ -185,6 +232,7 @@ struct DuplicatesListView: View {
     @State private var message: String?
     @State private var result: RemovedResult?
     @State private var preview: PreviewRequest?
+    @State private var ratingTrigger = 0
 
     private var groups: [DuplicateGroup] { model.rescue?.duplicateGroups ?? [] }
     private var extras: [String] { model.rescue?.duplicatePlans.flatMap(\.removeIDs) ?? [] }
@@ -262,10 +310,13 @@ struct DuplicatesListView: View {
                     .hiddenBehindPreview(preview != nil)
             }
         }
-        .sheet(item: $result) { RescueResultView(result: $0) }
+        .sheet(item: $result, onDismiss: { ratingTrigger += 1 }) { RescueResultView(result: $0) }
+        .asksForRating(when: ratingTrigger)
         .onChange(of: selected) { message = nil }
     }
 
+    /// Duplicates skip the "not backed up" check (`DeleteFlow.duplicates`): only extra copies go,
+    /// and one byte-identical copy of each always stays on the iPhone.
     private func delete() {
         let plans = selectedPlans
         working = true

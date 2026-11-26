@@ -41,6 +41,15 @@ Mockup: `C:/Projects/Tideway/mockups/1.0.1/v101-final-mockup.html`. Built on `re
 - **Preview before delete** (`PreviewViewer.swift`): free for everyone, and there is no Delete in the viewer, its info sheet or its menu.
 - UI tests: `--pro`, `--grandfathered`, `--reset-checkup` launch flags. The simulator job runs about 45 UI tests and needs its longer timeout.
 
+## 1.0.1 round 2 (owner feedback, approved 2026-11-25)
+Mockup: `C:/Projects/Tideway/mockups/1.0.1/v101-feedback-mockup.html`. Branch `feat/v101-round2`.
+- **Score card:** ring, grade, "X of Y used", the bar and a one-line legend only. Every explanation sentence lives in the ⓘ sheet (`ScoreInfoSheet`, three sections that open in place). Bar colors follow iPhone Storage: `Brand.storagePhotos` (yellow), `Brand.storageRest` (gray, striped), `Brand.storageFree` (the empty track).
+- **Receipts & documents** (group id stays `expired`): needs a paper label (`CleanupGrouper.paperLabels`), a ticket counts only with one, no parking lots or number plates, no photo with a face of any size (`PhotoInsight.anyFace`; older results get a face-only check and stay out until checked), over 3 months old.
+- **Worth a look** rows are picture cards (`TidyPhotoCard`), one per row, with the PRO badge and the same half sheet. Archive is unchanged.
+- **Help & FAQ and Privacy** are accordions (`AccordionText`): closed to begin with, one open at a time, every paragraph word for word.
+- **Not backed up check** (`BackupCheck`, `BackupAlert`): after the sign-off and before Apple's confirmation, every time, when a selected item has no verified archive record. Copy first sends only those items to Archive; Delete anyway goes on. Skipped for Duplicates and Already archived (`DeleteFlow`). iCloud Photos never counts as a backup.
+- **Rating prompt** (`RatingPrompt`): Apple's own prompt, once, after the second finished cleanup or archive, only when a result screen closes. Never in UI tests.
+
 ## Rules that must hold
 - **HARD RULE (owner, 2026-11-21): never remove, hide or change an existing shipped feature unless that specific change is the intent of the task and the owner has asked for it.** A broad approval ("go with all ★", "trim the list") does not cover dropping a working feature; name each removal on its own and get a yes. Concrete trigger: PR #40 hid the "Other Files location", "Home file server" and "Another Apple Account" archive destinations as part of a bundled "trim destinations" decision, and the owner found them gone in TestFlight. They are restored and guarded by `testEveryArchiveDestinationIsStillOffered`. Before every PR, check the diff for anything removed or hidden that wasn't explicitly asked for.
 - Sign-off before any copy, removal or restore: an unchecked acknowledgment and a disabled button. Wording comes from `ACTION_AUTHORIZATION.md` (short line, disclosure v2, full text behind (i)); do not reword it casually. One sign-off may cover a whole batch.

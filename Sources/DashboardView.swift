@@ -97,7 +97,7 @@ struct FreeUpView: View {
                 RecentlyDeletedGuide()
             }
             .sheet(isPresented: $showScoreInfo) {
-                if let storage { ScoreInfoSheet(storage: storage) }
+                if let storage { ScoreInfoSheet(storage: storage, photos: measuredPhotos) }
             }
             .proSheet($offer, pro: pro)
             .onChange(of: scenePhase) { _, phase in
@@ -234,9 +234,18 @@ struct FreeUpView: View {
                 let counted = totals?.shelves[shelf.rawValue] ?? plain
                 VStack(spacing: 0) {
                     ShelfHeader(shelf: shelf, total: section == .forYou ? counted : plain)
-                    ForEach(list) { row in
+                    if shelf == .look {
+                        // Worth a look: each group as a picture card, one per row, as on Archive.
                         Rectangle().fill(Brand.hairline).frame(height: 1)
-                        rowButton(row, rescue)
+                        VStack(spacing: 10) {
+                            ForEach(list) { row in rowButton(row, rescue) }
+                        }
+                        .padding(.vertical, 12)
+                    } else {
+                        ForEach(list) { row in
+                            Rectangle().fill(Brand.hairline).frame(height: 1)
+                            rowButton(row, rescue)
+                        }
                     }
                 }
                 .padding(.horizontal, 16)
@@ -310,7 +319,7 @@ struct FreeUpView: View {
             Button {
                 offer = ProOffer(id: row.id, title: row.title, what: row.what, found: found(row), symbol: row.symbol)
             } label: {
-                TidyRowLabel(row: row, locked: true)
+                rowLabel(row, locked: true)
             }
             .buttonStyle(PressableStyle())
             .accessibilityElement(children: .combine)
@@ -319,13 +328,22 @@ struct FreeUpView: View {
             .accessibilityIdentifier(row.id)
         } else {
             NavigationLink { destination(row, rescue) } label: {
-                TidyRowLabel(row: row, locked: false,
-                             yours: row.feature == .smartPicks && pro.grandfathered && !pro.unlocked)
+                rowLabel(row, locked: false, yours: row.feature == .smartPicks && pro.grandfathered && !pro.unlocked)
             }
             .buttonStyle(PressableStyle())
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(.isButton)
             .accessibilityIdentifier(row.id)
+        }
+    }
+
+    /// Worth a look groups are picture cards; the other two shelves keep their plain rows.
+    @ViewBuilder
+    private func rowLabel(_ row: TidyRow, locked: Bool, yours: Bool = false) -> some View {
+        if row.shelf == .look {
+            TidyPhotoCard(row: row, locked: locked, yours: yours)
+        } else {
+            TidyRowLabel(row: row, locked: locked, yours: yours)
         }
     }
 
@@ -382,7 +400,7 @@ struct FreeUpView: View {
                                 detail: group.why, size: group.bytes.fileSize,
                                 count: "\(number.formatted()) \(number == 1 ? "item" : "items")",
                                 symbol: group.symbol, bytes: group.items.reduce(0) { $0 + $1.localBytes },
-                                feature: .smartPicks, what: ProGate.smartPickWhat(group.id)))
+                                feature: .smartPicks, what: ProGate.smartPickWhat(group.id), coverID: group.coverID))
         }
         if !sets.isEmpty {
             let extras = sets.flatMap(\.extras)
@@ -392,20 +410,23 @@ struct FreeUpView: View {
                                 size: bytes > 0 ? bytes.fileSize : "\(sets.count.formatted())",
                                 count: "\(sets.count.formatted()) look-alike \(sets.count == 1 ? "set" : "sets")",
                                 symbol: "star.square.on.square", bytes: bytes, feature: .smartPro,
-                                what: "picks the photo to keep in each set of look-alike shots and says why: the sharpest, eyes open, the clearest faces. You only decide what goes."))
+                                what: "picks the photo to keep in each set of look-alike shots and says why: the sharpest, eyes open, the clearest faces. You only decide what goes.",
+                                coverID: sets.first?.keep.id))
         }
         if !shots.items.isEmpty {
             list.append(TidyRow(id: "smart-screenshots", shelf: .look, kind: .pro, title: "Screenshots, read",
                                 detail: sortedDetail(rescue), size: shots.items.count.formatted(), count: "screenshots",
                                 symbol: "text.viewfinder", bytes: 0, feature: .smartPro,
-                                what: "reads the words in your screenshots on this \(Device.name) and sorts them: login codes, expired tickets, receipts, chats and maps. The words are never kept or sent."))
+                                what: "reads the words in your screenshots on this \(Device.name) and sorts them: login codes, expired tickets, receipts, chats and maps. The words are never kept or sent.",
+                                coverID: shots.items.first?.id))
         }
         let kinds = rescue.otherTypes.filter { !$0.items.isEmpty }.count
         list.append(TidyRow(id: "row-more", shelf: .look, kind: .type, title: "More types",
                             detail: "GIFs, bursts, Live Photos and more",
                             size: rescue.otherBytes.fileSize,
                             count: kinds == 0 ? "" : "\(kinds) \(kinds == 1 ? "kind" : "kinds")",
-                            symbol: "square.grid.2x2", bytes: rescue.otherBytes))
+                            symbol: "square.grid.2x2", bytes: rescue.otherBytes,
+                            coverID: rescue.otherTypes.first { !$0.items.isEmpty }?.items.first?.id))
 
         // Move it, keep it
         list.append(TidyRow(id: "row-videos", shelf: .move, kind: .type, title: "Large videos",

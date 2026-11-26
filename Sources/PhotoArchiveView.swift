@@ -35,7 +35,7 @@ struct ArchiveScanCard: View {
                     ProgressView("Looking through your photos…")
                 }
             } else {
-                Text("TidyAway groups your events, trips and large videos, so you can move a whole group in one go.")
+                Text("TidyAway groups your events, trips and large videos from your \(Device.name) and iCloud, so you can move a whole group in one go.")
                     .foregroundStyle(ArchiveStyle.muted)
                 Button("Find my groups") { model.startDuplicateScan() }
                     .buttonStyle(ArchiveButtonStyle())
@@ -168,6 +168,7 @@ struct PhotoArchiveView: View {
     /// Which Pro feature the half sheet describes.
     @State private var lockedFeature = ProFeature.archiveGroups
     @State private var showRun = false
+    @State private var ratingTrigger = 0
     @State private var groups: [SmartGroup] = []
     @State private var findingGroups = false
     @State private var section = SmartGroup.Section.forYou
@@ -286,6 +287,7 @@ struct PhotoArchiveView: View {
             }
         }
         .fullScreenCover(isPresented: $showRun) { runCover }
+        .asksForRating(when: ratingTrigger)
         .sheet(isPresented: $showDetails) { detailsSheet }
         .sheet(isPresented: $showPro) { proSheet($showPro) }
         .sheet(item: $pickingFolder) { place in
@@ -1238,6 +1240,12 @@ struct PhotoArchiveView: View {
     }
 
     private func closeRun() {
+        // The result screen is closing: an archive that copied something counts toward the rating
+        // prompt, which may show now that nothing else is on screen.
+        if run.outcome?.completion != nil {
+            RatingPrompt.noteCompletion()
+            ratingTrigger += 1
+        }
         showRun = false
         path = NavigationPath()
     }

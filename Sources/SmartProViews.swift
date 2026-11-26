@@ -8,6 +8,7 @@ struct ArchivedOnPhoneView: View {
     @ObservedObject var model: DashboardModel
     let places: [ArchivedPlace]
     @State private var removal: ArchiveCompletion?
+    @State private var ratingTrigger = 0
 
     var body: some View {
         List {
@@ -36,9 +37,12 @@ struct ArchivedOnPhoneView: View {
         }
         .navigationTitle("Already archived")
         .navigationBarTitleDisplayMode(.inline)
-        .sheet(item: $removal) { done in
+        // Already archived skips the "not backed up" check (`DeleteFlow.alreadyArchived`): every
+        // item here has a verified copy, and each copy is proved again before anything is deleted.
+        .sheet(item: $removal, onDismiss: { ratingTrigger += 1 }) { done in
             NavigationStack { ArchivedRemovalView(done: done, model: model) }
         }
+        .asksForRating(when: ratingTrigger)
     }
 }
 

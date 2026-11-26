@@ -553,59 +553,89 @@ struct ArchivePlacesView: View {
 
 // MARK: - Help, privacy, contact
 
-/// The help half of what used to be "Help & privacy". Every word is unchanged.
+/// The help half of what used to be "Help & privacy". Short titles that open in place, one at a
+/// time, all closed to begin with. Every answer is here word for word.
 struct HelpFAQView: View {
+    @State private var open: String?
+
     var body: some View {
         List {
             Section("How TidyAway works") {
-                Text("Free up finds the biggest things on this \(Device.name). You pick what goes, sign off, and Apple asks you to confirm. Deleted items wait in Recently Deleted for 30 days; empty it in Photos to get the space back.")
-                Text("Archive copies photos and files to a place you choose and checks every copy. It only adds copies there; it never deletes or changes anything in your archive.")
+                AccordionText(title: "Free up",
+                              text: "Free up finds the biggest things on this \(Device.name). You pick what goes, sign off, and Apple asks you to confirm. Deleted items wait in Recently Deleted for 30 days; empty it in Photos to get the space back.",
+                              identifier: "faq-free-up", open: $open)
+                AccordionText(title: "Archive",
+                              text: "Archive copies photos and files from your \(Device.name) and iCloud to a place you choose and checks every copy. It only adds copies there; it never deletes or changes anything in your archive.",
+                              identifier: "faq-archive", open: $open)
             }
             Section("Common questions") {
-                question("Why didn't my free space change after deleting?",
-                         "Deleted photos and videos wait in Recently Deleted for up to 30 days and still use space. Empty that album in Photos to get the space back.")
-                question("Can TidyAway delete my favorites?",
-                         "No. Favorites are never offered for deletion and can't be selected.")
-                question("What is the Storage Score?",
-                         "One number from free space alone: free space ÷ total space × 4, capped at 100. It is not a measure of speed, battery or the health of your \(Device.name).")
-                question("Can TidyAway clear apps or System Data?",
-                         "No app can. The Storage Checkup shows the steps to do it yourself in Settings, then measures your free space again.")
+                AccordionText(title: "Why didn't my free space change after deleting?",
+                              text: "Deleted photos and videos wait in Recently Deleted for up to 30 days and still use space. Empty that album in Photos to get the space back.",
+                              identifier: "faq-space", open: $open)
+                AccordionText(title: "Can TidyAway delete my favorites?",
+                              text: "No. Favorites are never offered for deletion and can't be selected.",
+                              identifier: "faq-favorites", open: $open)
+                AccordionText(title: "What is the Storage Score?",
+                              text: "One number from free space alone: free space ÷ total space × 4, capped at 100. It is not a measure of speed, battery or the health of your \(Device.name).",
+                              identifier: "faq-score", open: $open)
+                AccordionText(title: "Can TidyAway clear apps or System Data?",
+                              text: "No app can. The Storage Checkup shows the steps to do it yourself in Settings, then measures your free space again.",
+                              identifier: "faq-apps", open: $open)
             }
         }
         .navigationTitle("Help & FAQ")
         .navigationBarTitleDisplayMode(.inline)
     }
-
-    private func question(_ title: String, _ answer: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title).font(.body.weight(.semibold))
-            Text(answer).font(.subheadline).foregroundStyle(.secondary)
-        }
-        .accessibilityElement(children: .combine)
-    }
 }
 
-/// The privacy half of what used to be "Help & privacy". Every paragraph is here, unchanged.
+/// The privacy half of what used to be "Help & privacy". Every paragraph is here, unchanged,
+/// under a short title that opens in place. All closed to begin with, one open at a time.
 struct PrivacyView: View {
+    @State private var open: String?
+
     var body: some View {
         List {
             Section("Privacy") {
-                Text("TidyAway reads the Apple Photos items you authorize. Scanning and exact duplicate matching run on your device.")
-                Text("The app stores the latest completed check and its activity log locally. The check can include Photos identifiers, file names, dates, favorite status, resource sizes and hashes, the names of your albums, and an approximate location rounded to about 1 km. The app does not transmit this information to the developer or include advertising or analytics.")
-                Text("When you choose a place on the Archive tab, the map is loaded from Apple Maps. Your photo locations stay on your \(Device.name).")
-                Text("Check-ins, if you turn them on, read free space and the last check's totals and keep a short history on this \(Device.name). Reminders before big events read your calendar on this \(Device.name) only; event names appear only in the notifications and are never saved or sent.")
-                Text("If you connect Google Drive, Google signs you in and gives TidyAway access only to the files it creates in a TidyAway Archive folder. The sign-in is kept in this \(Device.name)'s Keychain. Disconnecting removes it and revokes access; your archived copies stay in Drive.")
+                AccordionText(title: "What TidyAway reads",
+                              text: "TidyAway reads the Apple Photos items you authorize. Scanning and exact duplicate matching run on your device.",
+                              identifier: "privacy-reads", open: $open)
+                AccordionText(title: "What it keeps on this \(Device.name)",
+                              text: "The app stores the latest completed check and its activity log locally. The check can include Photos identifiers, file names, dates, favorite status, resource sizes and hashes, the names of your albums, and an approximate location rounded to about 1 km. The app does not transmit this information to the developer or include advertising or analytics.",
+                              identifier: "privacy-keeps", open: $open)
+                AccordionText(title: "Maps on the Archive tab",
+                              text: "When you choose a place on the Archive tab, the map is loaded from Apple Maps. Your photo locations stay on your \(Device.name).",
+                              identifier: "privacy-maps", open: $open)
+                AccordionText(title: "Check-ins and reminders",
+                              text: "Check-ins, if you turn them on, read free space and the last check's totals and keep a short history on this \(Device.name). Reminders before big events read your calendar on this \(Device.name) only; event names appear only in the notifications and are never saved or sent.",
+                              identifier: "privacy-checkins", open: $open)
+                AccordionText(title: "Google Drive",
+                              text: "If you connect Google Drive, Google signs you in and gives TidyAway access only to the files it creates in a TidyAway Archive folder. The sign-in is kept in this \(Device.name)'s Keychain. Disconnecting removes it and revokes access; your archived copies stay in Drive.",
+                              identifier: "privacy-google", open: $open)
                 if CloudService.allCases.contains(where: \.available) {
-                    Text("If you connect OneDrive, Microsoft signs you in and gives TidyAway access to your files; TidyAway only adds copies to a TidyAway folder in My files and never opens, changes or deletes anything else. If you connect Dropbox, it gives TidyAway access only to its own folder, Apps › TidyAway. The sign-in is kept in this \(Device.name)'s Keychain. Disconnecting removes it; your archived copies stay there.")
+                    AccordionText(title: "OneDrive and Dropbox",
+                                  text: "If you connect OneDrive, Microsoft signs you in and gives TidyAway access to your files; TidyAway only adds copies to a TidyAway folder in My files and never opens, changes or deletes anything else. If you connect Dropbox, it gives TidyAway access only to its own folder, Apps › TidyAway. The sign-in is kept in this \(Device.name)'s Keychain. Disconnecting removes it; your archived copies stay there.",
+                                  identifier: "privacy-clouds", open: $open)
                 }
-                Text("Checks read originals already available on your \(Device.name). If you approve an archive or restore, the app writes a copy to your chosen folder, downloading the original from iCloud first when it isn't on your \(Device.name). The source stays in place and the provider may sync the copy.")
-                Text("After a verified archive copy, the app keeps a local list of the file name, folder, size, checksum and date, with a reference to the folder you chose, so you can find and restore it.")
-                Text("If you approve deleting items, the app asks Apple Photos to delete exactly those items. Apple shows its own confirmation and normally keeps deleted items in Recently Deleted for up to 30 days. The approval, item count and outcome are recorded in the local activity log.")
-                Text("You can change Photos access in Settings. To remove the local data and activity log from this device, delete the app.")
-                Text("Apple handles in-app purchases.")
+                AccordionText(title: "Archive copies and iCloud",
+                              text: "Checks read originals already available on your \(Device.name). If you approve an archive or restore, the app writes a copy to your chosen folder, downloading the original from iCloud first when it isn't on your \(Device.name). The source stays in place and the provider may sync the copy.",
+                              identifier: "privacy-copies", open: $open)
+                AccordionText(title: "The list of archived copies",
+                              text: "After a verified archive copy, the app keeps a local list of the file name, folder, size, checksum and date, with a reference to the folder you chose, so you can find and restore it.",
+                              identifier: "privacy-list", open: $open)
+                AccordionText(title: "When you delete",
+                              text: "If you approve deleting items, the app asks Apple Photos to delete exactly those items. Apple shows its own confirmation and normally keeps deleted items in Recently Deleted for up to 30 days. The approval, item count and outcome are recorded in the local activity log.",
+                              identifier: "privacy-delete", open: $open)
+                AccordionText(title: "Your controls",
+                              text: "You can change Photos access in Settings. To remove the local data and activity log from this device, delete the app.",
+                              identifier: "privacy-controls", open: $open)
+                AccordionText(title: "Purchases",
+                              text: "Apple handles in-app purchases.",
+                              identifier: "privacy-purchases", open: $open)
             }
             Section("New in 1.0.1") {
-                Text("The Storage Checkup and Storage insights keep a short history of free space (sizes and dates only) on this \(Device.name). Your choice of Light or Dark is kept on this \(Device.name) too.")
+                AccordionText(title: "Free-space history and Appearance",
+                              text: "The Storage Checkup and Storage insights keep a short history of free space (sizes and dates only) on this \(Device.name). Your choice of Light or Dark is kept on this \(Device.name) too.",
+                              identifier: "privacy-history", open: $open)
             }
         }
         .navigationTitle("Privacy")
