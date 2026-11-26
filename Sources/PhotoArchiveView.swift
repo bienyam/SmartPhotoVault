@@ -179,6 +179,7 @@ struct PhotoArchiveView: View {
     @StateObject private var run = ArchiveRun()
     @StateObject private var drive = DriveModel()
     @State private var showDriveHelp = false
+    @State private var showWindowsGuide = false
     @Environment(\.dynamicTypeSize) private var typeSize
     @Binding private var path: NavigationPath
     @Binding private var locked: Bool
@@ -694,6 +695,7 @@ struct PhotoArchiveView: View {
             .navigationBarTitleDisplayMode(.inline)
             .disabled(busy)
             .modifier(FolderPicker(isPresented: $showArchiveFolder, pick: setDestination))
+            .sheet(isPresented: $showWindowsGuide) { WindowsPCGuideView() }
     }
 
     private var destinationSection: some View {
@@ -758,6 +760,12 @@ struct PhotoArchiveView: View {
                         Label(problem, systemImage: "exclamationmark.triangle")
                             .foregroundStyle(Brand.caution)
                             .accessibilityIdentifier("folder-problem")
+                        if folderCheck.isNTFS {
+                            Button { showWindowsGuide = true } label: {
+                                Label("Keep it as it is: use your Windows PC", systemImage: "pc")
+                            }
+                            .accessibilityIdentifier("windows-pc-guide")
+                        }
                     } else {
                         Label(folderCheck.available.map { "Ready. \(formattedBytes($0)) free here." } ?? "Ready to save here.",
                               systemImage: "checkmark.circle")
@@ -775,6 +783,12 @@ struct PhotoArchiveView: View {
                         .onChange(of: availableGB) { archiveConsent = false }
                     Text("Files doesn’t supply a verified account quota. Use the available space shown by your provider for an estimate.")
                         .font(.footnote).foregroundStyle(.secondary)
+                }
+                if destinationKind == .home {
+                    Button { showWindowsGuide = true } label: {
+                        Label("Sharing from a Windows PC? How to set it up", systemImage: "pc")
+                    }
+                    .accessibilityIdentifier("home-windows-guide")
                 }
                 if destinationKind == .other || destinationKind == .home || destinationKind == .shared {
                     Text("Deleting from your \(Device.name) afterwards is offered only when TidyAway can confirm the copy is safe there. Cloud apps other than iCloud Drive and Google Drive can't confirm it.")
@@ -1158,6 +1172,7 @@ struct PhotoArchiveView: View {
         }
         .modifier(FolderPicker(isPresented: $showArchiveFolder, pick: setDestination))
         .sheet(isPresented: $showProPushed) { proSheet($showProPushed) }
+        .sheet(isPresented: $showWindowsGuide) { WindowsPCGuideView() }
     }
 
     @ViewBuilder
