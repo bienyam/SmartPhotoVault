@@ -35,6 +35,21 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Unpack the licensed stock photos for the sample library
+        # The photos are licensed, so the repository holds them only encrypted. Without the key the
+        # pictures fall back to drawn stand-ins.
+        env:
+          STORE_PHOTOS_KEY: ${{ secrets.STORE_PHOTOS_KEY }}
+        run: |
+          if [ -n "$STORE_PHOTOS_KEY" ] && [ -f UITests/StorePhotos.tar.gz.gpg ]; then
+            command -v gpg >/dev/null || brew install gnupg
+            mkdir -p /Users/Shared/TidyAwayStorePhotos
+            gpg --batch --quiet --pinentry-mode loopback --passphrase-fd 0 -d UITests/StorePhotos.tar.gz.gpg <<< "$STORE_PHOTOS_KEY" \
+              | tar xz -C /Users/Shared/TidyAwayStorePhotos
+            ls /Users/Shared/TidyAwayStorePhotos | wc -l
+          else
+            echo "::warning::No stock photos; the pictures use drawn stand-ins"
+          fi
       - name: Capture App Store pictures on iPhone and iPad
         run: |
           brew install xcodegen

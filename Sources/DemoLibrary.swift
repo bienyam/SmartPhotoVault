@@ -135,10 +135,27 @@ extension DemoLibrary {
         "They're still on your \(Device.name) too. Every copy is checked again before anything is removed: up to \(done.bytes.fileSize)."
     }
 
-    /// A drawn picture for a sample item, so lists and cards aren't rows of grey placeholders.
-    /// Nil unless the store screenshots are being made.
+    /// Licensed stock photos for the store pictures. The capture job unpacks them into this folder on
+    /// the Mac that runs the simulator; they are never part of the app. `map.json` names the photo for
+    /// each sample id.
+    private static let photoFolder = URL(fileURLWithPath: "/Users/Shared/TidyAwayStorePhotos", isDirectory: true)
+    private static let photoMap: [String: String] = {
+        guard let data = try? Data(contentsOf: photoFolder.appendingPathComponent("map.json")) else { return [:] }
+        return (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
+    }()
+
+    /// A picture for a sample item, so lists and cards aren't rows of grey placeholders: the stock photo
+    /// when the capture job provides one, otherwise a drawn stand-in. Nil unless the store screenshots
+    /// are being made.
     static func picture(for id: String) -> UIImage? {
         guard LaunchFlags.has("--store-pictures") else { return nil }
+        // Ids without their own photo get one of the "fallback-N" photos, picked the same way every run.
+        let fallbacks = photoMap.keys.filter { $0.hasPrefix("fallback-") }.count
+        let hash = id.unicodeScalars.reduce(UInt64(5381)) { ($0 &* 33) ^ UInt64($1.value) }
+        let file = photoMap[id] ?? (fallbacks > 0 ? photoMap["fallback-\(hash % UInt64(fallbacks))"] : nil)
+        if let file, let photo = UIImage(contentsOfFile: photoFolder.appendingPathComponent(file).path) {
+            return photo
+        }
         return draw(id)
     }
 
