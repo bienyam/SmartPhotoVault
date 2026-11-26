@@ -145,5 +145,12 @@ struct ArchiveTabView: View {
         .onChange(of: locked) { count() }
     }
 
-    private func count() { safeCount = (try? InventoryStore.openDefault().archivedCount()) ?? 0 }
+    private func count() {
+        // App Store pictures show stand-in records. Nil everywhere else.
+        if let sample = DemoLibrary.archivedRecords {
+            safeCount = sample.count
+            return
+        }
+        safeCount = (try? InventoryStore.openDefault().archivedCount()) ?? 0
+    }
 }

@@ -144,6 +144,12 @@ struct ArchivedView: View {
     }
 
     private func reload() {
+        // App Store pictures show stand-in records. Nil everywhere else.
+        if let sample = DemoLibrary.archivedRecords {
+            records = sample
+            loaded = true
+            return
+        }
         records = (try? InventoryStore.openDefault().archived()) ?? []
         loaded = true
         // Keep pictures of archived photos that are still in the library, for after they're removed.

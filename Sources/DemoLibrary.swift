@@ -58,6 +58,10 @@ enum DemoLibrary {
                         burstID: burst?.id, burstFrames: burst?.frames,
                         pixelWidth: pixels.0, pixelHeight: pixels.1, hasLocation: hasLocation)
         }
+        // App Store pictures only: a fuller list of large videos. Tests keep the two they were written for.
+        let moreVideos: [AssetRecord] = lifelike ? storeVideos.enumerated().map { index, video in
+            asset("sample-\(index + 13)", video.name, false, [resource("synthetic store video \(index)", type: 2, size: video.bytes)], mediaType: .video)
+        } : []
         return ScanSnapshot(date: Date(), limitedAccess: false, includedCloudDownloads: false, assets: [
             asset("sample-1", "Beach.heic", true, [resource("synthetic beach image", size: 3_400_000)]),
             asset("sample-2", "Beach copy.heic", false, [resource("synthetic beach image", size: 3_400_000)]),
@@ -68,10 +72,10 @@ enum DemoLibrary {
             asset("sample-7", "Dancing cat.gif", false, [resource("synthetic animated image", size: 4_500_000)], animated: true),
             asset("sample-8", "Goal celebration.heic", false, [resource("synthetic burst frame", size: 2_900_000)], burst: ("demo-burst", 14)),
             asset("sample-9", "Mountain view.heic", false, [resource("synthetic panorama", size: 18_000_000)], subtypes: .photoPanorama),
-            asset("sample-10", "Skate trick.mov", false, [resource("synthetic slow motion video", type: 2, size: 1_600_000_000)], mediaType: .video, subtypes: .videoHighFrameRate),
-            asset("sample-11", "Sunset.mov", false, [resource("synthetic time-lapse video", type: 2, size: 820_000_000)], mediaType: .video, subtypes: .videoTimelapse),
+            asset("sample-10", "Skate trick.mov", false, [resource("synthetic slow motion video", type: 2, size: lifelike ? 2_600_000_000 : 1_600_000_000)], mediaType: .video, subtypes: .videoHighFrameRate),
+            asset("sample-11", "Sunset.mov", false, [resource("synthetic time-lapse video", type: 2, size: lifelike ? 1_900_000_000 : 820_000_000)], mediaType: .video, subtypes: .videoTimelapse),
             asset("sample-12", "IMG-20240512-WA0007.jpg", false, [resource("synthetic chat image", size: 280_000)], pixels: (1280, 960), hasLocation: false)
-        ])
+        ] + moreVideos)
     }
 }
 
@@ -83,6 +87,48 @@ extension DemoLibrary {
     /// The folder the Copy screen shows as chosen. Nothing is ever written to it.
     static let archiveFolder = URL(fileURLWithPath: "/TidyAway Archive", isDirectory: true)
     static let archiveFolderFree: Int64 = 186_000_000_000
+
+    /// The iPhone the pictures show: 128 GB with 14.4 GB free, which scores 45 (C, Getting full).
+    static let storage = DeviceStorage(available: 14_400_000_000, total: 128_000_000_000)
+
+    /// Extra large videos for the pictures (ids sample-13 onwards).
+    static let storeVideos: [(name: String, bytes: Int64)] = [
+        ("Birthday candles.mov", 4_125_400_000), ("School play.mov", 1_400_000_000), ("Beach day.mov", 1_100_000_000),
+        ("First steps.mov", 920_000_000), ("Road trip.mov", 810_000_000), ("Fireworks.mov", 640_000_000),
+        ("Snow day.mov", 520_000_000), ("Puppy.mov", 430_000_000), ("Concert.mov", 310_000_000),
+        ("Kitchen dance.mov", 240_000_000)
+    ]
+
+    /// The sample videos the pictures treat as already archived, for the "not backed up" check.
+    static let backedUp: Set<String> = ["sample-13", "sample-10", "sample-11"]
+
+    /// Stand-in archive records for Get back. Nil unless the store screenshots are being made.
+    static var archivedRecords: [ArchivedRecord]? {
+        guard LaunchFlags.has("--store-pictures") else { return nil }
+        let day: TimeInterval = 86_400
+        let noon = Calendar.current.startOfDay(for: Date()).addingTimeInterval(12 * 3_600)
+        func record(_ id: String, _ name: String, _ bytes: Int64, daysAgo: Double, minute: Int) -> ArchivedRecord {
+            ArchivedRecord(id: "store-\(id)", name: name, folderName: "TidyAway Archive", bytes: bytes, digest: id,
+                           date: noon.addingTimeInterval(-daysAgo * day + Double(minute) * 60), viaHomeServer: false,
+                           folderBookmark: nil, photoID: "sample-\(id)")
+        }
+        var records: [ArchivedRecord] = []
+        for index in 0..<6 { records.append(record("clip\(index)", "Video \(index + 1).MOV", 900_000_000, daysAgo: 2, minute: index)) }
+        for index in 0..<24 { records.append(record("trip0-\(index)", "Beach \(index + 1).HEIC", 3_900_000, daysAgo: 9, minute: index)) }
+        for index in 0..<18 { records.append(record("party\(index)", "Party \(index + 1).HEIC", 4_200_000, daysAgo: 23, minute: index)) }
+        return records
+    }
+
+    /// The Storage Checkup with one step done, as it looks after free space rose. Nil unless the
+    /// store screenshots are being made.
+    static func checkup(free: Int64) -> CheckupProgress? {
+        guard LaunchFlags.has("--store-pictures") else { return nil }
+        let gained: Int64 = 2_100_000_000
+        var progress = CheckupProgress(free: free - gained)
+        progress.results = ["recently-deleted": gained]
+        progress.lastFree = free
+        return progress
+    }
 
     /// The note a real run shows when the copied items can be removed afterwards.
     static func completionNote(_ done: ArchiveCompletion) -> String {

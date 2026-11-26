@@ -152,6 +152,8 @@ struct ArchivedThumb: View {
         guard !looked else { return }
         looked = true
         if let id = record.photoID {
+            // App Store pictures draw a stand-in for sample items. Nil everywhere else.
+            if let picture = DemoLibrary.picture(for: id) { image = picture; return }
             if inLibrary(id) { inPhotos = true; return }
             if let kept = ArchiveThumbnails.cached(id) { image = kept; return }
         }

@@ -188,6 +188,9 @@ struct CleanupListView: View {
             if !sample {
                 let ids = records.map(\.id)
                 archived = await Task.detached(priority: .userInitiated) { BackupLedger.verifiedPhotoIDs(among: ids) }.value
+            } else if LaunchFlags.has("--store-pictures") {
+                // App Store pictures: a few sample items count as archived, so the check shows both lines.
+                archived = DemoLibrary.backedUp
             }
             working = false
             if let check = BackupCheck.alert(for: .list, selected: records, archived: archived) {

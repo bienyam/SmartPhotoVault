@@ -66,6 +66,22 @@ jobs:
                   if name.startswith("store-"):
                       shutil.copy(folder / item["exportedFileName"], f"build/store-screenshots/{label}-{name.split('_')[0]}.png")
           PY
+            if [ "$label" = iPhone ]; then
+              # Footage for the App Store preview video: the simulator screen, recorded while a UI test
+              # walks through the app. A failure here never fails the pictures.
+              mkdir -p build/preview
+              python3 -c 'import time; print(time.time())' > build/preview/record-start.txt
+              xcrun simctl io "$device_id" recordVideo --codec h264 --force build/preview/footage.mov &
+              recorder=$!
+              sleep 3
+              xcodebuild test -project SmartPhotoVault.xcodeproj -scheme SmartPhotoVault               -destination "platform=iOS Simulator,id=$device_id"               -only-testing:SmartPhotoVaultUITests/PreviewFootageUITests               -resultBundlePath build/Preview.xcresult CODE_SIGNING_ALLOWED=NO || echo "::warning::Preview footage test failed"
+              sleep 2
+              kill -INT "$recorder" || true
+              wait "$recorder" || true
+              xcrun xcresulttool export attachments --path build/Preview.xcresult --output-path build/attachments-preview || true
+              python3 -c 'import json, pathlib, shutil; f = pathlib.Path("build/attachments-preview"); [shutil.copy(f / i["exportedFileName"], "build/preview/marks.json") for t in json.loads((f / "manifest.json").read_text()) for i in t.get("attachments", []) if i.get("suggestedHumanReadableName", "").startswith("preview-marks")]' || true
+              ls -la build/preview || true
+            fi
             xcrun simctl shutdown "$device_id"
           }
           capture 'iPhone (16|17|18) Pro Max' iPhone
@@ -77,6 +93,12 @@ jobs:
           name: app-store-screenshots
           path: build/store-screenshots
           if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: app-store-preview-footage
+          path: build/preview
+          if-no-files-found: ignore
 
   release:
     runs-on: xcode-27
