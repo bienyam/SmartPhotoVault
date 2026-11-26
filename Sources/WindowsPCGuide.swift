@@ -59,7 +59,6 @@ struct WindowsPCGuideView: View {
             .padding(20)
             .frame(maxWidth: .infinity)
         }
-        .navigationTitle("Use your Windows PC")
         .navigationBarTitleDisplayMode(.inline)
     }
 
