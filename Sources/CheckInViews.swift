@@ -297,7 +297,7 @@ struct CheckInReportView: View {
 
     private static let names: [String: String] = [
         "look-alike": "Look-alike shots", "blurry": "Blurry photos", "accidental": "Accidental shots", "dark": "Too dark to see",
-        "expired": "Expired receipts & tickets", "old-screenshots": "Old screenshots", "screens": "Photos of screens & slides",
+        "expired": "Receipts & documents", "old-screenshots": "Old screenshots", "screens": "Photos of screens & slides",
         "duplicates": "Duplicates", "videos": "Large videos"
     ]
 

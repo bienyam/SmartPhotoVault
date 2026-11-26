@@ -8,7 +8,7 @@ TidyAway reads the photos and videos you allow it to through Apple Photos. You c
 
 A scan builds an inventory on your iPhone. It can include Apple Photos identifiers, file names, dates, favorite status, media types, resource sizes and fingerprints (hashes), the names of your albums, and an approximate location rounded to about 1 km. The inventory and an activity log are kept in the app's local storage and are removed when you delete the app. The app does not keep separate copies of your photos.
 
-To suggest groups, TidyAway can look at small versions of your photos with the image recognition built into iOS. This happens on your iPhone. The app keeps short labels (such as "beach" or "receipt"), sharpness and brightness numbers, and which photos look alike. It never keeps a picture and does not identify people.
+To suggest groups, TidyAway can look at small versions of your photos with the image recognition built into iOS. This happens on your iPhone. The app keeps short labels (such as "beach" or "receipt"), sharpness and brightness numbers, and which photos look alike. It also keeps whether a face appears in a photo, without identifying anyone, so photos of people are left out of Receipts & documents. It never keeps a picture and does not identify people.
 
 With TidyAway Pro, the app can also look at faces in small copies of look-alike photos to suggest which one to keep (whether eyes are open and how clear faces are; it does not identify anyone), and read the words in your screenshots to sort them into groups such as login codes, receipts and expired tickets. This happens on your iPhone. Face scores are used on screen and not saved. For screenshots, only the group each one belongs to is kept; the words themselves are never stored, logged, or sent.
 
@@ -46,4 +46,4 @@ TidyAway Pro is sold through Apple. Apple handles payment; the app only learns w
 
 For privacy questions, use the [TidyAway support page](https://github.com/bienyam/SmartPhotoVault/issues). Issues are public, so leave out personal photos and library information.
 
-Last updated: November 25, 2026.
+Last updated: November 26, 2026.

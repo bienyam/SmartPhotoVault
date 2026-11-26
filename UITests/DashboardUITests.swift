@@ -119,6 +119,7 @@ final class DashboardUITests: XCTestCase {
         XCTAssertTrue(delete.isEnabled)
         delete.tap()
         XCTAssertTrue(app.staticTexts["Sample data. Nothing was removed."].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["backup-title"].exists, "Duplicates skip the backup check: the kept copy stays.")
         XCTAssertFalse(delete.isEnabled, "Each removal needs a fresh sign-off.")
     }
 
@@ -138,7 +139,117 @@ final class DashboardUITests: XCTestCase {
         app.buttons["signoff"].tap()
         XCTAssertTrue(delete.isEnabled)
         delete.tap()
+        // The screenshot has no archive copy, so TidyAway asks once more before Apple does.
+        let anyway = app.buttons["backup-delete-anyway"]
+        XCTAssertTrue(anyway.waitForExistence(timeout: 5))
+        anyway.tap()
         XCTAssertTrue(app.staticTexts["Sample data. Nothing was removed."].waitForExistence(timeout: 5))
+    }
+
+    // MARK: - 1.0.1 round 2: the "not backed up" check
+
+    func testDeletingItemsThatAreNotBackedUpAsksFirstAndDeleteAnywayGoesOn() {
+        let app = launchWithSamples()
+        let videos = app.buttons["row-videos"]
+        reveal(videos, in: app)
+        videos.tap()
+        XCTAssertTrue(app.navigationBars["Large videos"].waitForExistence(timeout: 5))
+        app.buttons["select-all"].tap()
+        let delete = app.buttons["delete-selected"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["backup-title"].exists, "The alert comes only after the sign-off and Delete.")
+        app.buttons["signoff"].tap()
+        delete.tap()
+        let title = app.staticTexts["backup-title"]
+        XCTAssertTrue(title.waitForExistence(timeout: 5), "Some selected videos have no verified archive copy.")
+        XCTAssertEqual(title.label, "2 of these aren't backed up")
+        XCTAssertTrue(app.descendants(matching: .any)["backup-have"].firstMatch.label.contains("0 backed up"))
+        XCTAssertTrue(app.descendants(matching: .any)["backup-missing"].firstMatch.label.contains("2 not backed up"))
+        XCTAssertTrue(app.buttons["backup-copy-first"].exists)
+        XCTAssertFalse(app.staticTexts["Sample data. Nothing was removed."].exists, "Nothing has been handed to Photos yet.")
+        keepScreenshot(of: app, named: "Backup alert")
+        app.buttons["backup-delete-anyway"].tap()
+        XCTAssertTrue(app.staticTexts["Sample data. Nothing was removed."].waitForExistence(timeout: 5),
+                      "Delete anyway goes on to the delete itself.")
+        XCTAssertFalse(app.staticTexts["backup-title"].exists)
+        // No "don't ask again": the same delete asks again.
+        app.buttons["signoff"].tap()
+        delete.tap()
+        XCTAssertTrue(app.staticTexts["backup-title"].waitForExistence(timeout: 5), "It asks every time.")
+    }
+
+    func testCopyFirstSendsTheItemsToArchiveAndDeletesNothing() {
+        let app = launchWithSamples()
+        let videos = app.buttons["row-videos"]
+        reveal(videos, in: app)
+        videos.tap()
+        XCTAssertTrue(app.navigationBars["Large videos"].waitForExistence(timeout: 5))
+        app.buttons["select-sample-11"].tap()
+        let delete = app.buttons["delete-selected"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 5))
+        app.buttons["signoff"].tap()
+        delete.tap()
+        let copy = app.buttons["backup-copy-first"]
+        XCTAssertTrue(copy.waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["backup-title"].label, "This one isn't backed up")
+        copy.tap()
+        let summary = app.staticTexts["copy-summary"]
+        XCTAssertTrue(summary.waitForExistence(timeout: 10), "Copy first opens Archive on its copy screen.")
+        XCTAssertTrue(summary.label.hasPrefix("1 item"), summary.label)
+        XCTAssertFalse(app.staticTexts["Sample data. Nothing was removed."].exists, "Nothing was handed to Photos.")
+        keepScreenshot(of: app, named: "Copy first in Archive")
+    }
+
+    func testTappingOutsideTheBackupAlertCancelsAndDeletesNothing() {
+        let app = launchWithSamples()
+        let videos = app.buttons["row-videos"]
+        reveal(videos, in: app)
+        videos.tap()
+        XCTAssertTrue(app.navigationBars["Large videos"].waitForExistence(timeout: 5))
+        app.buttons["select-all"].tap()
+        let delete = app.buttons["delete-selected"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 5))
+        app.buttons["signoff"].tap()
+        delete.tap()
+        let title = app.staticTexts["backup-title"]
+        XCTAssertTrue(title.waitForExistence(timeout: 5))
+        // Above the card, on the dimmed list.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12)).tap()
+        let closed = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: title)
+        wait(for: [closed], timeout: 5)
+        XCTAssertFalse(app.staticTexts["Sample data. Nothing was removed."].exists, "Nothing was handed to Photos.")
+        XCTAssertFalse(app.staticTexts["copy-summary"].exists, "Nothing was sent to Archive either.")
+        XCTAssertTrue(app.navigationBars["Large videos"].waitForExistence(timeout: 5), "Still on the list.")
+        XCTAssertTrue(delete.exists)
+    }
+
+    // MARK: - 1.0.1 round 2: Worth a look as picture cards
+
+    func testWorthALookGroupsArePictureCardsWithTheSameGating() {
+        let app = launchWithSamples()
+        XCTAssertTrue(app.staticTexts["Ready to tidy"].exists, "The heading stays.")
+        let card = app.buttons["smart-screenshots"]
+        reveal(card, in: app)
+        XCTAssertTrue(card.exists)
+        XCTAssertTrue(card.label.contains("Screenshots, read"), card.label)
+        XCTAssertTrue(card.label.contains("Pro"), "The PRO badge is on the card. \(card.label)")
+        XCTAssertTrue(card.label.contains("screenshots"), "Size and count are on the card. \(card.label)")
+        let plain = app.buttons["row-screenshots"]
+        // A card is a picture card (96 points or more); the Safe to clear rows stay plain rows.
+        XCTAssertGreaterThanOrEqual(card.frame.height, 96)
+        if plain.exists { XCTAssertLessThan(plain.frame.height, 96) }
+        keepScreenshot(of: app, named: "Worth a look cards")
+        // Locked: the half sheet, exactly as before.
+        card.tap()
+        XCTAssertTrue(app.staticTexts["pro-sheet-title"].waitForExistence(timeout: 5))
+        app.buttons["pro-sheet-not-now"].tap()
+        // A free card opens its list.
+        let more = app.buttons["row-more"]
+        reveal(more, in: app)
+        XCTAssertGreaterThanOrEqual(more.frame.height, 96, "More types is on Worth a look, so it is a card too.")
+        XCTAssertFalse(more.label.contains("Pro"))
+        more.tap()
+        XCTAssertTrue(app.navigationBars["More types"].waitForExistence(timeout: 5))
     }
 
     func testEveryFreeUpRowOpens() {
@@ -243,21 +354,72 @@ final class DashboardUITests: XCTestCase {
         XCTAssertTrue(app.buttons["appearance-system"].isSelected)
     }
 
-    func testHelpAndPrivacyKeepEveryParagraph() {
+    func testHelpAndPrivacyOpenInPlaceAndKeepEveryParagraph() {
         let app = launch()
         app.tabBars.buttons["More"].tap()
         let help = app.buttons["more-help"]
         reveal(help, in: app)
         help.tap()
         XCTAssertTrue(app.navigationBars["Help & FAQ"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Free up finds the biggest things")).firstMatch.exists)
-        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Archive copies photos and files")).firstMatch.exists)
+        // Six short titles, every answer closed to begin with.
+        let questions = [("faq-free-up", "Free up finds the biggest things"),
+                         ("faq-archive", "Archive copies photos and files from your"),
+                         ("faq-space", "Deleted photos and videos wait in Recently Deleted"),
+                         ("faq-favorites", "No. Favorites are never offered for deletion"),
+                         ("faq-score", "One number from free space alone"),
+                         ("faq-apps", "No app can. The Storage Checkup shows the steps")]
+        for (id, _) in questions {
+            XCTAssertTrue(app.buttons[id].waitForExistence(timeout: 5), "\(id) is missing")
+            XCTAssertFalse(app.staticTexts["\(id)-answer"].exists, "\(id) starts closed.")
+        }
+        XCTAssertEqual(app.buttons["faq-free-up"].label, "Free up")
+        XCTAssertEqual(app.buttons["faq-archive"].label, "Archive")
+        keepScreenshot(of: app, named: "Help closed")
+        var last: String?
+        for (id, start) in questions {
+            app.buttons[id].tap()
+            let answer = app.staticTexts["\(id)-answer"]
+            XCTAssertTrue(answer.waitForExistence(timeout: 5), "\(id) opens in place.")
+            XCTAssertTrue(answer.label.hasPrefix(start), answer.label)
+            if let last { XCTAssertFalse(app.staticTexts["\(last)-answer"].exists, "One open at a time.") }
+            last = id
+        }
+        // The Archive answer says where the photos come from.
+        app.buttons["faq-archive"].tap()
+        XCTAssertTrue(app.staticTexts["faq-archive-answer"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["faq-archive-answer"].label.contains("and iCloud to a place you choose and checks every copy."))
+        keepScreenshot(of: app, named: "Help one open")
+        // Tapping an open title closes it again.
+        app.buttons["faq-archive"].tap()
+        XCTAssertFalse(app.staticTexts["faq-archive-answer"].exists)
+
         app.navigationBars.buttons.element(boundBy: 0).tap()
         let privacy = app.buttons["more-privacy"]
         reveal(privacy, in: app)
         privacy.tap()
         XCTAssertTrue(app.navigationBars["Privacy"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "TidyAway reads the Apple Photos items you authorize")).firstMatch.exists)
+        let topics = [("privacy-reads", "TidyAway reads the Apple Photos items you authorize"),
+                      ("privacy-keeps", "The app stores the latest completed check"),
+                      ("privacy-maps", "When you choose a place on the Archive tab"),
+                      ("privacy-checkins", "Check-ins, if you turn them on"),
+                      ("privacy-google", "If you connect Google Drive"),
+                      ("privacy-copies", "Checks read originals already available"),
+                      ("privacy-list", "After a verified archive copy"),
+                      ("privacy-delete", "If you approve deleting items"),
+                      ("privacy-controls", "You can change Photos access in Settings"),
+                      ("privacy-purchases", "Apple handles in-app purchases."),
+                      ("privacy-history", "The Storage Checkup and Storage insights keep a short history")]
+        XCTAssertFalse(app.staticTexts["privacy-reads-answer"].exists, "Privacy starts closed too.")
+        for (id, start) in topics {
+            let title = app.buttons[id]
+            reveal(title, in: app)
+            XCTAssertTrue(title.waitForExistence(timeout: 5), "\(id) is missing")
+            title.tap()
+            let answer = app.staticTexts["\(id)-answer"]
+            XCTAssertTrue(answer.waitForExistence(timeout: 5), "\(id) opens in place.")
+            XCTAssertTrue(answer.label.hasPrefix(start), answer.label)
+        }
+        keepScreenshot(of: app, named: "Privacy one open")
     }
 
     func testProUnlockedShowsAsUnlocked() {
@@ -636,10 +798,22 @@ final class DashboardUITests: XCTestCase {
         let app = launchWithSamples()
         let info = app.buttons["score-info"]
         for _ in 0..<4 where !info.isHittable { app.swipeDown() }
+        let meaning = NSPredicate(format: "label BEGINSWITH %@", "Storage Score, based only on free space")
+        let iosNote = NSPredicate(format: "label BEGINSWITH %@", "iOS doesn't share how the rest is split")
+        XCTAssertEqual(app.staticTexts.matching(meaning).count, 0, "The card carries no explanation sentence.")
+        XCTAssertEqual(app.staticTexts.matching(iosNote).count, 0)
+        XCTAssertTrue(app.staticTexts["storage-used"].exists && app.descendants(matching: .any)["storage-band"].firstMatch.exists,
+                      "The ring's neighbours stay: how full, and the grade.")
         info.tap()
         XCTAssertTrue(app.navigationBars["How the Storage Score works"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["score-meaning"].waitForExistence(timeout: 5), "The score sentence moved here.")
         XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Score = free space")).firstMatch.exists)
         XCTAssertTrue(app.staticTexts["score-yours"].exists, "It works the score out with this iPhone's own numbers.")
+        let barPart = app.buttons["score-part-bar"]
+        for _ in 0..<3 where !barPart.isHittable { app.swipeUp() }
+        barPart.tap()
+        XCTAssertTrue(app.staticTexts["score-bar-note"].waitForExistence(timeout: 5), "Measured, worked out and the iOS note are here.")
+        XCTAssertFalse(app.staticTexts["score-yours"].exists, "One section open at a time.")
         keepScreenshot(of: app, named: "Storage Score info")
         app.buttons["score-info-done"].tap()
         XCTAssertTrue(app.buttons["row-duplicates"].waitForExistence(timeout: 5))
@@ -648,6 +822,14 @@ final class DashboardUITests: XCTestCase {
     func testPillsFilterTheShelvesAndKeepEveryRowReachable() {
         let app = launchWithSamples()
         reveal(app.buttons["freeup-byType"], in: app)
+        // The bottom dock is taller than its button: with the shorter score card the pills can sit
+        // under the dock's estimate line, where a tap lands on the dock. Bring them clear of it.
+        let pill = app.buttons["freeup-byType"]
+        let dock = app.staticTexts["hero-bytes"]
+        if dock.exists && pill.frame.maxY > dock.frame.minY - 8 {
+            let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4))
+            start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -160)))
+        }
         app.buttons["freeup-byType"].tap()
         XCTAssertTrue(app.buttons["row-duplicates"].exists)
         XCTAssertTrue(app.buttons["row-videos"].exists)

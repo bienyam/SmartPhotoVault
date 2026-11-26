@@ -66,6 +66,18 @@ enum Brand {
     /// The Keep button in the preview: green because keeping is the safe choice.
     static let keep = Color(light: 0x3DDC97, dark: 0x3DDC97)
     static let onKeep = Color(light: 0x0E2A1E, dark: 0x0E2A1E)
+
+    // MARK: The storage bar, colored as in Settings › General › iPhone Storage
+
+    /// Photos & videos: the yellow iOS gives Photos.
+    static let storagePhotos = Color(light: 0xFFCC00, dark: 0xFFD60A)
+    /// Apps, System & other: iOS system gray. Still striped, because the figure is worked out.
+    static let storageRest = Color(light: 0x8E8E93, dark: 0x98989D)
+    static let storageRestStripe = Color(light: 0xAEAEB2, dark: 0x7C7C80)
+    /// Free space is not a color at all: it is the empty track.
+    static let storageFree = Color(light: 0xE5E5EA, dark: 0x3A3A3C)
+    /// The thin ring around the Free dot in the legend, so the empty track can be seen on a card.
+    static let storageFreeEdge = Color(light: 0xAEAEB2, dark: 0x7C7C80)
 }
 
 extension Color {

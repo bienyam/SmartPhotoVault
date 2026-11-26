@@ -101,14 +101,15 @@ private struct BarStripes: View {
                 var path = Path()
                 path.move(to: CGPoint(x: x, y: size.height))
                 path.addLine(to: CGPoint(x: x + size.height, y: 0))
-                context.stroke(path, with: .color(Brand.restStripe), lineWidth: 3)
+                context.stroke(path, with: .color(Brand.storageRestStripe), lineWidth: 3)
                 x += 9
             }
         }
     }
 }
 
-/// The storage bar: photos and videos, everything else, and free space.
+/// The storage bar: photos and videos, everything else, and free space. Colored as iOS colors its
+/// own storage bar: yellow for Photos, gray for the rest, and free space is just the empty track.
 struct StorageBar: View {
     let split: StorageSplit
     let photosKnown: Bool
@@ -118,18 +119,18 @@ struct StorageBar: View {
             let width = proxy.size.width
             HStack(spacing: 2) {
                 if photosKnown && split.photos > 0 {
-                    Rectangle().fill(Brand.primary)
+                    Rectangle().fill(Brand.storagePhotos)
                         .frame(width: max(4, width * split.fraction(split.photos)))
                 }
                 if split.rest > 0 {
                     ZStack {
-                        Rectangle().fill(Brand.rest)
+                        Rectangle().fill(Brand.storageRest)
                         if photosKnown { BarStripes() }
                     }
                     .frame(width: max(4, width * split.fraction(split.rest)))
                     .clipped()
                 }
-                Rectangle().fill(Brand.track)
+                Rectangle().fill(Brand.storageFree)
             }
             .clipShape(Capsule())
         }
@@ -188,59 +189,74 @@ struct StorageHeroCard<Footer: View>: View {
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel("Band \(score.band.rawValue), \(score.band.name)")
                     .accessibilityIdentifier("storage-band")
-                    Text("Storage Score, based only on free space: \(storage.available.fileSize) is \(score.freePercent) free. \(score.band.advice)")
-                        .font(.footnote)
-                        .foregroundStyle(Brand.muted)
-                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
+            // Every explanation (what the score means, measured or worked out, the iOS note) is
+            // behind the ⓘ, so the card stays short.
             StorageBar(split: split, photosKnown: photos != nil)
             legend
-            Text(photos == nil
-                 ? "Check your photos to see how much of the used space is photos and videos."
-                 : "iOS doesn't share how the rest is split, so the middle figure is worked out by subtraction.")
-                .font(.caption)
-                .foregroundStyle(Brand.muted)
-                .fixedSize(horizontal: false, vertical: true)
             footer
         }
         .homeCard()
     }
 
+    /// A compact legend: a dot, the name and the figure on one line each. The first line is photos,
+    /// the second holds the rest and free space side by side when they fit.
     @ViewBuilder
     private var legend: some View {
-        let layout = typeSize.isAccessibilitySize
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 10))
-            : AnyLayout(HStackLayout(alignment: .top, spacing: 8))
-        layout {
+        VStack(alignment: .leading, spacing: 6) {
             if photos != nil {
-                item(color: Brand.primary, title: "Photos & videos", value: split.photos.fileSize, workedOut: false)
-                item(color: Brand.rest, title: "Apps, System & other", value: "About \(split.rest.fileSize)", workedOut: true)
+                StorageLegendItem(color: Brand.storagePhotos, title: "Photos & videos", value: split.photos.fileSize, note: "measured")
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 16) { restAndFree }
+                    VStack(alignment: .leading, spacing: 6) { restAndFree }
+                }
             } else {
-                item(color: Brand.rest, title: "Used", value: storage.used.fileSize, workedOut: false)
-            }
-            item(color: Brand.track, title: "Free", value: split.free.fileSize, workedOut: false)
-        }
-    }
-
-    private func item(color: Color, title: String, value: String, workedOut: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
-                Circle().fill(color).frame(width: 9, height: 9)
-                Text(title).font(.caption).foregroundStyle(Brand.muted)
-                    .lineLimit(2).minimumScaleFactor(0.8)
-            }
-            Text(value).font(.headline).foregroundStyle(Brand.ink)
-                .lineLimit(1).minimumScaleFactor(0.7)
-            if workedOut {
-                ChipLabel(text: "Worked out")
-            } else {
-                Text("Measured").font(.caption).foregroundStyle(Brand.muted)
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 16) { usedAndFree }
+                    VStack(alignment: .leading, spacing: 6) { usedAndFree }
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private var restAndFree: some View {
+        StorageLegendItem(color: Brand.storageRest, title: "Apps, System & other", value: "About \(split.rest.fileSize)", note: "worked out")
+        StorageLegendItem(color: Brand.storageFree, title: "Free", value: split.free.fileSize, note: "measured", hollow: true)
+    }
+
+    @ViewBuilder
+    private var usedAndFree: some View {
+        StorageLegendItem(color: Brand.storageRest, title: "Used", value: storage.used.fileSize, note: "measured")
+        StorageLegendItem(color: Brand.storageFree, title: "Free", value: split.free.fileSize, note: "measured", hollow: true)
+    }
+}
+
+/// One entry in the storage legend: a dot, the name, then the figure in bold.
+struct StorageLegendItem: View {
+    let color: Color
+    let title: String
+    let value: String
+    /// "measured" or "worked out", for VoiceOver. The words themselves are in the ⓘ sheet.
+    let note: String
+    /// Free space is the empty track, so its dot gets a thin edge to show on the card.
+    var hollow = false
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 6) {
+            Circle().fill(color).frame(width: 9, height: 9)
+                .overlay { if hollow { Circle().stroke(Brand.storageFreeEdge, lineWidth: 1) } }
+            Text(title).font(.footnote).foregroundStyle(Brand.muted)
+            Text(value).font(.footnote.weight(.bold)).monospacedDigit().foregroundStyle(Brand.ink)
+        }
+        // One line each at ordinary sizes; at the largest text sizes the name may wrap.
+        .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
+        .minimumScaleFactor(0.8)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(title): \(value), \(workedOut ? "worked out" : "measured")")
+        .accessibilityLabel("\(title): \(value), \(note)")
     }
 }
 
@@ -264,25 +280,48 @@ struct ChipLabel: View {
 
 /// The PRO badge on features that need TidyAway Pro. The feature itself stays visible.
 struct ProBadge: View {
+    /// On a photo card the badge is white with dark letters, so it reads over any picture.
+    var onPhoto = false
+
     var body: some View {
         Text("PRO")
             .font(.caption2.weight(.heavy))
             .tracking(0.6)
             .padding(.horizontal, 7).padding(.vertical, 3)
-            .foregroundStyle(Brand.background)
-            .background(Brand.ink, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .foregroundStyle(onPhoto ? Brand.viewer : Brand.background)
+            .background(onPhoto ? Brand.onViewer : Brand.ink, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
             .accessibilityLabel("Pro")
     }
 }
 
 // MARK: - How the score works
 
-/// The sheet behind the ⓘ on the storage card: the formula, this iPhone's numbers and the five bands.
+/// The sheet behind the ⓘ on the storage card. It holds every explanation the card used to carry:
+/// what the score means for this iPhone, how it is worked out, what the bar shows, and what the
+/// score is not. Three short sections that open in place, the first one open.
 struct ScoreInfoSheet: View {
+    enum Part: String, CaseIterable, Identifiable {
+        case score, bar, not
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .score: "How the score is worked out"
+            case .bar: "What the bar shows"
+            case .not: "What the score is not"
+            }
+        }
+    }
+
     let storage: DeviceStorage
+    /// Photos and videos measured on this iPhone. Nil until a check has measured them.
+    var photos: Int64? = nil
     @Environment(\.dismiss) private var dismiss
+    @State private var open: Part? = .score
 
     private var score: StorageScore { StorageScore(free: storage.available, total: storage.total) }
+    private var split: StorageSplit { StorageSplit(storage: storage, photos: photos) }
 
     private var yours: String {
         let percent = score.freePercent
@@ -301,43 +340,17 @@ struct ScoreInfoSheet: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    Text("It measures one thing: how much of this \(Device.name) is free. Nothing else goes into it.")
-                        .foregroundStyle(Brand.ink)
-                    VStack(spacing: 4) {
-                        Text("Score = free space ÷ total space × 4").font(.headline).foregroundStyle(Brand.ink)
-                        Text("capped at 100, so 25% free or more scores 100").font(.footnote).foregroundStyle(Brand.muted)
-                    }
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity)
-                    .padding(14)
-                    .background(Brand.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .accessibilityElement(children: .combine)
-                    Text(yours).font(.subheadline).foregroundStyle(Brand.ink)
-                        .accessibilityIdentifier("score-yours")
-                    VStack(spacing: 0) {
-                        ForEach(StorageScore.Band.allCases) { band in
-                            HStack(spacing: 12) {
-                                BandChip(band: band)
-                                Text(band.name).font(.body.weight(.semibold)).foregroundStyle(Brand.ink)
-                                Spacer(minLength: 8)
-                                VStack(alignment: .trailing, spacing: 1) {
-                                    Text("\(band.scores.lowerBound)–\(band.scores.upperBound)")
-                                        .font(.subheadline.weight(.semibold)).monospacedDigit()
-                                        .foregroundStyle(Brand.ink)
-                                    Text(band.freeSpace).font(.caption).foregroundStyle(Brand.muted)
-                                }
-                            }
-                            .padding(.vertical, 8)
-                            .padding(.horizontal, 10)
-                            .background(band == score.band ? Brand.surface : Color.clear,
-                                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                            .accessibilityElement(children: .ignore)
-                            .accessibilityLabel(spoken(band))
+                VStack(alignment: .leading, spacing: 0) {
+                    summary
+                        .padding(.bottom, 14)
+                    ForEach(Part.allCases) { part in
+                        Rectangle().fill(Brand.hairline).frame(height: 1)
+                        AccordionRow(title: part.title, identifier: "score-part-\(part.rawValue)", open: open == part,
+                                     toggle: { open = open == part ? nil : part }) {
+                            section(part)
                         }
                     }
-                    Text("It is not a measure of speed, battery or the health of your \(Device.name). Free space comes from iOS.")
-                        .font(.footnote).foregroundStyle(Brand.muted)
+                    Rectangle().fill(Brand.hairline).frame(height: 1)
                 }
                 .frame(maxWidth: 520)
                 .padding(20)
@@ -353,6 +366,181 @@ struct ScoreInfoSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
+    }
+
+    @ViewBuilder
+    private func section(_ part: Part) -> some View {
+        switch part {
+        case .score: worked
+        case .bar: bar
+        case .not: isNot
+        }
+    }
+
+    /// This iPhone's score and what it means, moved here from the card word for word.
+    private var summary: some View {
+        HStack(alignment: .top, spacing: 12) {
+            BandChip(band: score.band)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("\(score.value) of 100 · \(score.band.name)")
+                    .font(.headline).foregroundStyle(Brand.ink)
+                Text("Storage Score, based only on free space: \(storage.available.fileSize) is \(score.freePercent) free. \(score.band.advice)")
+                    .font(.footnote).foregroundStyle(Brand.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("score-meaning")
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Brand.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private var worked: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("It measures one thing: how much of this \(Device.name) is free. Nothing else goes into it.")
+                .foregroundStyle(Brand.ink)
+                .fixedSize(horizontal: false, vertical: true)
+            VStack(spacing: 4) {
+                Text("Score = free space ÷ total space × 4").font(.headline).foregroundStyle(Brand.ink)
+                Text("capped at 100, so 25% free or more scores 100").font(.footnote).foregroundStyle(Brand.muted)
+            }
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+            .padding(14)
+            .background(Brand.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .accessibilityElement(children: .combine)
+            Text(yours).font(.subheadline).foregroundStyle(Brand.ink)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("score-yours")
+            VStack(spacing: 0) {
+                ForEach(StorageScore.Band.allCases) { band in
+                    HStack(spacing: 12) {
+                        BandChip(band: band)
+                        Text(band.name).font(.body.weight(.semibold)).foregroundStyle(Brand.ink)
+                        Spacer(minLength: 8)
+                        VStack(alignment: .trailing, spacing: 1) {
+                            Text("\(band.scores.lowerBound)–\(band.scores.upperBound)")
+                                .font(.subheadline.weight(.semibold)).monospacedDigit()
+                                .foregroundStyle(Brand.ink)
+                            Text(band.freeSpace).font(.caption).foregroundStyle(Brand.muted)
+                        }
+                    }
+                    .padding(.vertical, 8)
+                    .padding(.horizontal, 10)
+                    .background(band == score.band ? Brand.surface : Color.clear,
+                                in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(spoken(band))
+                }
+            }
+        }
+    }
+
+    /// The legend with "Measured" and "Worked out", and the note about how the middle is found.
+    private var bar: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if photos != nil {
+                line(Brand.storagePhotos, "Photos & videos", split.photos.fileSize, workedOut: false)
+                line(Brand.storageRest, "Apps, System & other", "About \(split.rest.fileSize)", workedOut: true)
+            } else {
+                line(Brand.storageRest, "Used", storage.used.fileSize, workedOut: false)
+            }
+            line(Brand.storageFree, "Free", split.free.fileSize, workedOut: false, hollow: true)
+            Text(photos == nil
+                 ? "Check your photos to see how much of the used space is photos and videos."
+                 : "iOS doesn't share how the rest is split, so the middle figure is worked out by subtraction: \(storage.total.fileSize) less free space and photos & videos. The stripes mark it.")
+                .font(.footnote)
+                .foregroundStyle(Brand.muted)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("score-bar-note")
+        }
+    }
+
+    private func line(_ color: Color, _ title: String, _ value: String, workedOut: Bool, hollow: Bool = false) -> some View {
+        HStack(spacing: 8) {
+            Circle().fill(color).frame(width: 10, height: 10)
+                .overlay { if hollow { Circle().stroke(Brand.storageFreeEdge, lineWidth: 1) } }
+            Text(title).font(.subheadline).foregroundStyle(Brand.ink)
+            Spacer(minLength: 8)
+            Text(value).font(.subheadline.weight(.semibold)).monospacedDigit().foregroundStyle(Brand.ink)
+            if workedOut {
+                ChipLabel(text: "Worked out")
+            } else {
+                Text("Measured").font(.caption).foregroundStyle(Brand.muted)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(title): \(value), \(workedOut ? "worked out" : "measured")")
+    }
+
+    private var isNot: some View {
+        Text("It is not a measure of speed, battery or the health of your \(Device.name). Free space comes from iOS.")
+            .font(.subheadline).foregroundStyle(Brand.ink)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+// MARK: - Rows that open in place
+
+/// A short title that opens in place to show what is under it. Used for the Help & FAQ questions,
+/// the Privacy topics and the sections of the Storage Score sheet. Closed until tapped; the
+/// chevron turns when it opens, and VoiceOver says "collapsed" or "expanded".
+struct AccordionRow<Content: View>: View {
+    let title: String
+    /// The title is a button with this identifier.
+    let identifier: String
+    let open: Bool
+    let toggle: () -> Void
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button(action: toggle) {
+                HStack(alignment: .center, spacing: 12) {
+                    Text(title)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(open ? ArchiveStyle.link : Brand.ink)
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(open ? ArchiveStyle.link : Brand.muted)
+                        .rotationEffect(.degrees(open ? 90 : 0))
+                        .accessibilityHidden(true)
+                }
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityValue(open ? "Expanded" : "Collapsed")
+            .accessibilityHint(open ? "Closes it" : "Opens it")
+            .accessibilityIdentifier(identifier)
+            if open {
+                content
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.bottom, 12)
+            }
+        }
+    }
+}
+
+/// An accordion row whose content is one paragraph of text, kept word for word. One row is open
+/// at a time: `open` holds the identifier of the open row. The paragraph is "<identifier>-answer".
+struct AccordionText: View {
+    let title: String
+    let text: String
+    let identifier: String
+    @Binding var open: String?
+
+    var body: some View {
+        AccordionRow(title: title, identifier: identifier, open: open == identifier,
+                     toggle: { open = open == identifier ? nil : identifier }) {
+            Text(text)
+                .font(.subheadline)
+                .foregroundStyle(Brand.muted)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("\(identifier)-answer")
+        }
     }
 }
 
@@ -417,6 +605,8 @@ struct TidyRow: Identifiable {
     var feature: ProFeature? = nil
     /// What the feature does, for the Pro sheet. Follows the row's name in bold.
     var what: String = ""
+    /// A photo from the group, for the picture cards on Worth a look. Nil shows the symbol instead.
+    var coverID: String? = nil
 }
 
 /// What every row together could give back on this iPhone, counting each item once.
@@ -532,6 +722,91 @@ struct TidyRowLabel: View {
             Text(row.size).font(.headline).monospacedDigit().foregroundStyle(Brand.ink)
             if !row.count.isEmpty {
                 Text(row.count).font(.footnote).foregroundStyle(Brand.muted)
+            }
+        }
+        .lineLimit(1)
+    }
+}
+
+/// A Worth a look group as a picture card, the same card Archive uses for "Or start here"
+/// (`ArchiveCard`): a photo from the group, a dark fade, and white words on it. Free up adds the
+/// size and count on the right, a chevron, and the PRO badge. The words are white on a fade that is
+/// at least 65% black behind them, so they read over any photo, in light and dark mode alike.
+struct TidyPhotoCard: View {
+    let row: TidyRow
+    let locked: Bool
+    /// Smart picks kept free for someone who started on 1.0.
+    var yours = false
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 10) {
+            if typeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 4) {
+                    names
+                    figures(alignment: .leading)
+                }
+                Spacer(minLength: 0)
+            } else {
+                names
+                Spacer(minLength: 8)
+                figures(alignment: .trailing)
+            }
+            Image(systemName: "chevron.right")
+                .font(.footnote.weight(.semibold))
+                .padding(.bottom, 4)
+                .accessibilityHidden(true)
+        }
+        .foregroundStyle(Brand.onViewer)
+        .padding(12)
+        .frame(maxWidth: .infinity, minHeight: 96, alignment: .bottomLeading)
+        .background { cover }
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .contentShape(Rectangle())
+    }
+
+    private var cover: some View {
+        ZStack {
+            if let coverID = row.coverID {
+                AssetCover(assetID: coverID, side: 600)
+            } else {
+                LinearGradient(colors: [Brand.navyAccent, Brand.primary], startPoint: .topLeading, endPoint: .bottomTrailing)
+                Image(systemName: row.symbol)
+                    .font(.system(size: 40, weight: .semibold))
+                    .foregroundStyle(Brand.onViewer.opacity(0.35))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .padding(12)
+            }
+            LinearGradient(colors: [Brand.viewer.opacity(0.25), Brand.viewer.opacity(0.82)], startPoint: .top, endPoint: .bottom)
+        }
+        .accessibilityHidden(true)
+    }
+
+    private var names: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 6) { titleParts }
+                VStack(alignment: .leading, spacing: 3) { titleParts }
+            }
+            Text(row.detail).font(.footnote)
+                .multilineTextAlignment(.leading)
+        }
+    }
+
+    @ViewBuilder
+    private var titleParts: some View {
+        Text(row.title).font(.headline)
+            .multilineTextAlignment(.leading)
+        if locked { ProBadge(onPhoto: true) }
+        if yours { ChipLabel(text: "Yours", back: Brand.onViewer, color: Brand.viewer) }
+        if let chip = row.chip { ChipLabel(text: chip, back: Brand.onViewer, color: Brand.viewer) }
+    }
+
+    private func figures(alignment: HorizontalAlignment) -> some View {
+        VStack(alignment: alignment, spacing: 2) {
+            Text(row.size).font(.headline).monospacedDigit()
+            if !row.count.isEmpty {
+                Text(row.count).font(.footnote)
             }
         }
         .lineLimit(1)

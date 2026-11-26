@@ -5,7 +5,7 @@ import StoreKit
 /// videos, screenshots and more types), the first 5 GB of archiving, every destination, verified
 /// delete, Get back, Activity, preview, favorites protection and the Storage Checkup.
 enum ProFeature: String, CaseIterable, Identifiable {
-    /// Smart picks on Free up: look-alike, blurry, accidental, too dark, expired receipts,
+    /// Smart picks on Free up: look-alike, blurry, accidental, too dark, receipts & documents,
     /// old screenshots, photos of screens, and the one-tap suggestion made from them.
     case smartPicks
     /// Already archived, Best shots and Screenshots, read.
@@ -56,7 +56,7 @@ enum ProGate {
         "blurry": "gathers the photos that are out of focus or shaken, measured on this \(Device.name), so you can review them in one list.",
         "accidental": "gathers pocket, floor and ceiling shots and videos under 2 seconds, so you can clear them in one pass.",
         "dark": "gathers photos so dark that almost nothing shows, so you can review them in one list.",
-        "expired": "finds photos of receipts, tickets and parking spots more than 3 months old, recognized on this \(Device.name).",
+        "expired": "finds photos of receipts and documents more than 3 months old, recognized on this \(Device.name).",
         "old-screenshots": "lists screenshots more than 30 days old, leaving recent ones out.",
         "screens": "finds photos of screens, whiteboards and slides, the kind taken as a reminder."
     ]

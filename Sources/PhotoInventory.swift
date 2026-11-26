@@ -165,6 +165,7 @@ final class DashboardModel: ObservableObject {
             }
             try? store?.log("Operation \(operation) finished: \(ids.count) item(s) moved to Recently Deleted.")
             RecentRemovals.add(bytes)
+            RatingPrompt.noteCompletion()
             if isScanning {
                 // People can act on early results; the rest of the check keeps going.
                 deletedDuringScan.formUnion(ids)
