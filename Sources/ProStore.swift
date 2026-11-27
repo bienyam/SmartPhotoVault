@@ -35,6 +35,9 @@ final class ProStore: ObservableObject {
     @Published var notice: String?
     /// True in TestFlight builds while `TesterAccess` is on: every Pro feature works, nothing is bought.
     @Published private(set) var testerAccess = false
+    /// True while a monthly or yearly subscription is active, whatever the plan. Buying lifetime
+    /// doesn't cancel a subscription, so "Manage subscription" stays reachable until it ends.
+    @Published private(set) var hasActiveSubscription = false
 
     var unlocked: Bool { plan != .none || testerAccess }
     /// What the screens show. Testers are shown as Pro, the same as a paying customer.
@@ -48,6 +51,8 @@ final class ProStore: ObservableObject {
     /// When a purchase last unlocked Pro here. A re-check in the moments after never takes it away,
     /// since Apple's entitlement list can lag a just-finished purchase.
     private var purchasedAt: Date?
+    /// When a subscription was last bought here, for the same reason.
+    private var subscribedAt: Date?
     /// UI tests started with `--pro` keep that plan; nothing re-checks it.
     private var pinned = false
     /// How long a just-bought plan is kept even if a re-check doesn't list it yet.
@@ -118,7 +123,17 @@ final class ProStore: ObservableObject {
             guard case .verified(let transaction) = result, transaction.revocationDate == nil else { continue }
             entitled.append(transaction.productID)
         }
-        plan = Self.plan(refreshed: Self.plan(entitled: entitled), current: plan, purchasedAt: purchasedAt, now: Date())
+        let now = Date()
+        plan = Self.plan(refreshed: Self.plan(entitled: entitled), current: plan, purchasedAt: purchasedAt, now: now)
+        hasActiveSubscription = Self.hasSubscription(entitled: entitled, subscribedAt: subscribedAt, now: now)
+    }
+
+    /// Whether a subscription is active: Apple lists one, or one was bought here in the last
+    /// `purchaseGrace` seconds and the list hasn't caught up yet. Independent of lifetime.
+    static func hasSubscription(entitled productIDs: [String], subscribedAt: Date?, now: Date) -> Bool {
+        if productIDs.contains(where: { subscriptionIDs.contains($0) }) { return true }
+        guard let subscribedAt else { return false }
+        return now.timeIntervalSince(subscribedAt) < purchaseGrace
     }
 
     /// The plan from the products Apple lists as entitled, in the order listed. Lifetime wins over a subscription.
@@ -222,6 +237,10 @@ final class ProStore: ObservableObject {
                 if transaction.revocationDate == nil {
                     plan = Self.plan(after: transaction.productID, current: plan)
                     purchasedAt = Date()
+                    if Self.subscriptionIDs.contains(transaction.productID) {
+                        subscribedAt = purchasedAt
+                        hasActiveSubscription = true
+                    }
                     trialEligible = false
                 }
                 await transaction.finish()
@@ -331,6 +350,12 @@ struct ProPurchaseControls: View {
     var part = Part.all
     @EnvironmentObject private var pro: ProStore
     @Environment(\.openURL) private var openURL
+    /// "Switch to lifetime" asks first: buying lifetime doesn't cancel the subscription.
+    @State private var confirmLifetime = false
+    /// After lifetime is bought while a subscription is still active, offers to open Manage subscription.
+    @State private var offerCancel = false
+    /// Apple's own Manage subscription sheet, shown over the current screen.
+    @State private var showManage = false
 
     static let termsURL = URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!
     static let privacyURL = URL(string: "https://github.com/bienyam/SmartPhotoVault/blob/main/PRIVACY.md")!
@@ -341,6 +366,40 @@ struct ProPurchaseControls: View {
             if part != .plans, pro.plan == .none { terms }
         }
         .buttonStyle(.borderless)
+        .manageSubscriptionsSheet(isPresented: $showManage)
+        .alert("Switch to lifetime?", isPresented: $confirmLifetime) {
+            if let lifetime = pro.lifetime {
+                Button("Buy lifetime for \(lifetime.displayPrice)") { buyLifetime(lifetime) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(Self.switchWarning)
+        }
+        .alert("Lifetime is unlocked", isPresented: $offerCancel) {
+            Button("Manage subscription") { showManage = true }
+            Button("Not now", role: .cancel) {}
+        } message: {
+            Text(Self.cancelReminder)
+        }
+    }
+
+    /// Shown before "Switch to lifetime" buys anything.
+    static let switchWarning = "Buying lifetime doesn't cancel your subscription. It keeps renewing until you cancel it: tap Manage subscription here, or go to Settings › your name › Subscriptions."
+    /// Shown after lifetime is bought while a subscription is still active.
+    static let cancelReminder = "Your subscription is still active and renews until you cancel it. Open Manage subscription to cancel it now?"
+    /// Under "Pro is unlocked." while a lifetime unlock and a subscription are both active.
+    static let stillSubscribed = "Your subscription is still active. Lifetime doesn't cancel it; cancel it in Manage subscription or in Settings › your name › Subscriptions."
+
+    private func buyLifetime(_ lifetime: Product) {
+        Task {
+            await pro.purchase(lifetime)
+            if pro.plan == .lifetime, pro.hasActiveSubscription { offerCancel = true }
+        }
+    }
+
+    private var manageButton: some View {
+        Button("Manage subscription") { showManage = true }
+            .accessibilityIdentifier("pro-manage")
     }
 
     /// The plan buttons, or what is already unlocked, with the App Store's progress and notices.
@@ -357,19 +416,20 @@ struct ProPurchaseControls: View {
             Label("Pro is unlocked.", systemImage: "checkmark.seal.fill")
                 .foregroundStyle(Brand.safe)
                 .accessibilityIdentifier("pro-unlocked")
+            // Lifetime doesn't end a subscription bought before it, so its controls stay until it ends.
+            if pro.hasActiveSubscription {
+                Text(Self.stillSubscribed)
+                    .font(.footnote).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("pro-still-subscribed")
+                manageButton
+            }
         case .monthly, .yearly:
             Label(pro.plan == .yearly ? "Pro is unlocked. Yearly plan." : "Pro is unlocked. Monthly plan.", systemImage: "checkmark.seal.fill")
                 .foregroundStyle(Brand.safe)
                 .accessibilityIdentifier("pro-unlocked")
-            Button("Manage subscription") {
-                Task {
-                    if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
-                        try? await AppStore.showManageSubscriptions(in: scene)
-                    }
-                }
-            }
+            manageButton
             if let lifetime = pro.lifetime {
-                Button("Switch to lifetime for \(lifetime.displayPrice)") { Task { await pro.purchase(lifetime) } }
+                Button("Switch to lifetime for \(lifetime.displayPrice)") { confirmLifetime = true }
                     .disabled(pro.busy)
             }
         case .none:

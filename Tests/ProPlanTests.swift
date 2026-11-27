@@ -66,4 +66,31 @@ final class ProPlanTests: XCTestCase {
         // Apple's record couldn't be read: nothing unlocks.
         XCTAssertFalse(ProStore.testerUnlocks(in: nil))
     }
+
+    // MARK: Lifetime bought on top of a subscription (B2)
+
+    func testSubscriptionIsTrackedApartFromLifetime() {
+        let now = Date()
+        // Lifetime and a subscription both listed: the plan is lifetime, and the subscription still counts.
+        let both = [ProStore.lifetimeID, ProStore.monthlyID]
+        XCTAssertEqual(ProStore.plan(entitled: both), .lifetime)
+        XCTAssertTrue(ProStore.hasSubscription(entitled: both, subscribedAt: nil, now: now))
+        XCTAssertTrue(ProStore.hasSubscription(entitled: [ProStore.yearlyID], subscribedAt: nil, now: now))
+        XCTAssertFalse(ProStore.hasSubscription(entitled: [ProStore.lifetimeID], subscribedAt: nil, now: now))
+        XCTAssertFalse(ProStore.hasSubscription(entitled: [], subscribedAt: nil, now: now))
+    }
+
+    func testJustBoughtSubscriptionCountsUntilAppleListsIt() {
+        let now = Date()
+        XCTAssertTrue(ProStore.hasSubscription(entitled: [], subscribedAt: now.addingTimeInterval(-2), now: now))
+        let earlier = now.addingTimeInterval(-(ProStore.purchaseGrace + 1))
+        XCTAssertFalse(ProStore.hasSubscription(entitled: [], subscribedAt: earlier, now: now))
+    }
+
+    func testSwitchToLifetimeSaysTheSubscriptionIsNotCancelled() {
+        XCTAssertTrue(ProPurchaseControls.switchWarning.contains("doesn't cancel your subscription"))
+        XCTAssertTrue(ProPurchaseControls.switchWarning.contains("Settings › your name › Subscriptions"))
+        XCTAssertTrue(ProPurchaseControls.cancelReminder.contains("Manage subscription"))
+        XCTAssertTrue(ProPurchaseControls.stillSubscribed.contains("Manage subscription"))
+    }
 }
