@@ -133,6 +133,39 @@ final class Release102ArchiveTests: XCTestCase {
         XCTAssertTrue(check.allowanceLine?.hasSuffix("Archiving more needs TidyAway Pro.") == true)
     }
 
+    // MARK: - Skipping what is already archived in the same place
+
+    func testOnlyARecordForTheSameFolderCountsAsAlreadyArchivedHere() throws {
+        let here = try makeFolder()
+        let elsewhere = try makeFolder()
+        let saved = record("r", photo: "p1", folder: try here.bookmarkData())
+        XCTAssertTrue(AlreadyArchivedHere.inFolder(saved, here.standardizedFileURL.path))
+        XCTAssertFalse(AlreadyArchivedHere.inFolder(saved, elsewhere.standardizedFileURL.path),
+                       "A copy in another folder doesn't stop a copy to this one.")
+        var drive = saved
+        drive.driveFileID = "g1"
+        XCTAssertFalse(AlreadyArchivedHere.inFolder(drive, here.standardizedFileURL.path), "A Google Drive record is never a folder record.")
+        XCTAssertFalse(AlreadyArchivedHere.inFolder(record("x", photo: "p1"), here.standardizedFileURL.path))
+    }
+
+    func testAnEditedPhotoIsNeverSkippedAsAlreadyArchived() {
+        // The same rule as the not-backed-up check: changed in Photos since the copy, so copy it again.
+        let saved = record("r", photo: "p1")
+        let edited = ["p1": OriginalNow(single: true, parts: nil, modified: saved.date.addingTimeInterval(60))]
+        XCTAssertTrue(BackupLedger.covering([saved], now: edited).isEmpty)
+        let same = ["p1": OriginalNow(single: true, parts: nil, modified: saved.date.addingTimeInterval(-60))]
+        XCTAssertEqual(BackupLedger.covering([saved], now: same).map(\.id), ["r"])
+        var waiting = saved
+        waiting.unflushed = true
+        XCTAssertTrue(BackupLedger.covering([waiting], now: same).isEmpty, "An unconfirmed copy is never enough to skip.")
+    }
+
+    func testTheRunSummaryCountsItemsAlreadyArchivedHere() {
+        let outcome = ArchiveOutcome(completion: nil, failures: [], left: 0, place: "Drive", alreadyHere: 3)
+        XCTAssertEqual(outcome.alreadyHere, 3)
+        XCTAssertEqual(ArchiveOutcome(completion: nil, failures: [], left: 0, place: "Drive").alreadyHere, 0)
+    }
+
     func testAFullReadBackReportsProgressAndCatchesChangedBytes() throws {
         let folder = try makeFolder()
         let bytes = Data(repeating: 0x2a, count: 700_000)

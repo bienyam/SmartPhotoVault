@@ -1548,10 +1548,17 @@ struct PhotoArchiveView: View {
         run.holdBackgroundTime()
         let folder = OnlineFolders.chosen(OnlinePlace(service))
         let sizes = allowanceSizes
+        let network = wifi
+        let placeLabel = folder.label(in: OnlinePlace(service))
         let unlimited = pro.allows(.unlimitedArchive)
         Task {
             // The free 5 GB is checked again for each item as it starts, against what is archived now.
             var budget = FreeArchiveBudget(used: await FreeArchiveBudget.usedNow(), unlimited: unlimited)
+            // An item whose confirmed copy is already in this place, unchanged and still there at the
+            // same size, is not copied again (1.0.2). Another photo with the same name still gets "(2)".
+            let here = await AlreadyArchivedHere.find(selection, wifi: network) { $0.cloud == service && $0.folderName == placeLabel }
+            run.alreadyHere = here.count
+            run.tried += here.count
             if service == .oneDrive, let token = try? await account.accessToken() {
                 try? await OnlineFolders.prepareOneDrive(folder, token: token)
             }
@@ -1561,7 +1568,7 @@ struct PhotoArchiveView: View {
             var problems: [String] = []
             var copiedItems: [ArchiveItem] = []
             await withTaskGroup(of: (ArchiveItem, Result<(upload: CloudUpload, parts: [ArchivedPart]), Error>).self) { group in
-                var waiting = selection[...]
+                var waiting = selection.filter { !here.contains($0.id) }[...]
                 var running = 0
                 while true {
                     while running < Self.copiesAtOnce, !run.stopping, let item = waiting.popFirst() {
@@ -1608,12 +1615,13 @@ struct PhotoArchiveView: View {
             refreshArchivedBytes()
             let copiedIDs = Set(copiedItems.map(\.id))
             failures = problems
-            items.removeAll { copiedIDs.contains($0.id) }
+            items.removeAll { copiedIDs.contains($0.id) || here.contains($0.id) }
             message = nil
             let completion = records.isEmpty ? nil : ArchiveCompletion(items: copiedItems, bytes: records.reduce(0) { $0 + $1.totalBytes },
                                                                        place: service.name, driveFolderID: nil, copies: copies)
             run.outcome = ArchiveOutcome(completion: completion, failures: problems,
-                                         left: run.stopping ? selection.count - run.tried : 0, place: service.name)
+                                         left: run.stopping ? selection.count - run.tried : 0, place: service.name,
+                                         alreadyHere: here.count)
             recordOutcome("Archive copy to \(service.name) \(operation) completed. Verified \(records.count) of \(selection.count) items in \(Self.seconds(since: started)), \(Self.throughput(records.reduce(0) { $0 + $1.totalBytes }, since: started)).")
             UIApplication.shared.isIdleTimerDisabled = false
             run.releaseBackgroundTime()
@@ -1642,10 +1650,17 @@ struct PhotoArchiveView: View {
         UIApplication.shared.isIdleTimerDisabled = true
         run.holdBackgroundTime()
         let sizes = allowanceSizes
+        let network = wifi
+        let placeLabel = OnlineFolders.chosen(.google).label(in: .google)
         let unlimited = pro.allows(.unlimitedArchive)
         Task {
             // The free 5 GB is checked again for each item as it starts, against what is archived now.
             var budget = FreeArchiveBudget(used: await FreeArchiveBudget.usedNow(), unlimited: unlimited)
+            // An item whose confirmed copy is already in this place, unchanged and still there at the
+            // same size, is not copied again (1.0.2). Another photo with the same name still gets "(2)".
+            let here = await AlreadyArchivedHere.find(selection, wifi: network) { $0.cloud == nil && $0.driveFileID != nil && $0.folderName == placeLabel }
+            run.alreadyHere = here.count
+            run.tried += here.count
             let started = Date()
             var records: [ArchivedRecord] = []
             var copies: [String: ArchivedRecord] = [:]
@@ -1657,7 +1672,7 @@ struct PhotoArchiveView: View {
                 let folderID = chosen.isRoot ? try await GoogleDriveClient.archiveFolder(token: try await account.accessToken()) : chosen.id
                 driveFolder = folderID
                 await withTaskGroup(of: (ArchiveItem, Result<(fileID: String, fingerprint: ArchiveFingerprint, parts: [ArchivedPart]), Error>).self) { group in
-                var waiting = selection[...]
+                var waiting = selection.filter { !here.contains($0.id) }[...]
                 var running = 0
                 while true {
                     while running < Self.copiesAtOnce, !run.stopping, let item = waiting.popFirst() {
@@ -1708,12 +1723,13 @@ struct PhotoArchiveView: View {
             refreshArchivedBytes()
             let copiedIDs = Set(copiedItems.map(\.id))
             failures = problems
-            items.removeAll { copiedIDs.contains($0.id) }
+            items.removeAll { copiedIDs.contains($0.id) || here.contains($0.id) }
             message = nil
             let completion = records.isEmpty ? nil : ArchiveCompletion(items: copiedItems, bytes: records.reduce(0) { $0 + $1.totalBytes },
                                                                        place: "Google Drive", driveFolderID: driveFolder, copies: copies)
             run.outcome = ArchiveOutcome(completion: completion, failures: problems,
-                                         left: run.stopping ? selection.count - run.tried : 0, place: "Google Drive")
+                                         left: run.stopping ? selection.count - run.tried : 0, place: "Google Drive",
+                                         alreadyHere: here.count)
             recordOutcome("Archive copy to Google Drive \(operation) completed. Verified \(records.count) of \(selection.count) items in \(Self.seconds(since: started)), \(Self.throughput(records.reduce(0) { $0 + $1.totalBytes }, since: started)).")
             UIApplication.shared.isIdleTimerDisabled = false
             run.releaseBackgroundTime()
@@ -1746,10 +1762,16 @@ struct PhotoArchiveView: View {
         UIApplication.shared.isIdleTimerDisabled = true
         run.holdBackgroundTime()
         let sizes = allowanceSizes
+        let destinationPath = destination.standardizedFileURL.path
         let unlimited = pro.allows(.unlimitedArchive)
         Task {
             // The free 5 GB is checked again for each item as it starts, against what is archived now.
             var budget = FreeArchiveBudget(used: await FreeArchiveBudget.usedNow(), unlimited: unlimited)
+            // An item whose confirmed copy is already in this place, unchanged and still there at the
+            // same size, is not copied again (1.0.2). Another photo with the same name still gets "(2)".
+            let here = await AlreadyArchivedHere.find(selection, wifi: wifiCheck) { AlreadyArchivedHere.inFolder($0, destinationPath) }
+            run.alreadyHere = here.count
+            run.tried += here.count
             let started = Date()
             var successes: [ArchiveReceipt] = []
             // Every file of every item, so a Live Photo's video and an edit count toward the total.
@@ -1759,7 +1781,7 @@ struct PhotoArchiveView: View {
             let bookmark = Self.bookmark(for: destination)
             let check: ArchiveWiFi? = home ? wifiCheck : nil
             await withTaskGroup(of: (ArchiveItem, Result<(receipt: ArchiveReceipt, parts: [ArchivedPart]), Error>).self) { group in
-            var waiting = selection[...]
+            var waiting = selection.filter { !here.contains($0.id) }[...]
             var running = 0
             while true {
                 while running < Self.copiesAtOnce, !run.stopping, let item = waiting.popFirst() {
@@ -1829,7 +1851,7 @@ struct PhotoArchiveView: View {
             if home { homeReceipts.formUnion(copied) }
             restored.subtract(copied)
             failures = problems
-            items.removeAll { copied.contains($0.id) }
+            items.removeAll { copied.contains($0.id) || here.contains($0.id) }
             for id in copied {
                 measuredBytes[id] = nil
                 checkedPhotos[id] = nil
@@ -1840,7 +1862,8 @@ struct PhotoArchiveView: View {
                                                                       bytes: copiedBytes,
                                                                       place: destination.lastPathComponent, driveFolderID: nil, copies: copies)
             run.outcome = ArchiveOutcome(completion: completion, failures: problems,
-                                         left: run.stopping ? selection.count - run.tried : 0, place: destination.lastPathComponent)
+                                         left: run.stopping ? selection.count - run.tried : 0, place: destination.lastPathComponent,
+                                         alreadyHere: here.count)
             UIApplication.shared.isIdleTimerDisabled = false
             run.releaseBackgroundTime()
             busy = false

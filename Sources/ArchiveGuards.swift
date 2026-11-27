@@ -51,6 +51,47 @@ struct FreeArchiveBudget {
     }
 }
 
+/// Items that are already archived in the place a run is copying to, so they aren't copied a second
+/// time under a numbered name (1.0.2). An item counts only when all of these hold:
+/// - a confirmed record of it is for this same place (`matches`);
+/// - that record still stands for the item as it is in Photos (`BackupLedger.covers`: not edited since);
+/// - its copy is still there at exactly the recorded size (`ArchiveProver.copyStillThere`).
+/// Files picked from Files have no Photos item and are always copied. Anything that can't be checked in
+/// time is copied as usual. A different photo that happens to share a file name is a different item, so
+/// it is never skipped and still gets the next free number.
+enum AlreadyArchivedHere {
+    static func find(_ selection: [ArchiveItem], wifi: ArchiveWiFi,
+                     matches: @escaping @Sendable (ArchivedRecord) -> Bool) async -> Set<String> {
+        var itemsByPhoto: [String: [String]] = [:]
+        for item in selection {
+            if case let .photo(id, _) = item.source { itemsByPhoto[id, default: []].append(item.id) }
+        }
+        guard !itemsByPhoto.isEmpty else { return [] }
+        let photos = Array(itemsByPhoto.keys)
+        let candidates = await Task.detached(priority: .userInitiated) { () -> [ArchivedRecord] in
+            guard let records = try? InventoryStore.openDefault().archived() else { return [] }
+            let wanted = Set(photos)
+            let here = records.filter { record in
+                guard let id = record.photoID, wanted.contains(id) else { return false }
+                return matches(record)
+            }
+            guard !here.isEmpty else { return [] }
+            return BackupLedger.covering(here, now: BackupLedger.originals(Array(Set(here.compactMap(\.photoID)))))
+        }.value
+        guard !candidates.isEmpty else { return [] }
+        let present = await BackupLedger.present(candidates) { await ArchiveProver.copyStillThere($0, wifi: wifi) }
+        return Set(present.flatMap { itemsByPhoto[$0] ?? [] })
+    }
+
+    /// A drive, folder or home-server record whose folder is `path`.
+    static func inFolder(_ record: ArchivedRecord, _ path: String) -> Bool {
+        guard record.cloud == nil, record.driveFileID == nil, let bookmark = record.folderBookmark else { return false }
+        var stale = false
+        guard let folder = try? URL(resolvingBookmarkData: bookmark, bookmarkDataIsStale: &stale) else { return false }
+        return folder.standardizedFileURL.path == path
+    }
+}
+
 /// An item that wasn't copied because it doesn't fit in what is left of the free 5 GB.
 struct OverFreeArchive: LocalizedError {
     var errorDescription: String? {
