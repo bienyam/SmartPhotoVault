@@ -1441,7 +1441,7 @@ struct PhotoArchiveView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                 Toggle("I authorize creating a test copy here. It uses storage and the folder’s provider may sync it. The archive copy stays in place.", isOn: $restoreConsent)
-                Button("Restore and verify", action: beginRestore)
+                Button("Get back and verify", action: beginRestore)
                     .fontWeight(.semibold)
                     .disabled(!restoreConsent)
             }

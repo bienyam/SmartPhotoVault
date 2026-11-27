@@ -91,7 +91,7 @@ struct ArchivedView: View {
                         Image(systemName: "arrow.uturn.backward.circle.fill")
                             .font(.system(size: 72)).foregroundStyle(ArchiveStyle.link).accessibilityHidden(true)
                         Text("Nothing archived yet.").font(.title3.bold())
-                        Text("What you move out appears here by day, ready to put back.")
+                        Text("What you move out appears here by day, ready to get back.")
                             .foregroundStyle(ArchiveStyle.muted)
                     }
                     .multilineTextAlignment(.center)
@@ -233,7 +233,7 @@ struct ArchivedDayView: View {
                 }
             }
             if !problems.isEmpty {
-                Section("Couldn't put back") {
+                Section("Couldn't get back") {
                     ForEach(problems, id: \.self) { Text($0).font(.footnote).foregroundStyle(Brand.caution) }
                 }
             }
@@ -252,7 +252,7 @@ struct ArchivedDayView: View {
         .safeAreaInset(edge: .bottom) {
             if !chosen.isEmpty {
                 VStack(spacing: 8) {
-                    Picker("Put back to", selection: $target) {
+                    Picker("Get back to", selection: $target) {
                         ForEach(Target.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                     }
                     .pickerStyle(.segmented)
@@ -267,7 +267,7 @@ struct ArchivedDayView: View {
                     Toggle(consentText, isOn: $consent)
                         .font(.footnote)
                         .accessibilityIdentifier("restore-consent")
-                    Button(busy ? progress : "Put back \(chosen.count.formatted()) \(chosen.count == 1 ? "item" : "items")") { restore() }
+                    Button(busy ? progress : "Get back \(chosen.count.formatted()) \(chosen.count == 1 ? "item" : "items")") { restore() }
                         .buttonStyle(ArchiveButtonStyle())
                         .disabled(!consent || busy || (target == .folder && folder == nil))
                         .accessibilityIdentifier("restore-go")
@@ -282,7 +282,7 @@ struct ArchivedDayView: View {
         .fullScreenCover(isPresented: Binding(get: { done != nil }, set: { if !$0 { done = nil } })) {
             if let done {
                 CompletionView(
-                    title: done.target == .photos ? "Back in Photos" : "Put back",
+                    title: done.target == .photos ? "Back in Photos" : "Back in your folder",
                     detail: "\(done.count) \(done.count == 1 ? "item is" : "items are") back \(done.target == .photos ? "in your Photos library" : "in \(folder?.lastPathComponent ?? "your folder")"), checked against the archive. The archive copies stay where they are.",
                     actions: [])
             }
@@ -314,14 +314,14 @@ struct ArchivedDayView: View {
         busy = true
         problems = []
         let operation = UUID()
-        try? InventoryStore.openDefault().log("Authorized putting back \(records.count) archived item(s) to \(target == .photos ? "Apple Photos" : "a Files folder") (\(operation)), disclosure v1.")
+        try? InventoryStore.openDefault().log("Authorized getting back \(records.count) archived item(s) to \(target == .photos ? "Apple Photos" : "a Files folder") (\(operation)), disclosure v1.")
         Task {
             var restored = 0
             if target == .photos, PHPhotoLibrary.authorizationStatus(for: .readWrite) == .notDetermined {
                 _ = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
             }
             for (index, record) in records.enumerated() {
-                progress = "Putting back \(index + 1) of \(records.count)…"
+                progress = "Getting back \(index + 1) of \(records.count)…"
                 do {
                     switch target {
                     case .photos: try await ArchiveRestore.toPhotos(record, wifi: wifiCheck)
@@ -334,7 +334,7 @@ struct ArchivedDayView: View {
                     problems.append("\(record.name) — \(error.localizedDescription)")
                 }
             }
-            try? InventoryStore.openDefault().log("Put back \(operation) finished: \(restored) of \(records.count) verified.")
+            try? InventoryStore.openDefault().log("Get back \(operation) finished: \(restored) of \(records.count) verified.")
             busy = false
             selected = []
             if restored > 0 { done = (restored, target) }
@@ -520,9 +520,9 @@ enum ArchiveRestoreError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .photosCannotRebuild:
-            "Photos on this \(Device.name) can't rebuild this Live Photo or edited photo as one item. Put it back to a folder in Files instead to get every part. The archive copies stay where they are."
+            "Photos on this \(Device.name) can't rebuild this Live Photo or edited photo as one item. Get it back to a folder in Files instead to keep every part. The archive copies stay where they are."
         case .partsMissing:
-            "Photos took the picture but didn't keep its Live Photo or edit part. The archive copies are unchanged: put it back to a folder in Files to get every part."
+            "Photos took the picture but didn't keep its Live Photo or edit part. The archive copies are unchanged: get it back to a folder in Files to keep every part."
 
         case let .folderGone(folder, name):
             "TidyAway can no longer open that archive folder. Your copy is still in \(folder): open it in Files to find \(name)."
