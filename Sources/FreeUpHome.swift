@@ -1,4 +1,5 @@
 import SwiftUI
+import StoreKit
 
 // The pieces of the 1.0.1 Free up page: the fixed backdrop, the storage card with the Storage Score,
 // the three shelves and their rows, and the two sheets (how the score works, and a Pro feature).
@@ -866,28 +867,35 @@ struct ProFeatureSheet: View {
     @Environment(\.openURL) private var openURL
     @State private var showPlans = false
 
+    /// The plan this sheet offers: yearly, which carries the free trial. Monthly only when the App
+    /// Store has no yearly plan right now. Every plan is still under See all plans.
+    private var offered: (product: Product?, id: String, unit: String) {
+        if pro.yearly != nil || pro.monthly == nil { return (pro.yearly, ProStore.yearlyID, "year") }
+        return (pro.monthly, ProStore.monthlyID, "month")
+    }
+
     /// The free trial, if this Apple Account can still have it. Length and price come from the App Store.
     private var trial: String? {
-        guard pro.trialEligible, let intro = pro.monthly?.subscription?.introductoryOffer,
+        guard pro.trialEligible, let intro = offered.product?.subscription?.introductoryOffer,
               intro.paymentMode == .freeTrial else { return nil }
         return ProStore.trialName(intro.period.value, intro.period.unit)
     }
 
     private var buttonTitle: String {
         if let trial { return "Start \(trial) free trial" }
-        if let monthly = pro.monthly { return "Get Pro · \(monthly.displayPrice) a month" }
+        if let product = offered.product { return "Get Pro · \(product.displayPrice) a \(offered.unit)" }
         return "Get TidyAway Pro"
     }
 
     private var priceLine: String {
-        guard let monthly = pro.monthly else {
+        guard let product = offered.product else {
             return pro.loadingProducts || pro.waitingToBuy != nil
                 ? "Getting the price from the App Store…"
                 : "The price is shown by the App Store before you pay."
         }
         return trial == nil
-            ? "Renews each month until you cancel. Cancel anytime in Settings."
-            : "Then \(monthly.displayPrice) a month. Cancel anytime in Settings."
+            ? "Renews each \(offered.unit) until you cancel. Cancel anytime in Settings."
+            : "Then \(product.displayPrice) a \(offered.unit). Cancel anytime in Settings."
     }
 
     var body: some View {
@@ -924,11 +932,11 @@ struct ProFeatureSheet: View {
                         .accessibilityIdentifier("pro-sheet-found")
                 }
                 Button {
-                    Task { await pro.buy(ProStore.monthlyID) }
+                    Task { await pro.buy(offered.id) }
                 } label: {
                     HStack(spacing: 8) {
                         Text(buttonTitle)
-                        if pro.monthly == nil && (pro.loadingProducts || pro.waitingToBuy != nil) {
+                        if offered.product == nil && (pro.loadingProducts || pro.waitingToBuy != nil) {
                             ProgressView().tint(ArchiveStyle.onAction).accessibilityLabel("Getting the price")
                         }
                     }

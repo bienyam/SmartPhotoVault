@@ -385,7 +385,7 @@ struct ProPurchaseControls: View {
         var text = "Subscriptions renew automatically at \(monthly) a month"
         if let yearly = pro.yearly?.displayPrice { text += " or \(yearly) a year" }
         text += " until you cancel."
-        if pro.trialEligible, (pro.monthly ?? pro.yearly)?.subscription?.introductoryOffer?.paymentMode == .freeTrial {
+        if pro.trialEligible, [pro.monthly, pro.yearly].contains(where: { $0?.subscription?.introductoryOffer?.paymentMode == .freeTrial }) {
             text += " The free trial becomes a paid subscription when it ends unless you cancel before then."
         }
         return text + " Cancel at least 24 hours before the end of the current period in Settings, your name, Subscriptions. Payment is charged to your Apple Account."
