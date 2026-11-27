@@ -63,6 +63,17 @@ final class Release102ArchiveTests: XCTestCase {
         XCTAssertFalse(noFolder, "A record whose folder can't be found has no copy to count.")
     }
 
+    func testAnICloudDriveCopyStillUploadingIsNotBackedUp() {
+        XCTAssertNil(VerifiedArchive.presentSize(regular: true, link: false, size: 3, ubiquitous: true, uploaded: false),
+                     "Only on this iPhone until iCloud has it.")
+        XCTAssertNil(VerifiedArchive.presentSize(regular: true, link: false, size: 3, ubiquitous: true, uploaded: nil))
+        XCTAssertEqual(VerifiedArchive.presentSize(regular: true, link: false, size: 3, ubiquitous: true, uploaded: true), 3)
+        XCTAssertEqual(VerifiedArchive.presentSize(regular: true, link: false, size: 3, ubiquitous: false, uploaded: nil), 3)
+        XCTAssertNil(VerifiedArchive.presentSize(regular: true, link: true, size: 3, ubiquitous: false, uploaded: nil))
+        XCTAssertNil(VerifiedArchive.presentSize(regular: false, link: false, size: 3, ubiquitous: false, uploaded: nil))
+        XCTAssertNil(VerifiedArchive.presentSize(regular: true, link: false, size: nil, ubiquitous: false, uploaded: nil))
+    }
+
     // MARK: - A3: local copies are read back in full once before removal
 
     func testAReadBackCopyStaysSizeOnlyUntilItChanges() throws {

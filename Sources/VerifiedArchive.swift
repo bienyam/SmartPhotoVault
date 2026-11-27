@@ -330,9 +330,10 @@ enum VerifiedArchive {
 
     /// The size of a copy as its folder describes it now, without opening or downloading it: only the
     /// metadata already at hand is asked for. Nil when there is no regular file of that name.
-    /// Unlike `copyStamp`, a copy that is still only on this iPhone or still uploading counts as there:
-    /// this answers "is the copy still there" (the not-backed-up check, and skipping items that are
-    /// already archived), never "may the original go".
+    /// An iCloud Drive copy still uploading counts as not there, as it does for removal. Unlike
+    /// `copyStamp`, a copy in another folder on this iPhone counts as there: this answers "is the copy
+    /// still there" (the not-backed-up check, and skipping items that are already archived), never
+    /// "may the original go".
     static func presentSize(named name: String, in folder: URL, wifi: ArchiveWiFi?) throws -> Int64? {
         try wifi?.requireConnection()
         return try scoped(folder) {
@@ -340,11 +341,20 @@ enum VerifiedArchive {
                 guard FileManager.default.fileExists(atPath: url.path) else { return nil }
                 var fresh = url
                 fresh.removeAllCachedResourceValues()
-                let values = try fresh.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
-                guard values.isRegularFile == true, values.isSymbolicLink != true, let size = values.fileSize else { return nil }
-                return Int64(size)
+                let values = try fresh.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey,
+                                                                .isUbiquitousItemKey, .ubiquitousItemIsUploadedKey])
+                return presentSize(regular: values.isRegularFile, link: values.isSymbolicLink, size: values.fileSize,
+                                   ubiquitous: values.isUbiquitousItem, uploaded: values.ubiquitousItemIsUploaded)
             }
         }
+    }
+
+    /// What `presentSize` makes of a file's metadata. An iCloud Drive copy that hasn't finished uploading
+    /// is only on this iPhone, so, as for removal, it is not there yet (1.0.2).
+    static func presentSize(regular: Bool?, link: Bool?, size: Int?, ubiquitous: Bool?, uploaded: Bool?) -> Int64? {
+        guard regular == true, link != true, let size else { return nil }
+        if ubiquitous == true, uploaded != true { return nil }
+        return Int64(size)
     }
 
     /// Reads the whole original from Photos again (downloading it from iCloud if needed) and hashes it.
