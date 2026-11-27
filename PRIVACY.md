@@ -44,6 +44,6 @@ TidyAway Pro is sold through Apple. Apple handles payment; the app only learns w
 
 ## Questions
 
-For privacy questions, use the [TidyAway support page](https://github.com/bienyam/SmartPhotoVault/issues). Issues are public, so leave out personal photos and library information.
+For privacy questions, email [hello@tidyaway.app](mailto:hello@tidyaway.app) or use the [TidyAway support page](https://tidyaway.app/support). If you report a problem on the public issue list linked from that page, leave out personal photos and library information.
 
 Last updated: November 26, 2026.

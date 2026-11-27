@@ -394,7 +394,7 @@ struct ProPurchaseControls: View {
     @State private var showManage = false
 
     static let termsURL = URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!
-    static let privacyURL = URL(string: "https://github.com/bienyam/SmartPhotoVault/blob/main/PRIVACY.md")!
+    static let privacyURL = SupportLinks.privacy
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
