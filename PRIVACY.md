@@ -40,7 +40,7 @@ The Storage Score and the storage bar are worked out on your iPhone from its fre
 
 ## Purchases
 
-TidyAway Pro is sold through Apple. Apple handles payment; the app only learns whether Pro is active.
+TidyAway Pro is sold through Apple. Apple handles payment; the app only learns whether Pro is active. If you start a free trial, the app can set one reminder on your iPhone two days before the trial ends, if you allow notifications. It's a notification on your iPhone; nothing is sent anywhere.
 
 ## Questions
 

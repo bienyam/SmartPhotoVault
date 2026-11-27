@@ -38,6 +38,11 @@ final class ProStore: ObservableObject {
     /// True while a monthly or yearly subscription is active, whatever the plan. Buying lifetime
     /// doesn't cancel a subscription, so "Manage subscription" stays reachable until it ends.
     @Published private(set) var hasActiveSubscription = false
+    /// The end of a free trial that will turn into a paid plan, from Apple's transaction. Nil otherwise.
+    @Published private(set) var trialEnds: Date?
+    /// True while the reminder two days before the trial ends is pending. When it isn't (notifications
+    /// are off), the Pro section shows the end date instead.
+    @Published private(set) var trialReminderSet = false
 
     var unlocked: Bool { plan != .none || testerAccess }
     /// What the screens show. Testers are shown as Pro, the same as a paying customer.
@@ -119,13 +124,40 @@ final class ProStore: ObservableObject {
     /// subscriptions and keeps one in Apple's billing grace period, so no expiry date is checked here.
     func refresh() async {
         var entitled: [String] = []
+        var subscription: StoreKit.Transaction?
         for await result in StoreKit.Transaction.currentEntitlements {
             guard case .verified(let transaction) = result, transaction.revocationDate == nil else { continue }
             entitled.append(transaction.productID)
+            if subscription == nil, Self.subscriptionIDs.contains(transaction.productID) { subscription = transaction }
         }
         let now = Date()
         plan = Self.plan(refreshed: Self.plan(entitled: entitled), current: plan, purchasedAt: purchasedAt, now: now)
         hasActiveSubscription = Self.hasSubscription(entitled: entitled, subscribedAt: subscribedAt, now: now)
+        // Clears the trial reminder once the trial is cancelled, converts or ends. Never asks for permission.
+        // Skipped just after a purchase while Apple's list may not show the new subscription yet.
+        if subscription != nil || subscribedAt.map({ now.timeIntervalSince($0) >= Self.purchaseGrace }) ?? true {
+            await syncTrialReminder(from: subscription, mayAsk: false)
+        }
+    }
+
+    /// The free trial a subscription transaction is in, read from Apple's transaction (end date) and
+    /// renewal info (whether it will renew). Nil for a paid period or a paid introductory offer.
+    private static func freeTrial(from transaction: StoreKit.Transaction?) async -> TrialReminder.Trial? {
+        guard let transaction, transaction.offerType == .introductory,
+              let ends = transaction.expirationDate else { return nil }
+        if #available(iOS 17.2, *), let mode = transaction.offer?.paymentMode, mode != .freeTrial { return nil }
+        var willRenew = true
+        if let status = await transaction.subscriptionStatus, case .verified(let renewal) = status.renewalInfo {
+            willRenew = renewal.willAutoRenew
+        }
+        return TrialReminder.Trial(ends: ends, willRenew: willRenew)
+    }
+
+    /// Plans or clears the trial-end reminder, and what the Pro section shows about the trial.
+    private func syncTrialReminder(from transaction: StoreKit.Transaction?, mayAsk: Bool) async {
+        let trial = await Self.freeTrial(from: transaction)
+        trialEnds = trial?.willRenew == true ? trial?.ends : nil
+        trialReminderSet = await TrialReminder.sync(trial, mayAsk: mayAsk)
     }
 
     /// Whether a subscription is active: Apple lists one, or one was bought here in the last
@@ -244,6 +276,10 @@ final class ProStore: ObservableObject {
                     trialEligible = false
                 }
                 await transaction.finish()
+                // A purchase that starts a free trial is the one moment notification permission is asked for.
+                if Self.subscriptionIDs.contains(transaction.productID), transaction.revocationDate == nil {
+                    await syncTrialReminder(from: transaction, mayAsk: true)
+                }
             case .success(.unverified):
                 notice = "The purchase could not be verified."
             case .pending:
@@ -397,6 +433,16 @@ struct ProPurchaseControls: View {
         }
     }
 
+    /// The trial's end date, shown here when no reminder could be set (notifications are off).
+    @ViewBuilder
+    private var trialDate: some View {
+        if let ends = pro.trialEnds, !pro.trialReminderSet {
+            Text(TrialReminder.dateLine(ends: ends))
+                .font(.footnote).foregroundStyle(.secondary)
+                .accessibilityIdentifier("pro-trial-ends")
+        }
+    }
+
     private var manageButton: some View {
         Button("Manage subscription") { showManage = true }
             .accessibilityIdentifier("pro-manage")
@@ -421,12 +467,14 @@ struct ProPurchaseControls: View {
                 Text(Self.stillSubscribed)
                     .font(.footnote).foregroundStyle(.secondary)
                     .accessibilityIdentifier("pro-still-subscribed")
+                trialDate
                 manageButton
             }
         case .monthly, .yearly:
             Label(pro.plan == .yearly ? "Pro is unlocked. Yearly plan." : "Pro is unlocked. Monthly plan.", systemImage: "checkmark.seal.fill")
                 .foregroundStyle(Brand.safe)
                 .accessibilityIdentifier("pro-unlocked")
+            trialDate
             manageButton
             if let lifetime = pro.lifetime {
                 Button("Switch to lifetime for \(lifetime.displayPrice)") { confirmLifetime = true }
