@@ -166,6 +166,54 @@ final class Release102ArchiveTests: XCTestCase {
         XCTAssertEqual(ArchiveOutcome(completion: nil, failures: [], left: 0, place: "Drive").alreadyHere, 0)
     }
 
+    // MARK: - D5 follow-up: Dropbox uploads resume
+
+    private func incorrectOffset(_ offset: Int64, nested: Bool = false) -> Data {
+        let inner = #"{".tag":"incorrect_offset","correct_offset":\#(offset)}"#
+        let error = nested ? #"{".tag":"lookup_failed","lookup_failed":\#(inner)}"# : inner
+        return Data(#"{"error_summary":"incorrect_offset/..","error":\#(error)}"#.utf8)
+    }
+
+    func testDropboxSaysWhichOffsetItWants() {
+        XCTAssertEqual(UploadRetry.dropboxCorrectOffset(incorrectOffset(4_194_304)), 4_194_304)
+        XCTAssertEqual(UploadRetry.dropboxCorrectOffset(incorrectOffset(77, nested: true)), 77)
+        XCTAssertNil(UploadRetry.dropboxCorrectOffset(Data(#"{"error":{".tag":"closed"}}"#.utf8)))
+        XCTAssertNil(UploadRetry.dropboxCorrectOffset(Data("not json".utf8)))
+    }
+
+    func testADropboxPieceCarriesOnFromTheOffsetDropboxGives() throws {
+        let piece = Data(repeating: 1, count: 100)
+        var sent: [(Int64, Int)] = []
+        var answers: [(status: Int, body: Data)] = [(409, incorrectOffset(1_060)), (200, Data())]
+        try CloudStream.dropboxPiece(piece, at: 1_000, pause: { _ in }) { at, rest in
+            sent.append((at, rest.count))
+            return answers.removeFirst()
+        }
+        XCTAssertEqual(sent.map(\.0), [1_000, 1_060], "Only what Dropbox doesn't have yet is sent again.")
+        XCTAssertEqual(sent.map(\.1), [100, 40])
+    }
+
+    func testADropboxPieceRetriesADropAndStopsAfterAFewTries() throws {
+        let piece = Data(repeating: 1, count: 10)
+        var calls = 0
+        try CloudStream.dropboxPiece(piece, at: 0, pause: { _ in }) { _, _ in
+            calls += 1
+            if calls == 1 { throw URLError(.networkConnectionLost) }
+            return (409, self.incorrectOffset(10))
+        }
+        XCTAssertEqual(calls, 2, "After the drop, Dropbox already had the whole piece.")
+
+        var busy = 0
+        XCTAssertThrowsError(try CloudStream.dropboxPiece(piece, at: 0, pause: { _ in }) { _, _ in
+            busy += 1
+            return (503, Data())
+        })
+        XCTAssertEqual(busy, UploadRetry.attempts + 1, "A busy server is tried a few times, then the item fails.")
+        XCTAssertThrowsError(try CloudStream.dropboxPiece(piece, at: 0, pause: { _ in }) { _, _ in (409, self.incorrectOffset(500)) },
+                             "An offset past this piece can't be right.")
+        XCTAssertThrowsError(try CloudStream.dropboxPiece(piece, at: 0, pause: { _ in }) { _, _ in (400, Data()) })
+    }
+
     func testAFullReadBackReportsProgressAndCatchesChangedBytes() throws {
         let folder = try makeFolder()
         let bytes = Data(repeating: 0x2a, count: 700_000)

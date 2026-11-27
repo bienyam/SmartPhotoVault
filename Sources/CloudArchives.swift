@@ -658,10 +658,36 @@ enum DropboxClient {
         try await CloudArchive.pieces(of: file) { piece, offset in
             content.update(piece)
             if let id = sessionID {
-                let (code, _) = try await CloudArchive.send(request("upload_session/append_v2",
-                                                                    arg: ["cursor": ["session_id": id, "offset": offset], "close": false]),
-                                                            body: piece, service: .dropbox)
-                guard code == 200 else { throw CloudError.server("Dropbox", code) }
+                // The same resume as a streamed upload: on incorrect_offset carry on from Dropbox's offset,
+                // after a drop or a busy server wait and send again, a few tries at most.
+                let end = offset + Int64(piece.count)
+                var at = offset
+                var tries = 0
+                sending: while true {
+                    let rest = Data(piece[(piece.startIndex + Int(at - offset))...])
+                    var status: Int?
+                    var body = Data()
+                    var failure: Error?
+                    do {
+                        let (code, reply) = try await CloudArchive.send(request("upload_session/append_v2",
+                                                                                arg: ["cursor": ["session_id": id, "offset": at], "close": false]),
+                                                                        body: rest, service: .dropbox)
+                        status = code
+                        body = reply
+                    } catch {
+                        failure = error
+                    }
+                    switch UploadRetry.dropboxStep(status: status, body: body, error: failure, offset: offset, end: end, tries: tries) {
+                    case .done: break sending
+                    case .resend(let from):
+                        tries += 1
+                        at = from
+                    case .wait:
+                        tries += 1
+                        try await Task.sleep(nanoseconds: UInt64(UploadRetry.delay(tries) * 1_000_000_000))
+                    case .fail(let error): throw error
+                    }
+                }
             } else {
                 let (code, reply) = try await CloudArchive.send(request("upload_session/start", arg: ["close": false]),
                                                                 body: piece, service: .dropbox)

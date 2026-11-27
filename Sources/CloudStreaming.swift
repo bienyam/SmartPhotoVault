@@ -310,9 +310,10 @@ enum CloudStream {
         guard started.status == 200 else { throw CloudError.server("Dropbox", started.status) }
         let session = try JSONDecoder().decode(Started.self, from: started.body).session_id
         let pieces = CloudPieces { piece, offset in
-            let reply = try send(request("upload_session/append_v2", arg: ["cursor": ["session_id": session, "offset": offset], "close": false]),
-                                 body: piece)
-            guard reply.status == 200 else { throw CloudError.server("Dropbox", reply.status) }
+            try dropboxPiece(piece, at: offset) { at, rest in
+                try send(request("upload_session/append_v2", arg: ["cursor": ["session_id": session, "offset": at], "close": false]),
+                         body: rest)
+            }
         }
         feed(item, into: pieces)
         let result = try pieces.finish()
@@ -325,6 +326,40 @@ enum CloudStream {
         struct Metadata: Decodable { let id: String; let name: String; let size: Int64?; let content_hash: String? }
         let stored = try JSONDecoder().decode(Metadata.self, from: done.body)
         return (stored.id, stored.name, stored.size ?? -1, stored.content_hash, result.fingerprint, result.dropbox)
+    }
+
+    /// Sends one piece to a Dropbox upload session, the way OneDrive pieces are sent: after a dropped
+    /// connection or a busy server it waits and sends again, and when Dropbox answers `incorrect_offset`
+    /// (it already has more, or less, than this try assumed) it carries on from the offset Dropbox gives.
+    /// A few tries, then the item fails. `append` sends the bytes from an offset and returns the answer.
+    static func dropboxPiece(_ piece: Data, at offset: Int64, pause: (Int) -> Void = { UploadRetry.wait($0) },
+                             append: (Int64, Data) throws -> (status: Int, body: Data)) throws {
+        let end = offset + Int64(piece.count)
+        var at = offset
+        var tries = 0
+        while true {
+            let rest = Data(piece[(piece.startIndex + Int(at - offset))...])
+            var status: Int?
+            var body = Data()
+            var failure: Error?
+            do {
+                let reply = try append(at, rest)
+                status = reply.status
+                body = reply.body
+            } catch {
+                failure = error
+            }
+            switch UploadRetry.dropboxStep(status: status, body: body, error: failure, offset: offset, end: end, tries: tries) {
+            case .done: return
+            case .resend(let from):
+                tries += 1
+                at = from
+            case .wait:
+                tries += 1
+                pause(tries)
+            case .fail(let error): throw error
+            }
+        }
     }
 }
 
@@ -352,6 +387,41 @@ enum UploadRetry {
     static func delay(_ attempt: Int) -> TimeInterval { min(pow(2, Double(max(attempt, 1) - 1)), 8) }
 
     static func wait(_ attempt: Int) { Thread.sleep(forTimeInterval: delay(attempt)) }
+
+    /// What to do after one Dropbox `upload_session/append_v2` try for the piece from `offset` to `end`.
+    enum DropboxStep {
+        case done
+        /// Dropbox has the session up to this byte: send the rest of the piece from there.
+        case resend(from: Int64)
+        /// A dropped connection or a busy server: wait, then send the same bytes again.
+        case wait
+        case fail(Error)
+    }
+
+    static func dropboxStep(status: Int?, body: Data, error: Error?, offset: Int64, end: Int64, tries: Int) -> DropboxStep {
+        if let error {
+            return tries < attempts && retryable(error) ? .wait : .fail(error)
+        }
+        let status = status ?? 0
+        if status == 200 { return .done }
+        let refused = CloudError.server("Dropbox", status)
+        if status == 409, let correct = dropboxCorrectOffset(body) {
+            guard tries < attempts, correct >= offset, correct <= end else { return .fail(refused) }
+            // Every byte of this piece had already arrived.
+            return correct == end ? .done : .resend(from: correct)
+        }
+        return tries < attempts && transient(status) ? .wait : .fail(refused)
+    }
+
+    /// The offset Dropbox expects next, from an `incorrect_offset` error (also when it comes inside
+    /// `lookup_failed`). Nil for any other answer.
+    static func dropboxCorrectOffset(_ body: Data) -> Int64? {
+        guard let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+              let error = json["error"] as? [String: Any] else { return nil }
+        let lookup = (error["lookup_failed"] as? [String: Any]) ?? error
+        guard lookup[".tag"] as? String == "incorrect_offset" else { return nil }
+        return (lookup["correct_offset"] as? NSNumber)?.int64Value
+    }
 
     /// The first byte a OneDrive upload session still expects, from its `nextExpectedRanges`
     /// ("26214400-" or "26214400-52428799"). Nil when the answer doesn't say.
