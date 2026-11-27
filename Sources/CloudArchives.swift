@@ -203,13 +203,30 @@ final class CloudAccount: NSObject, ObservableObject, ASWebAuthenticationPresent
     func accessToken() async throws -> String {
         guard var current = tokens else { throw CloudError.notConnected(service.name) }
         if current.expiry.timeIntervalSinceNow > 120 { return current.accessToken }
-        let refreshed = try await CloudTokenService.refresh(service, current.refreshToken, scopeVersion: current.scopeVersion)
+        let refreshed: (accessToken: String, expiry: Date, refreshToken: String?)
+        do {
+            refreshed = try await CloudTokenService.refresh(service, current.refreshToken, scopeVersion: current.scopeVersion)
+        } catch GoogleTokenError.signInRejected {
+            // The service no longer accepts this sign-in (revoked or expired). Forget it, so the screens
+            // show Connect again instead of failing every item.
+            forgetRejectedSignIn()
+            throw CloudError.notConnected(service.name)
+        }
         current.accessToken = refreshed.accessToken
         current.expiry = refreshed.expiry
         if let token = refreshed.refreshToken { current.refreshToken = token }
         tokens = current
         CloudKeychain.save(current, for: service)
         return current.accessToken
+    }
+
+    /// Archived files stay in the service; only this iPhone's copy of the sign-in is removed.
+    private func forgetRejectedSignIn() {
+        guard tokens != nil else { return }
+        CloudKeychain.delete(service)
+        tokens = nil
+        name = nil
+        message = CloudError.notConnected(service.name).errorDescription
     }
 
     private func signIn(url: URL) async throws -> URL {
@@ -277,7 +294,12 @@ enum CloudTokenService {
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.httpBody = GoogleTokenService.formBody(fields)
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw CloudError.signInFailed(service.name) }
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard status == 200 else {
+            // Microsoft and Dropbox answer `invalid_grant` like Google for a revoked or expired sign-in.
+            if GoogleTokenService.isRejectedSignIn(status: status, body: data) { throw GoogleTokenError.signInRejected }
+            throw CloudError.signInFailed(service.name)
+        }
         return try JSONDecoder().decode(TokenResponse.self, from: data)
     }
 }

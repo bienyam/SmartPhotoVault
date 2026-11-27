@@ -228,7 +228,8 @@ final class GoogleDriveAccount: NSObject, ObservableObject, ASWebAuthenticationP
     }
 }
 
-/// Google turned the saved sign-in down for good, so asking again won't help until the person reconnects.
+/// Google (or OneDrive or Dropbox) turned the saved sign-in down for good, so asking again won't help
+/// until the person reconnects.
 enum GoogleTokenError: Error {
     case signInRejected
 }
@@ -286,7 +287,7 @@ enum GoogleTokenService {
         return try JSONDecoder().decode(TokenResponse.self, from: data)
     }
 
-    /// Google answers `invalid_grant` when a refresh token was revoked or expired. Other errors,
+    /// Google, Microsoft and Dropbox answer `invalid_grant` when a refresh token was revoked or expired. Other errors,
     /// such as a server problem, may pass, so the sign-in is kept for those.
     static func isRejectedSignIn(status: Int, body: Data) -> Bool {
         struct Failure: Decodable { let error: String }

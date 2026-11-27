@@ -29,6 +29,7 @@ final class ArchiveRun: ObservableObject {
         case CloudError.server(let name, _): return "\(name) didn't accept them"
         case GoogleDriveError.server: return "Google Drive didn't accept them"
         case GoogleDriveError.notConnected: return "Google Drive needs you to sign in again"
+        case CloudError.notConnected(let name): return "\(name) needs you to sign in again"
         case ArchiveError.editedDuringCopy: return "Edited while it was being copied"
         case ArchiveError.wifi: return "Wi-Fi to the file server dropped"
         case ArchiveError.unavailable, ArchiveError.missingFile: return "The destination couldn't be reached"

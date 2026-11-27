@@ -44,10 +44,11 @@ struct FreeUpView: View {
                                 whatsUsingLink(storage)
                             }
                         }
-                        if model.isScanning {
-                            scanning
-                        } else if model.rescue == nil {
-                            start
+                        switch model.freeUpStart {
+                        case .scanning: scanning
+                        case .loadingSaved: loadingSaved
+                        case .empty: start
+                        case .results: EmptyView()
                         }
                         problems
                         if let rescue = model.rescue {
@@ -168,6 +169,17 @@ struct FreeUpView: View {
             }
         }
         .homeCard()
+    }
+
+    /// While the saved results are read at launch: no empty state, so it never flashes before them.
+    private var loadingSaved: some View {
+        ProgressView()
+            .tint(Brand.primary)
+            .controlSize(.large)
+            .frame(maxWidth: .infinity, minHeight: 120)
+            .accessibilityLabel("Looking")
+            .accessibilityIdentifier("free-up-loading")
+            .homeCard()
     }
 
     private var scanning: some View {
@@ -562,7 +574,7 @@ struct FreeUpView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 review(rescue)
-            } else if !model.isScanning {
+            } else if model.freeUpStart == .empty {
                 Button("Free up space") { model.startDuplicateScan() }
                     .buttonStyle(ArchiveButtonStyle())
                     .accessibilityHint("Checks photos on this \(Device.name)")

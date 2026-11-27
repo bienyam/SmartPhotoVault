@@ -87,8 +87,10 @@ final class Release102PerfTests: XCTestCase {
         }
         XCTAssertTrue(model.isLoadingSaved, "The read happens after the first frame, not in init.")
         XCTAssertNil(model.snapshot)
+        XCTAssertEqual(model.freeUpStart, .loadingSaved, "Never the empty Free up space state while saved results load.")
         await model.savedLoad?.value
         XCTAssertFalse(model.isLoadingSaved)
+        XCTAssertEqual(model.freeUpStart, .results)
         XCTAssertEqual(model.snapshot?.assets.count, 3)
         XCTAssertEqual(model.rescue?.duplicateGroups.count, 1, "The Free up rows arrive with the results.")
         XCTAssertEqual(model.rescue?.duplicateCopies, 1)
@@ -110,6 +112,28 @@ final class Release102PerfTests: XCTestCase {
         XCTAssertTrue(model.isDemo)
         XCTAssertEqual(model.snapshot?.assets.count, demoCount, "Results shown after launch must not be overwritten by the older saved scan.")
         XCTAssertEqual(model.rescue?.snapshot.assets.count, demoCount)
+    }
+
+    func testTheEmptyStateIsNeverChosenWhileSavedResultsLoad() {
+        XCTAssertEqual(DashboardModel.freeUpStart(scanning: false, loadingSaved: true, hasResults: false), .loadingSaved)
+        XCTAssertEqual(DashboardModel.freeUpStart(scanning: false, loadingSaved: false, hasResults: false), .empty)
+        XCTAssertEqual(DashboardModel.freeUpStart(scanning: false, loadingSaved: true, hasResults: true), .results)
+        XCTAssertEqual(DashboardModel.freeUpStart(scanning: false, loadingSaved: false, hasResults: true), .results)
+        XCTAssertEqual(DashboardModel.freeUpStart(scanning: true, loadingSaved: true, hasResults: false), .scanning)
+        XCTAssertEqual(DashboardModel.freeUpStart(scanning: true, loadingSaved: false, hasResults: true), .scanning)
+    }
+
+    @MainActor
+    func testWithNothingSavedTheEmptyStateShowsOnceTheReadFinishes() async throws {
+        let (store, path) = try temporaryStore()
+        defer { try? FileManager.default.removeItem(at: path) }
+        let model = DashboardModel(opening: { store })
+        guard model.authorization == .authorized || model.authorization == .limited else {
+            throw XCTSkip("Saved results load only with Photos access; CI grants it through the consent UI first.")
+        }
+        XCTAssertEqual(model.freeUpStart, .loadingSaved)
+        await model.savedLoad?.value
+        XCTAssertEqual(model.freeUpStart, .empty)
     }
 
     // MARK: D2, cleanup list selection
@@ -174,9 +198,21 @@ final class Release102PerfTests: XCTestCase {
         XCTAssertFalse(GoogleTokenService.isRejectedSignIn(status: 400, body: Data("<html>".utf8)))
     }
 
+    func testOneDriveAndDropboxRejectedSignInsAreRecognised() {
+        let microsoft = Data(#"{"error":"invalid_grant","error_description":"AADSTS70008: The refresh token has expired.","error_codes":[70008]}"#.utf8)
+        let dropbox = Data(#"{"error": "invalid_grant", "error_description": "refresh token is invalid or revoked"}"#.utf8)
+        XCTAssertTrue(GoogleTokenService.isRejectedSignIn(status: 400, body: microsoft))
+        XCTAssertTrue(GoogleTokenService.isRejectedSignIn(status: 400, body: dropbox))
+        XCTAssertFalse(GoogleTokenService.isRejectedSignIn(status: 503, body: microsoft))
+        XCTAssertFalse(GoogleTokenService.isRejectedSignIn(status: 400, body: Data(#"{"error":"invalid_client"}"#.utf8)))
+    }
+
     @MainActor
     func testArchiveRunSaysGoogleDriveNeedsSigningInAgain() {
         XCTAssertEqual(ArchiveRun.reason(for: GoogleDriveError.notConnected), "Google Drive needs you to sign in again")
         XCTAssertEqual(GoogleDriveError.notConnected.errorDescription, "Connect Google Drive first.")
+        XCTAssertEqual(ArchiveRun.reason(for: CloudError.notConnected("OneDrive")), "OneDrive needs you to sign in again")
+        XCTAssertEqual(ArchiveRun.reason(for: CloudError.notConnected("Dropbox")), "Dropbox needs you to sign in again")
+        XCTAssertEqual(CloudError.notConnected("Dropbox").errorDescription, "Connect Dropbox first.")
     }
 }

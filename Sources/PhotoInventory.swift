@@ -43,6 +43,17 @@ final class DashboardModel: ObservableObject {
     }
     /// True while the saved results are read at launch, before the Free up rows can show them.
     @Published private(set) var isLoadingSaved = false
+    /// What the top of the Free up tab shows when there are no results on screen.
+    enum FreeUpStart: Equatable { case scanning, loadingSaved, empty, results }
+    /// The empty "Free up space" state only once the saved results are known to be missing.
+    var freeUpStart: FreeUpStart {
+        Self.freeUpStart(scanning: isScanning, loadingSaved: isLoadingSaved, hasResults: rescue != nil)
+    }
+    nonisolated static func freeUpStart(scanning: Bool, loadingSaved: Bool, hasResults: Bool) -> FreeUpStart {
+        if scanning { return .scanning }
+        if hasResults { return .results }
+        return loadingSaved ? .loadingSaved : .empty
+    }
     /// The launch-time read of the saved results. Tests wait on it.
     private(set) var savedLoad: Task<Void, Never>?
     /// The Free up tab's rows, worked out once per scan rather than on every redraw.

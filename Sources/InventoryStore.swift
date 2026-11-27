@@ -140,8 +140,10 @@ final class InventoryStore: @unchecked Sendable {
         while true {
             let status = sqlite3_step(statement)
             if status == SQLITE_DONE { return records }
-            guard status == SQLITE_ROW, let value = sqlite3_column_text(statement, 0) else { throw error() }
-            if let record = try? decoder.decode(ArchivedRecord.self, from: Data(String(cString: value).utf8)) {
+            guard status == SQLITE_ROW else { throw error() }
+            // One copy of the stored bytes. An empty payload has no pointer; it fails to decode and is skipped, as before.
+            let data = sqlite3_column_blob(statement, 0).map { Data(bytes: $0, count: Int(sqlite3_column_bytes(statement, 0))) } ?? Data()
+            if let record = try? decoder.decode(ArchivedRecord.self, from: data) {
                 records.append(record)
             }
         }
