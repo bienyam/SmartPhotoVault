@@ -46,4 +46,4 @@ TidyAway Pro is sold through Apple. Apple handles payment; the app only learns w
 
 For privacy questions, email [hello@tidyaway.app](mailto:hello@tidyaway.app) or use the [TidyAway support page](https://tidyaway.app/support). If you report a problem on the public issue list linked from that page, leave out personal photos and library information.
 
-Last updated: November 26, 2026.
+Last updated: November 27, 2026.
