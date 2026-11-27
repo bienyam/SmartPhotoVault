@@ -26,7 +26,8 @@ final class CheckInCenter: NSObject, ObservableObject {
         super.init()
     }
 
-    /// Called once at launch, so a tapped notification opens the report.
+    /// Called at launch, before launch finishes, so a tapped notification opens the report even
+    /// from a cold start. Safe to call again.
     func start() {
         guard !demo else { return }
         UNUserNotificationCenter.current().delegate = self

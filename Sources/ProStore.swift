@@ -45,6 +45,13 @@ final class ProStore: ObservableObject {
     private var productLoad: Task<Void, Never>?
     /// Identifies the queued buy, so one cancelled with its screen is never carried out later.
     private var queuedBuy: UUID?
+    /// When a purchase last unlocked Pro here. A re-check in the moments after never takes it away,
+    /// since Apple's entitlement list can lag a just-finished purchase.
+    private var purchasedAt: Date?
+    /// UI tests started with `--pro` keep that plan; nothing re-checks it.
+    private var pinned = false
+    /// How long a just-bought plan is kept even if a re-check doesn't list it yet.
+    static let purchaseGrace: TimeInterval = 30
 
     /// The one question every screen asks before opening a Pro feature.
     func allows(_ feature: ProFeature) -> Bool {
@@ -59,6 +66,7 @@ final class ProStore: ObservableObject {
         if ProcessInfo.processInfo.arguments.contains("--pro") {
             plan = .lifetime
             checking = false
+            pinned = true
             return
         }
         #endif
@@ -84,27 +92,56 @@ final class ProStore: ObservableObject {
         checking = true
         // Prices are fetched alongside the purchase check, not after it, so the buttons are ready sooner.
         let prices = Task { await loadProducts() }
-        // Tester builds (TESTER_ACCESS, never the App Review build) unlock Pro for everyone except a
-        // real App Store customer. If Apple's record can't be read, a tester build still unlocks.
-        if TesterAccess.enabled { testerAccess = !(await Self.isAppStoreCustomer()) }
+        // Tester builds (TESTER_ACCESS, never the App Review build) unlock Pro only where Apple's record
+        // says this copy runs in the test environment (TestFlight or Xcode). If the record can't be
+        // read, nothing unlocks; the check is tried again each time the app comes back to the screen.
+        if TesterAccess.enabled { testerAccess = await Self.isTestEnvironment() }
         await refresh()
         checking = false
         await prices.value
     }
 
-    /// Lifetime wins over a subscription. A subscription counts only while it hasn't expired or been revoked.
+    /// Checks again each time the app comes back to the screen. An expired or renewed subscription
+    /// doesn't always send an update while the app stays in memory. Works offline from Apple's cached record.
+    func refreshOnActive() async {
+        // Skipped while the first check, a purchase or a restore is running: each sets the plan itself.
+        guard !pinned, !checking, !busy else { return }
+        if TesterAccess.enabled, !testerAccess { testerAccess = await Self.isTestEnvironment() }
+        await refresh()
+    }
+
+    /// Apple's list of what this account is entitled to right now. It already leaves out expired
+    /// subscriptions and keeps one in Apple's billing grace period, so no expiry date is checked here.
     func refresh() async {
-        var found = Plan.none
+        var entitled: [String] = []
         for await result in StoreKit.Transaction.currentEntitlements {
             guard case .verified(let transaction) = result, transaction.revocationDate == nil else { continue }
-            if transaction.productID == Self.lifetimeID {
-                found = .lifetime
-            } else if Self.subscriptionIDs.contains(transaction.productID), found == .none,
-                      (transaction.expirationDate ?? .distantFuture) > Date() {
-                found = transaction.productID == Self.yearlyID ? .yearly : .monthly
-            }
+            entitled.append(transaction.productID)
         }
-        plan = found
+        plan = Self.plan(refreshed: Self.plan(entitled: entitled), current: plan, purchasedAt: purchasedAt, now: Date())
+    }
+
+    /// The plan from the products Apple lists as entitled, in the order listed. Lifetime wins over a subscription.
+    static func plan(entitled productIDs: [String]) -> Plan {
+        if productIDs.contains(lifetimeID) { return .lifetime }
+        guard let subscription = productIDs.first(where: { subscriptionIDs.contains($0) }) else { return .none }
+        return subscription == yearlyID ? .yearly : .monthly
+    }
+
+    /// What a re-check leaves in place. A plan bought in the last `purchaseGrace` seconds is never
+    /// lowered by a re-check that doesn't list it yet; otherwise the re-check is the answer.
+    static func plan(refreshed found: Plan, current: Plan, purchasedAt: Date?, now: Date) -> Plan {
+        guard let purchasedAt, now.timeIntervalSince(purchasedAt) < purchaseGrace,
+              rank(found) < rank(current) else { return found }
+        return current
+    }
+
+    private static func rank(_ plan: Plan) -> Int {
+        switch plan {
+        case .none: 0
+        case .monthly, .yearly: 1
+        case .lifetime: 2
+        }
     }
 
     /// Fetches the prices once, however many screens ask at the same time.
@@ -184,6 +221,7 @@ final class ProStore: ObservableObject {
                 // Unlock from the verified transaction itself; don't wait for entitlements to catch up.
                 if transaction.revocationDate == nil {
                     plan = Self.plan(after: transaction.productID, current: plan)
+                    purchasedAt = Date()
                     trialEligible = false
                 }
                 await transaction.finish()
@@ -215,13 +253,20 @@ final class ProStore: ObservableObject {
         }
     }
 
-    /// True only when Apple's record says this copy came from the App Store itself.
-    private static func isAppStoreCustomer() async -> Bool {
-        guard let app = try? await AppTransaction.shared else { return false }
+    /// True only when Apple's record can be read and says this copy runs in the test environment.
+    /// An unreadable record counts as not a test copy, so a tester build never unlocks by accident.
+    private static func isTestEnvironment() async -> Bool {
+        guard let app = try? await AppTransaction.shared else { return testerUnlocks(in: nil) }
         switch app {
         case .verified(let transaction), .unverified(let transaction, _):
-            return transaction.environment == .production
+            return testerUnlocks(in: transaction.environment)
         }
+    }
+
+    /// Tester access unlocks in the sandbox (TestFlight) and in Xcode, never in production or when
+    /// Apple's record is missing (nil).
+    static func testerUnlocks(in environment: AppStore.Environment?) -> Bool {
+        environment == .sandbox || environment == .xcode
     }
 
     /// The plan a verified purchase leads to. Lifetime is never downgraded by a subscription.
