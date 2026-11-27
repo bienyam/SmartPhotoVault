@@ -524,7 +524,9 @@ struct FreeUpView: View {
         guard !model.isDemo, let snapshot = model.rescue?.snapshot else { return }
         let found = insights.insights
         sets = await Task.detached(priority: .utility) {
-            CleanupGrouper.keepSets(in: snapshot.assets, insights: found, facts: AssetFacts.all(for: snapshot.assets))
+            // Best shots offers items for deletion, so bursts stay out (A4).
+            CleanupGrouper.keepSets(in: snapshot.assets, insights: found, facts: AssetFacts.all(for: snapshot.assets),
+                                    includeBursts: false)
         }.value
         await remakeTotals()
     }

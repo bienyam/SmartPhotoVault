@@ -187,10 +187,45 @@ final class ArchiveKeptPhotoTests: XCTestCase {
         if let pick = CleanupGrouper.suggestion(from: groups) {
             XCTAssertTrue(bursts.isDisjoint(with: pick.items.map(\.id)), "No burst in Suggested for you.")
         }
-        let sets = CleanupGrouper.keepSets(in: assets, insights: insights, facts: [:])
+        let sets = CleanupGrouper.keepSets(in: assets, insights: insights, facts: [:], includeBursts: false)
         XCTAssertFalse(sets.isEmpty, "The plain look-alikes still make a set for Best shots.")
         XCTAssertTrue(bursts.isDisjoint(with: sets.flatMap { [$0.keep] + $0.extras }.map(\.id)), "No burst in Best shots.")
-        XCTAssertTrue(bursts.isDisjoint(with: SmartGrouper.series(in: assets, insights: insights).flatMap { $0 }.map(\.id)))
+        XCTAssertTrue(bursts.isDisjoint(with: SmartGrouper.series(in: assets, insights: insights, includeBursts: false)
+            .flatMap { $0 }.map(\.id)))
+    }
+
+    /// A4 covers only the lists that offer items for deletion. Archive's look-alike group is as shipped:
+    /// bursts that look alike are still offered to move out.
+    func testArchiveLookAlikeGroupStillIncludesBursts() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let shots = (0..<7).map { index -> AssetRecord in
+            var record = AssetRecord(id: "b\(index)", filename: "b\(index).heic", mediaType: PHAssetMediaType.image.rawValue,
+                                     favorite: false, createdAt: now.addingTimeInterval(-100 + Double(index)),
+                                     resources: [ResourceFingerprint(type: PHAssetResourceType.photo.rawValue, digest: "b\(index)", bytes: 1_000)],
+                                     issue: nil, isScreenshot: false, albumIDs: [])
+            record.burstID = "B-archive"
+            return record
+        }
+        var insights: [String: PhotoInsight] = [:]
+        for (index, shot) in shots.enumerated() {
+            var value = PhotoInsight(id: shot.id)
+            value.sharpness = shot.id == "b3" ? 900 : 100
+            value.brightness = 120
+            value.sameAs = index == 0 ? nil : shots[index - 1].id
+            insights[shot.id] = value
+        }
+        let snapshot = ScanSnapshot(date: now, limitedAccess: false, includedCloudDownloads: false, assets: shots)
+        let archive = SmartGrouper.groups(in: snapshot, insights: insights, facts: [:], now: now).first { $0.kind == .sameShots }
+        XCTAssertNotNil(archive, "Archive still groups look-alike bursts.")
+        XCTAssertEqual(Set(archive?.records.map(\.id) ?? []), Set(shots.map(\.id)).subtracting(["b3"]))
+        XCTAssertEqual(archive?.sets.first?.keep.id, "b3")
+        XCTAssertEqual(SmartGrouper.series(in: shots, insights: insights).first?.count, 7, "Default series is unchanged.")
+        // The deletion lists built from the same photos hold none of them.
+        let cleanup = CleanupGrouper.groups(in: snapshot, insights: insights, facts: [:], now: now)
+        XCTAssertTrue(cleanup.allSatisfy { $0.items.isEmpty || $0.items.allSatisfy { $0.burstID == nil } })
+        XCTAssertFalse(cleanup.contains { $0.id == "look-alike" })
+        XCTAssertTrue(CleanupGrouper.keepSets(in: shots, insights: insights, facts: [:], includeBursts: false).isEmpty,
+                      "Best shots offers no bursts.")
     }
 
     func testBurstsAreStillReviewOnlyInByType() {

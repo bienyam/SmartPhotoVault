@@ -106,12 +106,14 @@ extension SmartGrouper {
     // MARK: - Same shot
 
     /// Pictures taken moments apart that look alike, in order. Each chain is one series.
-    /// Bursts are never part of one: they stay review-only in By type › Bursts (A4), so they can't
-    /// reach Look-alike shots, Best shots or the suggestion through here.
-    static func series(in assets: [AssetRecord], insights: [String: PhotoInsight]) -> [[AssetRecord]] {
+    /// `includeBursts` false is for the lists that offer items for deletion (Look-alike shots, Best
+    /// shots, the suggestion): bursts stay review-only in By type › Bursts there (A4). Archive keeps
+    /// the default and its look-alike group is unchanged.
+    static func series(in assets: [AssetRecord], insights: [String: PhotoInsight],
+                       includeBursts: Bool = true) -> [[AssetRecord]] {
         let photos = assets
             .filter { $0.mediaType == PHAssetMediaType.image.rawValue && $0.createdAt != nil && $0.isScreenshot != true
-                && $0.burstID == nil }
+                && (includeBursts || $0.burstID == nil) }
             .sorted { $0.createdAt! == $1.createdAt! ? $0.id < $1.id : $0.createdAt! < $1.createdAt! }
         var result: [[AssetRecord]] = []
         var current: [AssetRecord] = []

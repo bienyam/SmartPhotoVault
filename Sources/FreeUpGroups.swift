@@ -80,7 +80,7 @@ enum CleanupGrouper {
         var result: [CleanupGroup] = []
         var taken = Set<String>()
 
-        let sets = keepSets(in: snapshot.assets, insights: insights, facts: facts)
+        let sets = keepSets(in: snapshot.assets, insights: insights, facts: facts, includeBursts: false)
         let lookAlikes = sets.flatMap(\.extras)
         if lookAlikes.count >= minimum {
             result.append(CleanupGroup(
@@ -175,8 +175,11 @@ enum CleanupGrouper {
     }
 
     /// Look-alike sets with the photo that stays: a favorite, then an edited one, then the sharpest.
-    static func keepSets(in assets: [AssetRecord], insights: [String: PhotoInsight], facts: [String: AssetFacts]) -> [KeepSet] {
-        SmartGrouper.series(in: assets, insights: insights).compactMap { series in
+    /// Lists that offer items for deletion (Look-alike shots, Best shots) pass `includeBursts: false`,
+    /// so bursts stay review-only in By type › Bursts (A4). Archive keeps the default, as shipped.
+    static func keepSets(in assets: [AssetRecord], insights: [String: PhotoInsight], facts: [String: AssetFacts],
+                         includeBursts: Bool = true) -> [KeepSet] {
+        SmartGrouper.series(in: assets, insights: insights, includeBursts: includeBursts).compactMap { series in
             guard let keep = SmartGrouper.best(of: series, insights: insights, facts: facts) else { return nil }
             let extras = series.filter { $0.id != keep.id && !$0.favorite && !(facts[$0.id]?.edited ?? false) }
             guard !extras.isEmpty else { return nil }
