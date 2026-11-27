@@ -214,6 +214,30 @@ final class Release102ArchiveTests: XCTestCase {
         XCTAssertThrowsError(try CloudStream.dropboxPiece(piece, at: 0, pause: { _ in }) { _, _ in (400, Data()) })
     }
 
+    // MARK: - D4: Get back restores date, place, albums and favorite
+
+    func testANewRecordKeepsHowThePhotoWasAndAnOldOneRestoresAsBefore() throws {
+        let details = PhotoDetails(created: Date(timeIntervalSince1970: 1_600_000_000), latitude: 51.5007, longitude: -0.1246,
+                                   albums: ["album-1", "album-2"], favorite: true)
+        let saved = record("r", photo: "p1").remembering(details)
+        XCTAssertEqual(saved.details, details)
+        let back = try JSONDecoder().decode(ArchivedRecord.self, from: JSONEncoder().encode(saved))
+        XCTAssertEqual(back, saved, "The details survive the archive list.")
+        XCTAssertEqual(back.albumIDs, ["album-1", "album-2"])
+        XCTAssertEqual(back.favorite, true)
+
+        let json = #"{"id":"r1","name":"IMG_1.HEIC","folderName":"Drive","bytes":10,"digest":"d","date":0,"viaHomeServer":false,"photoID":"p1"}"#
+        let old = try JSONDecoder().decode(ArchivedRecord.self, from: Data(json.utf8))
+        XCTAssertNil(old.details, "A record saved before 1.0.2 has no details and comes back as it always did.")
+        XCTAssertEqual(record("x", photo: nil).remembering(nil), record("x", photo: nil))
+
+        let noAlbums = record("y", photo: "p2").remembering(PhotoDetails(created: nil, latitude: nil, longitude: nil, albums: [], favorite: false))
+        XCTAssertNil(noAlbums.albumIDs)
+        XCTAssertEqual(noAlbums.favorite, false)
+        XCTAssertEqual(noAlbums.files.count, 1)
+        XCTAssertEqual(noAlbums.confirming.favorite, false, "Confirming a copy keeps its details.")
+    }
+
     func testAFullReadBackReportsProgressAndCatchesChangedBytes() throws {
         let folder = try makeFolder()
         let bytes = Data(repeating: 0x2a, count: 700_000)

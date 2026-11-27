@@ -1,5 +1,65 @@
+import CoreLocation
 import Foundation
 import Photos
+
+/// The parts of a Photos item that a copy of its files doesn't carry by itself: the date and place as
+/// Photos has them, the person's own albums it is in, and whether it is a favorite (1.0.2, D4). Saved
+/// on the archive record when the copy is made; Get back sets them on the new item.
+struct PhotoDetails: Equatable {
+    var created: Date?
+    var latitude: Double?
+    var longitude: Double?
+    var albums: [String]
+    var favorite: Bool
+
+    /// The item as Photos describes it now. Nil when it isn't a Photos item or can't be found.
+    static func of(_ photoID: String?) -> PhotoDetails? {
+        guard let photoID, let asset = PHAsset.fetchAssets(withLocalIdentifiers: [photoID], options: nil).firstObject else { return nil }
+        var albums: [String] = []
+        PHAssetCollection.fetchAssetCollectionsContaining(asset, with: .album, options: nil).enumerateObjects { album, _, _ in
+            if album.assetCollectionSubtype == .albumRegular { albums.append(album.localIdentifier) }
+        }
+        let place = asset.location?.coordinate
+        return PhotoDetails(created: asset.creationDate, latitude: place?.latitude, longitude: place?.longitude,
+                            albums: albums, favorite: asset.isFavorite)
+    }
+
+    /// Inside a Photos change: gives the new item the saved date, place and favorite, and adds it to each
+    /// saved album that still exists and takes new items. A record without details changes nothing.
+    static func apply(_ record: ArchivedRecord, to request: PHAssetCreationRequest) {
+        if let date = record.originalDate { request.creationDate = date }
+        if let latitude = record.latitude, let longitude = record.longitude,
+           CLLocationCoordinate2DIsValid(CLLocationCoordinate2D(latitude: latitude, longitude: longitude)) {
+            request.location = CLLocation(latitude: latitude, longitude: longitude)
+        }
+        if record.favorite == true { request.isFavorite = true }
+        guard let albums = record.albumIDs, !albums.isEmpty, let placeholder = request.placeholderForCreatedAsset else { return }
+        PHAssetCollection.fetchAssetCollections(withLocalIdentifiers: albums, options: nil).enumerateObjects { album, _, _ in
+            guard album.canPerform(.addContent) else { return }
+            PHAssetCollectionChangeRequest(for: album)?.addAssets([placeholder] as NSArray)
+        }
+    }
+}
+
+extension ArchivedRecord {
+    /// The same record, also holding how the item was in Photos. Unchanged without details.
+    func remembering(_ details: PhotoDetails?) -> ArchivedRecord {
+        guard let details else { return self }
+        var record = self
+        record.originalDate = details.created
+        record.latitude = details.latitude
+        record.longitude = details.longitude
+        record.albumIDs = details.albums.isEmpty ? nil : details.albums
+        record.favorite = details.favorite
+        return record
+    }
+
+    var details: PhotoDetails? {
+        guard originalDate != nil || latitude != nil || albumIDs != nil || favorite != nil else { return nil }
+        return PhotoDetails(created: originalDate, latitude: latitude, longitude: longitude,
+                            albums: albumIDs ?? [], favorite: favorite ?? false)
+    }
+}
 
 /// The free 5 GB of archiving, kept to during a run (1.0.2, B4). Each item takes its size before it is
 /// copied; an item that doesn't fit, or whose size isn't known on a free plan, isn't copied. Once a

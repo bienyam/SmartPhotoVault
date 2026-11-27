@@ -29,6 +29,16 @@ struct ArchivedRecord: Codable, Identifiable, Equatable {
     /// remove until it is confirmed. Nil in every confirmed record, and in every record saved before
     /// this was kept, so those still count exactly as they did.
     var unflushed: Bool? = nil
+    /// How the item was in Photos when it was archived (1.0.2, D4), so Get back puts it back with the
+    /// same date, place, albums and favorite. Kept on this iPhone only. Nil in every record saved
+    /// before, and those come back exactly as they did.
+    var originalDate: Date? = nil
+    /// The location as Photos recorded it.
+    var latitude: Double? = nil
+    var longitude: Double? = nil
+    /// Photos' identifiers of the person's own albums the item was in.
+    var albumIDs: [String]? = nil
+    var favorite: Bool? = nil
 }
 
 extension ArchivedRecord {
@@ -413,6 +423,7 @@ enum ArchiveRestore {
                 if index == 0 { options.originalFilename = record.name }
                 request.addResource(with: type, fileURL: file, options: options)
             }
+            PhotoDetails.apply(record, to: request)
             created.id = request.placeholderForCreatedAsset?.localIdentifier
         }
         guard let id = created.id,
@@ -442,6 +453,7 @@ enum ArchiveRestore {
             let options = PHAssetResourceCreationOptions()
             options.originalFilename = record.name
             request.addResource(with: video ? .video : .photo, fileURL: file, options: options)
+            PhotoDetails.apply(record, to: request)
         }
     }
 

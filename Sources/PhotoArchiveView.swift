@@ -1596,7 +1596,7 @@ struct PhotoArchiveView: View {
                                                     bytes: uploaded.fingerprint.bytes, digest: uploaded.fingerprint.digest, date: Date(),
                                                     viaHomeServer: false, folderBookmark: nil, driveFileID: uploaded.fileID,
                                                     photoID: Self.photoID(item), cloud: service, cloudHash: uploaded.serviceHash,
-                                                    parts: stored.parts.isEmpty ? nil : stored.parts)
+                                                    parts: stored.parts.isEmpty ? nil : stored.parts).remembering(PhotoDetails.of(Self.photoID(item)))
                         records.append(record)
                         copiedItems.append(item)
                         run.copied += 1
@@ -1701,7 +1701,7 @@ struct PhotoArchiveView: View {
                                                     folderName: chosen.label(in: .google), bytes: uploaded.fingerprint.bytes,
                                                     digest: uploaded.fingerprint.digest, date: Date(),
                                                     viaHomeServer: false, folderBookmark: nil, driveFileID: uploaded.fileID,
-                                                    photoID: Self.photoID(item), parts: uploaded.parts.isEmpty ? nil : uploaded.parts)
+                                                    photoID: Self.photoID(item), parts: uploaded.parts.isEmpty ? nil : uploaded.parts).remembering(PhotoDetails.of(Self.photoID(item)))
                         records.append(record)
                         copiedItems.append(item)
                         run.copied += 1
@@ -1806,7 +1806,7 @@ struct PhotoArchiveView: View {
                                                 folderName: destination.lastPathComponent, bytes: receipt.fingerprint.bytes,
                                                 digest: receipt.fingerprint.digest, date: Date(),
                                                 viaHomeServer: home, folderBookmark: bookmark, photoID: Self.photoID(item),
-                                                parts: stored.parts.isEmpty ? nil : stored.parts, unflushed: true)
+                                                parts: stored.parts.isEmpty ? nil : stored.parts, unflushed: true).remembering(PhotoDetails.of(Self.photoID(item)))
                     run.copied += 1
                     run.bytes += record.totalBytes
                     copiedBytes += record.totalBytes
