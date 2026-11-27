@@ -208,7 +208,7 @@ struct AssetCover: View {
         guard image == nil, !assetID.hasPrefix("sample-") else { return }
         let access = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         guard access == .authorized || access == .limited else { return }
-        let id = assetID, side = side
+        let id = assetID, side = self.side
         loading?.cancel()
         loading = Task {
             // The look-up reads the Photos database, so it runs off the main thread.
