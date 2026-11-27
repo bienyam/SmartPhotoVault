@@ -223,6 +223,9 @@ struct FreeUpView: View {
         if let error = model.errorMessage {
             Text(error).font(.subheadline).foregroundStyle(Brand.caution)
         }
+        if LimitedAccessBanner.shows(authorization: model.authorization, isDemo: model.isDemo) {
+            LimitedAccessBanner()
+        }
         if model.authorization == .denied || model.authorization == .restricted {
             VStack(alignment: .leading, spacing: 8) {
                 Text("TidyAway needs access to your photos to find space.").foregroundStyle(Brand.ink)

@@ -34,6 +34,7 @@ targets:
         BGTaskSchedulerPermittedIdentifiers:
           - com.bienyam.SmartPhotoVault.checkin.refresh
           - com.bienyam.SmartPhotoVault.checkin.recount
+        PHPhotoLibraryPreventAutomaticLimitedAccessAlert: true
         NSPhotoLibraryUsageDescription: TidyAway reads your photo library to find what is taking space, group photos by what they show (on your iPhone), copy the ones you choose to your archive, and put archived ones back. It deletes items only when you approve and confirm the prompt from Apple Photos.
     settings:
       base:

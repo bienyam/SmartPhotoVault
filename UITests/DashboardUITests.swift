@@ -87,6 +87,18 @@ final class DashboardUITests: XCTestCase {
         app.terminate()
     }
 
+    func testLimitedAccessBannerOffersChooseMoreAndSettings() {
+        let app = XCUIApplication()
+        app.launchArguments += ["--skip-welcome", "--demo", "--limited-access"]
+        app.launch()
+        let message = app.staticTexts["limited-access-message"]
+        XCTAssertTrue(message.waitForExistence(timeout: 15), "Limited access explains the small totals.")
+        XCTAssertTrue(message.label.contains("TidyAway can see only the photos you chose."))
+        XCTAssertTrue(app.buttons["limited-choose-more"].exists)
+        XCTAssertTrue(app.buttons["limited-settings"].exists)
+        XCTAssertGreaterThanOrEqual(app.buttons["limited-choose-more"].frame.height, 44)
+    }
+
     func testFreeUpLeadsWithOneAction() {
         let app = launch()
         XCTAssertTrue(app.staticTexts["Storage full? Get your camera back."].exists || app.staticTexts["hero-bytes"].exists)

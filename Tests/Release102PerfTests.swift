@@ -215,4 +215,20 @@ final class Release102PerfTests: XCTestCase {
         XCTAssertEqual(ArchiveRun.reason(for: CloudError.notConnected("Dropbox")), "Dropbox needs you to sign in again")
         XCTAssertEqual(CloudError.notConnected("Dropbox").errorDescription, "Connect Dropbox first.")
     }
+
+    // MARK: D9 Limited Photos access
+
+    @MainActor
+    func testLimitedAccessBannerShowsOnlyForLimitedAccess() {
+        XCTAssertTrue(LimitedAccessBanner.shows(authorization: .limited, isDemo: false))
+        XCTAssertFalse(LimitedAccessBanner.shows(authorization: .authorized, isDemo: false))
+        XCTAssertFalse(LimitedAccessBanner.shows(authorization: .denied, isDemo: false))
+        XCTAssertFalse(LimitedAccessBanner.shows(authorization: .limited, isDemo: true), "Sample data isn't the library.")
+        XCTAssertEqual(LimitedAccessBanner.message, "TidyAway can see only the photos you chose.")
+    }
+
+    func testIOSDoesNotAskAboutLimitedAccessOnItsOwn() {
+        // The banner offers "Choose more photos" instead of iOS's automatic prompt at each launch.
+        XCTAssertEqual(Bundle.main.object(forInfoDictionaryKey: "PHPhotoLibraryPreventAutomaticLimitedAccessAlert") as? Bool, true)
+    }
 }
