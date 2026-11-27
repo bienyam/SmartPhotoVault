@@ -72,8 +72,11 @@ enum CleanupGrouper {
 
     static func groups(in snapshot: ScanSnapshot, insights: [String: PhotoInsight], facts: [String: AssetFacts],
                        now: Date = .now) -> [CleanupGroup] {
-        // Favorites and photos someone edited are kept out of every smart group.
-        let candidates = snapshot.assets.filter { !$0.favorite && !(facts[$0.id]?.edited ?? false) && !$0.id.hasPrefix("sample-") }
+        // Favorites and photos someone edited are kept out of every smart group. So are bursts: they stay
+        // review-only in By type › Bursts, as `CleanCategory.allowsRemoval` says (owner, 27 Nov 2026: A4).
+        let candidates = snapshot.assets.filter {
+            !$0.favorite && !(facts[$0.id]?.edited ?? false) && !$0.id.hasPrefix("sample-") && $0.burstID == nil
+        }
         var result: [CleanupGroup] = []
         var taken = Set<String>()
 
