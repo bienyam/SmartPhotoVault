@@ -325,6 +325,25 @@ enum VerifiedArchive {
         }
     }
 
+    /// The size of a copy as its folder describes it now, without opening or downloading it: only the
+    /// metadata already at hand is asked for. Nil when there is no regular file of that name.
+    /// Unlike `copyStamp`, a copy that is still only on this iPhone or still uploading counts as there:
+    /// this answers "is the copy still there" (the not-backed-up check, and skipping items that are
+    /// already archived), never "may the original go".
+    static func presentSize(named name: String, in folder: URL, wifi: ArchiveWiFi?) throws -> Int64? {
+        try wifi?.requireConnection()
+        return try scoped(folder) {
+            try coordinateRead(folder.appendingPathComponent(name), options: .immediatelyAvailableMetadataOnly) { url in
+                guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+                var fresh = url
+                fresh.removeAllCachedResourceValues()
+                let values = try fresh.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
+                guard values.isRegularFile == true, values.isSymbolicLink != true, let size = values.fileSize else { return nil }
+                return Int64(size)
+            }
+        }
+    }
+
     /// Reads the whole original from Photos again (downloading it from iCloud if needed) and hashes it.
     ///
     /// It waits the way the copy does. A download that stops moving is given up after the same quiet
@@ -646,10 +665,11 @@ enum VerifiedArchive {
         return try result.get()
     }
 
-    private static func coordinateRead<T>(_ url: URL, work: (URL) throws -> T) throws -> T {
+    private static func coordinateRead<T>(_ url: URL, options: NSFileCoordinator.ReadingOptions = [],
+                                          work: (URL) throws -> T) throws -> T {
         var error: NSError?
         var result: Result<T, Error>?
-        NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &error) { accessibleURL in
+        NSFileCoordinator().coordinate(readingItemAt: url, options: options, error: &error) { accessibleURL in
             result = Result { try work(accessibleURL) }
         }
         if let error { throw error }

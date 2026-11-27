@@ -183,11 +183,11 @@ struct CleanupListView: View {
         working = true
         Task {
             // Sample items have no archive copies. The archive list and Photos are read off the main
-            // thread. An item counts only while its copy still matches it: edited since, not backed up.
+            // thread. An item counts only while its copy still matches it (edited since: not backed up)
+            // and while that copy is still at its destination (gone or out of reach: not backed up).
             var archived: Set<String> = []
             if !sample {
-                let ids = records.map(\.id)
-                archived = await Task.detached(priority: .userInitiated) { BackupLedger.verifiedPhotoIDs(among: ids) }.value
+                archived = await BackupLedger.verifiedPhotoIDs(among: records.map(\.id))
             }
             working = false
             if let check = BackupCheck.alert(for: .list, selected: records, archived: archived) {

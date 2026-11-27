@@ -214,6 +214,32 @@ enum ArchiveProver {
         return CopyStamp(bytes: file.bytes, modified: nil, checksum: hash)
     }
 
+    /// Whether every file of this copy is still where it was saved, at exactly the recorded size. Only
+    /// what the destination says about each file is read, never its contents: a metadata call for
+    /// Google Drive, OneDrive and Dropbox (the same one `prove` makes), and the file's size for a drive,
+    /// folder or home server. Anything that can't be reached, or doesn't answer within `timeout`
+    /// seconds, counts as not there.
+    static func copyStillThere(_ record: ArchivedRecord, wifi: ArchiveWiFi, timeout: TimeInterval = ArchiveDeadline.perCopy) async -> Bool {
+        await ArchiveDeadline.within(timeout) {
+            for file in record.files { try await presentCopy(file, wifi: wifi) }
+            return true
+        } ?? false
+    }
+
+    private static func presentCopy(_ record: ArchivedRecord, wifi: ArchiveWiFi) async throws {
+        if record.cloud != nil || record.driveFileID != nil {
+            _ = try await currentStamp(record, wifi: wifi)
+            return
+        }
+        let folder = try Self.folder(of: record)
+        let name = record.name
+        let wifiCheck: ArchiveWiFi? = record.viaHomeServer ? wifi : nil
+        let size = try await Task.detached(priority: .userInitiated) {
+            try VerifiedArchive.presentSize(named: name, in: folder, wifi: wifiCheck)
+        }.value
+        guard size == record.bytes else { throw ArchiveProofError.copyMissing }
+    }
+
     static func fingerprint(of record: ArchivedRecord) -> ArchiveFingerprint {
         ArchiveFingerprint(bytes: record.bytes, digest: record.digest.lowercased())
     }
