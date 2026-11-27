@@ -1,4 +1,62 @@
 import Foundation
+import Photos
+
+/// The free 5 GB of archiving, kept to during a run (1.0.2, B4). Each item takes its size before it is
+/// copied; an item that doesn't fit, or whose size isn't known on a free plan, isn't copied. Once a
+/// copy is made its real size replaces the one it took; a failed copy gives its room back.
+struct FreeArchiveBudget {
+    /// What is left of the free allowance. Nil with Pro: no limit.
+    private(set) var left: Int64?
+
+    init(used: Int64, unlimited: Bool, limit: Int64 = ProStore.freeArchiveBytes) {
+        left = unlimited ? nil : max(0, limit - used)
+    }
+
+    mutating func take(_ bytes: Int64?) -> Bool {
+        guard let remaining = left else { return true }
+        guard let bytes, bytes >= 0, bytes <= remaining else { return false }
+        left = remaining - bytes
+        return true
+    }
+
+    mutating func settle(took: Int64?, actual: Int64) {
+        guard let remaining = left, let took else { return }
+        left = max(0, remaining + took - actual)
+    }
+
+    mutating func giveBack(_ took: Int64?) {
+        guard let remaining = left, let took else { return }
+        left = remaining + took
+    }
+
+    /// Everything archived so far, read again from the archive list. Unreadable counts as nothing.
+    static func usedNow() async -> Int64 {
+        await Task.detached(priority: .userInitiated) { (try? InventoryStore.openDefault().archivedBytes()) ?? 0 }.value
+    }
+
+    /// The size Photos reports for each item (item ID, Photos ID), every file together, without
+    /// downloading anything. Items Photos reports no size for are left out. Blocks: call it off the
+    /// main thread.
+    static func reportedSizes(_ items: [(String, String)]) -> [String: Int64] {
+        guard !items.isEmpty else { return [:] }
+        var byPhoto: [String: Int64] = [:]
+        PHAsset.fetchAssets(withLocalIdentifiers: items.map(\.1), options: nil).enumerateObjects { asset, _, _ in
+            if let size = DuplicateScanner.reportedSize(of: PHAssetResource.assetResources(for: asset)), size > 0 {
+                byPhoto[asset.localIdentifier] = size
+            }
+        }
+        var sizes: [String: Int64] = [:]
+        for (item, photo) in items { if let size = byPhoto[photo] { sizes[item] = size } }
+        return sizes
+    }
+}
+
+/// An item that wasn't copied because it doesn't fit in what is left of the free 5 GB.
+struct OverFreeArchive: LocalizedError {
+    var errorDescription: String? {
+        "It doesn't fit in what is left of your free 5 GB of archiving. Archiving more needs TidyAway Pro."
+    }
+}
 
 /// Time limits for the quick checks that ask a destination whether a copy is still there.
 enum ArchiveDeadline {

@@ -203,6 +203,9 @@ struct PhotoArchiveView: View {
     @State private var homeReceipts: Set<String> = []
     @State private var failures: [String] = []
     @State private var archivedBytes: Int64 = 0
+    /// Sizes Photos reports for items that couldn't be measured yet (usually kept only in iCloud), so
+    /// the free 5 GB counts them too (1.0.2, B4). Never used to check a copy.
+    @State private var estimatedBytes: [String: Int64] = [:]
     @State private var folderCheck: FolderCheck?
     @ObservedObject private var google = GoogleDriveAccount.shared
     @ObservedObject private var oneDrive = CloudAccount.oneDrive
@@ -667,6 +670,7 @@ struct PhotoArchiveView: View {
         measuredBytes = [:]
         checkedPhotos = [:]
         checkedParts = [:]
+        estimatedBytes = [:]
         archiveConsent = false
         message = nil
     }
@@ -1039,8 +1043,28 @@ struct PhotoArchiveView: View {
     private var selectedBytes: Int64 { items.compactMap { bytes(for: $0) }.reduce(Int64(0), +) }
     private var unmeasured: Int { items.filter { bytes(for: $0) == nil }.count }
     private var comparison: ArchiveCapacity { ArchiveCapacity(selected: selectedBytes, available: availableBytes) }
-    private var allowance: ArchiveAllowance { ProStore.archiveAllowance(used: archivedBytes, selection: selectedBytes, unlocked: pro.allows(.unlimitedArchive)) }
-    private var overAllowance: Bool { if case .over = allowance { return true } else { return false } }
+    /// What an item counts for against the free 5 GB: its measured size, or else the size the scan or
+    /// Photos reported. Nil when nothing is known yet.
+    private func allowanceBytes(for item: ArchiveItem) -> Int64? {
+        bytes(for: item) ?? item.size ?? estimatedBytes[item.id]
+    }
+    private var allowanceSelection: Int64 { items.compactMap { allowanceBytes(for: $0) }.reduce(Int64(0), +) }
+    /// On a free plan, items whose size isn't known at all. Copying waits until they are measured,
+    /// so the free 5 GB can't be passed by items it didn't count.
+    private var unsizedForAllowance: Int {
+        pro.allows(.unlimitedArchive) ? 0 : items.filter { allowanceBytes(for: $0) == nil }.count
+    }
+    private var allowance: ArchiveAllowance { ProStore.archiveAllowance(used: archivedBytes, selection: allowanceSelection, unlocked: pro.allows(.unlimitedArchive)) }
+    private var overAllowance: Bool {
+        if unsizedForAllowance > 0 { return true }
+        if case .over = allowance { return true } else { return false }
+    }
+    /// The sizes the run keeps the free 5 GB with, by item.
+    private var allowanceSizes: [String: Int64] {
+        var sizes: [String: Int64] = [:]
+        for item in items { if let size = allowanceBytes(for: item) { sizes[item.id] = size } }
+        return sizes
+    }
     private var toGoogle: Bool { destinationKind == .google && google.email != nil }
     /// OneDrive or Dropbox, once connected.
     private var toCloud: CloudService? {
@@ -1187,6 +1211,11 @@ struct PhotoArchiveView: View {
                 Text("Enter available space as a number in GB.").foregroundStyle(.secondary)
             }
         }
+        if unsizedForAllowance > 0 {
+            Text("Check the sizes of \(unsizedForAllowance.formatted()) \(unsizedForAllowance == 1 ? "item" : "items") first, or remove \(unsizedForAllowance == 1 ? "it" : "them"). Your free 5 GB counts every item.")
+                .font(.footnote).foregroundStyle(Brand.caution)
+                .accessibilityIdentifier("archive-allowance-unsized")
+        }
         switch allowance {
         case .unlimited:
             EmptyView()
@@ -1196,7 +1225,7 @@ struct PhotoArchiveView: View {
                 .accessibilityIdentifier("archive-allowance")
         case .over(let left):
             VStack(alignment: .leading, spacing: 8) {
-                Text("This selection is \(formattedBytes(selectedBytes)). \(formattedBytes(left)) of your free 5 GB archive is left. Remove some items, or unlock Pro to archive without a limit.")
+                Text("This selection is \(formattedBytes(allowanceSelection)). \(formattedBytes(left)) of your free 5 GB archive is left. Remove some items, or unlock Pro to archive without a limit.")
                 Button("See TidyAway Pro") { askPro(.unlimitedArchive, pushed: true) }
             }
             .accessibilityIdentifier("archive-allowance")
@@ -1354,11 +1383,18 @@ struct PhotoArchiveView: View {
                         }
                     }
                 }
-                return (sizes, photos, parts)
+                // What Photos reports for the rest, so the free 5 GB counts them too. Nothing is downloaded.
+                let unmeasuredPhotos = selection.compactMap { item -> (String, String)? in
+                    guard sizes[item.id] == nil, case .photo(let id, _) = item.source else { return nil }
+                    return (item.id, id)
+                }
+                let estimates = FreeArchiveBudget.reportedSizes(unmeasuredPhotos)
+                return (sizes, photos, parts, estimates)
             }.value
             measuredBytes.merge(result.0) { _, new in new }
             checkedPhotos.merge(result.1) { _, new in new }
             checkedParts.merge(result.2) { _, new in new }
+            estimatedBytes.merge(result.3) { _, new in new }
             if result.0.count < selection.count {
                 message = "Some items are stored in iCloud, so their size shows once they are copied. TidyAway downloads them while copying."
             }
@@ -1483,6 +1519,7 @@ struct PhotoArchiveView: View {
             measuredBytes[item.id] = nil
             checkedPhotos[item.id] = nil
             checkedParts[item.id] = nil
+            estimatedBytes[item.id] = nil
             archiveConsent = false
         } else {
             add(item)
@@ -1492,7 +1529,7 @@ struct PhotoArchiveView: View {
     /// Uploads each item to OneDrive or Dropbox and matches the service's own fingerprint of what it stored.
     private func beginCloudCopy(_ service: CloudService) {
         let account = account(service)
-        guard !busy, archiveConsent, account.connected, !items.isEmpty else { return }
+        guard !busy, archiveConsent, account.connected, !items.isEmpty, !overAllowance else { return }
         let selection = items.map { item in
             if case let .photo(id, nil) = item.source, let measured = checkedPhotos[item.id] {
                 return ArchiveItem(id: item.id, name: item.name, source: .photo(id, expected: measured),
@@ -1510,7 +1547,11 @@ struct PhotoArchiveView: View {
         UIApplication.shared.isIdleTimerDisabled = true
         run.holdBackgroundTime()
         let folder = OnlineFolders.chosen(OnlinePlace(service))
+        let sizes = allowanceSizes
+        let unlimited = pro.allows(.unlimitedArchive)
         Task {
+            // The free 5 GB is checked again for each item as it starts, against what is archived now.
+            var budget = FreeArchiveBudget(used: await FreeArchiveBudget.usedNow(), unlimited: unlimited)
             if service == .oneDrive, let token = try? await account.accessToken() {
                 try? await OnlineFolders.prepareOneDrive(folder, token: token)
             }
@@ -1524,6 +1565,12 @@ struct PhotoArchiveView: View {
                 var running = 0
                 while true {
                     while running < Self.copiesAtOnce, !run.stopping, let item = waiting.popFirst() {
+                        guard budget.take(sizes[item.id]) else {
+                            problems.append("\(item.name) — \(OverFreeArchive().localizedDescription)")
+                            run.failed(OverFreeArchive())
+                            run.tried += 1
+                            continue
+                        }
                         run.currentID = Self.photoID(item)
                         running += 1
                         let token = try? await account.accessToken()
@@ -1549,9 +1596,11 @@ struct PhotoArchiveView: View {
                         run.bytes += record.totalBytes
                         // Saved as each item finishes, so an interrupted run keeps what it already copied.
                         if Self.save(record) { copies[item.id] = record } else { problems.append(Self.notSaved(item)) }
+                        budget.settle(took: sizes[item.id], actual: record.totalBytes)
                     case .failure(let error):
                         problems.append("\(item.name) — \(error.localizedDescription)")
                         run.failed(error)
+                        budget.giveBack(sizes[item.id])
                     }
                     run.tried += 1
                 }
@@ -1574,7 +1623,7 @@ struct PhotoArchiveView: View {
 
     /// Streams each item to Google Drive and checks Drive's own checksum against the original.
     private func beginDriveCopy() {
-        guard !busy, archiveConsent, google.connected, !items.isEmpty else { return }
+        guard !busy, archiveConsent, google.connected, !items.isEmpty, !overAllowance else { return }
         let selection = items.map { item in
             if case let .photo(id, nil) = item.source, let measured = checkedPhotos[item.id] {
                 return ArchiveItem(id: item.id, name: item.name, source: .photo(id, expected: measured),
@@ -1592,7 +1641,11 @@ struct PhotoArchiveView: View {
         showRun = true
         UIApplication.shared.isIdleTimerDisabled = true
         run.holdBackgroundTime()
+        let sizes = allowanceSizes
+        let unlimited = pro.allows(.unlimitedArchive)
         Task {
+            // The free 5 GB is checked again for each item as it starts, against what is archived now.
+            var budget = FreeArchiveBudget(used: await FreeArchiveBudget.usedNow(), unlimited: unlimited)
             let started = Date()
             var records: [ArchivedRecord] = []
             var copies: [String: ArchivedRecord] = [:]
@@ -1608,6 +1661,12 @@ struct PhotoArchiveView: View {
                 var running = 0
                 while true {
                     while running < Self.copiesAtOnce, !run.stopping, let item = waiting.popFirst() {
+                        guard budget.take(sizes[item.id]) else {
+                            problems.append("\(item.name) — \(OverFreeArchive().localizedDescription)")
+                            run.failed(OverFreeArchive())
+                            run.tried += 1
+                            continue
+                        }
                         run.currentID = Self.photoID(item)
                         running += 1
                         // A fresh token per item; each item streams straight from Photos or Files to
@@ -1634,9 +1693,11 @@ struct PhotoArchiveView: View {
                         run.bytes += record.totalBytes
                         // Saved as each item finishes, so an interrupted run keeps what it already copied.
                         if Self.save(record) { copies[item.id] = record } else { problems.append(Self.notSaved(item)) }
+                        budget.settle(took: sizes[item.id], actual: record.totalBytes)
                     } catch {
                         problems.append("\(item.name) — \(error.localizedDescription)")
                         run.failed(error)
+                        budget.giveBack(sizes[item.id])
                     }
                     run.tried += 1
                 }
@@ -1661,7 +1722,7 @@ struct PhotoArchiveView: View {
     }
 
     private func beginCopy() {
-        guard !busy, archiveConsent, let destination, !items.isEmpty,
+        guard !busy, archiveConsent, let destination, !items.isEmpty, !overAllowance,
               availableGB.isEmpty || availableBytes != nil,
               folderCheck?.problem == nil, tooBigForDrive.isEmpty else { return }
         let selectedBytes = items.compactMap { bytes(for: $0) }.reduce(Int64(0), +)
@@ -1684,7 +1745,11 @@ struct PhotoArchiveView: View {
         showRun = true
         UIApplication.shared.isIdleTimerDisabled = true
         run.holdBackgroundTime()
+        let sizes = allowanceSizes
+        let unlimited = pro.allows(.unlimitedArchive)
         Task {
+            // The free 5 GB is checked again for each item as it starts, against what is archived now.
+            var budget = FreeArchiveBudget(used: await FreeArchiveBudget.usedNow(), unlimited: unlimited)
             let started = Date()
             var successes: [ArchiveReceipt] = []
             // Every file of every item, so a Live Photo's video and an edit count toward the total.
@@ -1698,6 +1763,12 @@ struct PhotoArchiveView: View {
             var running = 0
             while true {
                 while running < Self.copiesAtOnce, !run.stopping, let item = waiting.popFirst() {
+                    guard budget.take(sizes[item.id]) else {
+                        problems.append("\(item.name) — \(OverFreeArchive().localizedDescription)")
+                        run.failed(OverFreeArchive())
+                        run.tried += 1
+                        continue
+                    }
                     run.currentID = Self.photoID(item)
                     running += 1
                     group.addTask { (item, Result { try VerifiedArchive.copyEvery(item, to: destination, wifi: check, flush: false) }) }
@@ -1720,9 +1791,11 @@ struct PhotoArchiveView: View {
                     // Saved as each item finishes, so an interrupted run keeps what it already copied. It
                     // waits as unconfirmed, and counts as a backup only once the drive confirms it below.
                     if Self.save(record) { copies[item.id] = record } else { problems.append(Self.notSaved(item)) }
+                    budget.settle(took: sizes[item.id], actual: record.totalBytes)
                 case let .failure(error):
                     problems.append("\(item.name) — \(error.localizedDescription)")
                     run.failed(error)
+                    budget.giveBack(sizes[item.id])
                 }
                 run.tried += 1
             }

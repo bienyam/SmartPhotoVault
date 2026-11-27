@@ -81,6 +81,34 @@ final class Release102ArchiveTests: XCTestCase {
         XCTAssertFalse(key.contains("IMG_1"), "No file names are kept.")
     }
 
+    // MARK: - B4: the free 5 GB counts every item and is kept to during the run
+
+    func testTheFreeAllowanceIsKeptToItemByItem() {
+        var budget = FreeArchiveBudget(used: 4_000, unlimited: false, limit: 5_000)
+        XCTAssertEqual(budget.left, 1_000)
+        XCTAssertTrue(budget.take(600))
+        XCTAssertFalse(budget.take(600), "The next item would pass the free limit, so it isn't copied.")
+        XCTAssertFalse(budget.take(nil), "On a free plan an item of unknown size isn't copied.")
+        XCTAssertTrue(budget.take(400))
+        budget.giveBack(400)
+        XCTAssertEqual(budget.left, 400, "A failed copy gives its room back.")
+        budget.settle(took: 600, actual: 900)
+        XCTAssertEqual(budget.left, 100, "The real size replaces the estimate once copied.")
+        XCTAssertEqual(FreeArchiveBudget(used: 9_000, unlimited: false, limit: 5_000).left, 0)
+
+        var pro = FreeArchiveBudget(used: 9_000, unlimited: true, limit: 5_000)
+        XCTAssertNil(pro.left)
+        XCTAssertTrue(pro.take(nil), "Pro has no limit.")
+        XCTAssertTrue(pro.take(1_000_000))
+    }
+
+    @MainActor func testAnItemOverTheFreeLimitSaysWhy() {
+        XCTAssertEqual(ArchiveRun.reason(for: OverFreeArchive()), "Over the free 5 GB of archiving")
+        XCTAssertEqual(OverFreeArchive().localizedDescription,
+                       "It doesn't fit in what is left of your free 5 GB of archiving. Archiving more needs TidyAway Pro.")
+        XCTAssertTrue(FreeArchiveBudget.reportedSizes([]).isEmpty)
+    }
+
     func testAFullReadBackReportsProgressAndCatchesChangedBytes() throws {
         let folder = try makeFolder()
         let bytes = Data(repeating: 0x2a, count: 700_000)
