@@ -24,11 +24,12 @@ enum ArchivedOnPhone {
     }
 
     /// One list per place, biggest first. Only photos still in the library (and not favorites) count;
-    /// each photo is listed once per place, with its latest copy there.
+    /// each photo is listed once per place, with its latest copy there. A copy the drive hasn't
+    /// confirmed writing out doesn't count.
     static func places(records: [ArchivedRecord], onPhone: Set<String>) -> [ArchivedPlace] {
         var latest: [String: ArchivedRecord] = [:]
         for record in records {
-            guard let photo = record.photoID, onPhone.contains(photo) else { continue }
+            guard record.confirmed, let photo = record.photoID, onPhone.contains(photo) else { continue }
             let key = place(of: record) + "|" + photo
             if let seen = latest[key], seen.date >= record.date { continue }
             latest[key] = record

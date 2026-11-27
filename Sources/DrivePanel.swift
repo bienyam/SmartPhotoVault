@@ -316,15 +316,22 @@ struct DriveScreen: View {
             let folder = status.url
             // Every file of the item: one for most, several for a Live Photo or an edited photo.
             let files = record.files.map { (name: $0.name, expected: ArchiveProver.fingerprint(of: $0)) }
-            let result: Result<Void, Error> = await Task.detached(priority: .userInitiated) {
+            let waiting = !record.confirmed
+            let result: Result<Bool, Error> = await Task.detached(priority: .userInitiated) {
                 Result {
                     for file in files {
                         _ = try VerifiedArchive.checkCopy(named: file.name, in: folder, expected: file.expected, wifi: nil, offDevice: false)
                     }
+                    // A copy from a run whose drive never confirmed it wrote everything out: read back
+                    // intact, it counts once the drive confirms it now.
+                    guard waiting, let first = files.first else { return false }
+                    return (try? VerifiedArchive.flushDrive(folder.appendingPathComponent(first.name), in: folder)) != nil
                 }
             }.value
             switch result {
-            case .success: exact += 1
+            case .success(let nowConfirmed):
+                exact += 1
+                if nowConfirmed { try? InventoryStore.openDefault().saveArchived([record.confirming]) }
             case .failure(let error): problems.append("\(record.name) — \(error.localizedDescription)")
             }
             checked += 1

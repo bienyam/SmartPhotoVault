@@ -219,17 +219,7 @@ enum CloudStream {
         let pieces = CloudPieces { piece, offset in
             // The size given up front must hold; anything past it would be refused anyway.
             guard offset + Int64(piece.count) <= total else { throw CloudStreamError.sizeChanged }
-            var put = URLRequest(url: url)
-            put.httpMethod = "PUT"
-            put.timeoutInterval = 600
-            // The upload address carries its own permission; adding the sign-in can make it fail.
-            put.setValue("bytes \(offset)-\(offset + Int64(piece.count) - 1)/\(total)", forHTTPHeaderField: "Content-Range")
-            let reply = try send(put, body: piece)
-            switch reply.status {
-            case 202: break
-            case 200, 201: finished.stored = try JSONDecoder().decode(Stored.self, from: reply.body)
-            default: throw CloudError.server("OneDrive", reply.status)
-            }
+            try oneDrivePiece(piece, at: offset, total: total, session: url, finished: finished)
         }
         feed(item, into: pieces)
         let result: (fingerprint: ArchiveFingerprint, quickXor: String, dropbox: String)
@@ -244,6 +234,55 @@ enum CloudStream {
             throw CloudStreamError.sizeChanged
         }
         return (stored, result.fingerprint, result.quickXor)
+    }
+
+    /// Sends one piece to a OneDrive upload session. OneDrive answers with the bytes it still expects,
+    /// and whatever it didn't keep is sent again from there. A dropped connection or a busy server is
+    /// retried a few times, each time after asking the session where it got to; then the item fails.
+    private static func oneDrivePiece(_ piece: Data, at offset: Int64, total: Int64, session url: URL,
+                                      finished: ArchiveStoredBox, pause: (Int) -> Void = { UploadRetry.wait($0) }) throws {
+        let end = offset + Int64(piece.count)
+        var at = offset
+        var tries = 0
+        while true {
+            let rest = Data(piece[(piece.startIndex + Int(at - offset))...])
+            var put = URLRequest(url: url)
+            put.httpMethod = "PUT"
+            put.timeoutInterval = 600
+            // The upload address carries its own permission; adding the sign-in can make it fail.
+            put.setValue("bytes \(at)-\(end - 1)/\(total)", forHTTPHeaderField: "Content-Range")
+            let reply: (status: Int, body: Data)
+            do {
+                reply = try send(put, body: rest)
+                guard [200, 201, 202].contains(reply.status) else { throw CloudError.server("OneDrive", reply.status) }
+            } catch {
+                guard tries < UploadRetry.attempts, UploadRetry.retryable(error) else { throw error }
+                tries += 1
+                pause(tries)
+                // Where the session got to. If it can't say, the rest of the piece is sent again.
+                var ask = URLRequest(url: url)
+                ask.httpMethod = "GET"
+                if let status = try? send(ask, body: nil), status.status == 200,
+                   let next = UploadRetry.oneDriveNext(status.body) {
+                    guard next >= offset, next <= end else { throw error }
+                    // Every byte of this piece arrived before the connection dropped.
+                    if next == end { return }
+                    at = next
+                }
+                continue
+            }
+            if reply.status != 202 {
+                finished.stored = try JSONDecoder().decode(Stored.self, from: reply.body)
+                return
+            }
+            // Accepted; OneDrive says which byte it wants next. Without that, the whole piece counts.
+            let next = UploadRetry.oneDriveNext(reply.body) ?? end
+            if next >= end { return }
+            // It kept only part of the piece: the rest goes again, but only while it keeps moving forward.
+            guard next > at, tries < UploadRetry.attempts else { throw CloudError.server("OneDrive", reply.status) }
+            tries += 1
+            at = next
+        }
     }
 
     /// Drops an unfinished OneDrive upload so no partial file is left.
@@ -286,6 +325,41 @@ enum CloudStream {
         struct Metadata: Decodable { let id: String; let name: String; let size: Int64?; let content_hash: String? }
         let stored = try JSONDecoder().decode(Metadata.self, from: done.body)
         return (stored.id, stored.name, stored.size ?? -1, stored.content_hash, result.fingerprint, result.dropbox)
+    }
+}
+
+/// When a cloud upload is worth trying again, and how long to wait first. Only a dropped connection
+/// or a busy server is retried, a few times; anything else fails the item straight away, as before.
+enum UploadRetry {
+    static let attempts = 4
+
+    static func retryable(_ error: Error) -> Bool {
+        switch error {
+        case let GoogleDriveError.server(status): return transient(status)
+        case let CloudError.server(_, status): return transient(status)
+        default: break
+        }
+        guard let error = error as? URLError else { return false }
+        let dropped: Set<URLError.Code> = [.timedOut, .networkConnectionLost, .notConnectedToInternet,
+                                           .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed]
+        return dropped.contains(error.code)
+    }
+
+    /// Statuses that mean "try again in a moment".
+    static func transient(_ status: Int) -> Bool { [408, 429, 500, 502, 503, 504].contains(status) }
+
+    /// 1, 2, 4, then 8 seconds.
+    static func delay(_ attempt: Int) -> TimeInterval { min(pow(2, Double(max(attempt, 1) - 1)), 8) }
+
+    static func wait(_ attempt: Int) { Thread.sleep(forTimeInterval: delay(attempt)) }
+
+    /// The first byte a OneDrive upload session still expects, from its `nextExpectedRanges`
+    /// ("26214400-" or "26214400-52428799"). Nil when the answer doesn't say.
+    static func oneDriveNext(_ body: Data) -> Int64? {
+        struct Ranges: Decodable { let nextExpectedRanges: [String]? }
+        guard let first = (try? JSONDecoder().decode(Ranges.self, from: body))?.nextExpectedRanges?.first,
+              let start = first.split(separator: "-", omittingEmptySubsequences: false).first else { return nil }
+        return Int64(start.trimmingCharacters(in: .whitespaces))
     }
 }
 

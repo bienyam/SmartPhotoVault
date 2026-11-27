@@ -101,11 +101,12 @@ enum BackupLedger {
     }
 
     /// The items with at least one record that still covers them. `now` holds each item as it is
-    /// in Photos; an item missing from it has no usable original and is not backed up.
+    /// in Photos; an item missing from it has no usable original and is not backed up. A copy the
+    /// drive hasn't confirmed writing out is not a backup yet.
     static func photoIDs(in records: [ArchivedRecord], now: [String: OriginalNow]) -> Set<String> {
         var ids: Set<String> = []
         for record in records {
-            guard let id = record.photoID, let state = now[id], covers(record, state) else { continue }
+            guard record.confirmed, let id = record.photoID, let state = now[id], covers(record, state) else { continue }
             ids.insert(id)
         }
         return ids

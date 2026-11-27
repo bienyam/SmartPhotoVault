@@ -24,6 +24,23 @@ struct ArchivedRecord: Codable, Identifiable, Equatable {
     /// same way. Everything above then describes the original still. Nil for a single-file copy and in
     /// every record saved before these could be archived.
     var parts: [ArchivedPart]? = nil
+    /// True while a copy to a drive or folder is waiting for the drive to confirm it wrote everything
+    /// out. It is listed in Get back, but it never counts as a backup, as already archived or as safe to
+    /// remove until it is confirmed. Nil in every confirmed record, and in every record saved before
+    /// this was kept, so those still count exactly as they did.
+    var unflushed: Bool? = nil
+}
+
+extension ArchivedRecord {
+    /// The destination confirmed this copy. Only these count as backups or prove an original may go.
+    var confirmed: Bool { unflushed != true }
+
+    /// The same record, now that the destination confirmed it.
+    var confirming: ArchivedRecord {
+        var record = self
+        record.unflushed = nil
+        return record
+    }
 }
 
 /// Archived items grouped by the day they were archived.

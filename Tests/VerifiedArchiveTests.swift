@@ -142,6 +142,79 @@ final class VerifiedArchiveTests: XCTestCase {
         }
     }
 
+    // MARK: - Repeated names (1.0.2, D3)
+
+    func testNumberedNames() {
+        XCTAssertEqual(ArchiveNames.numbered("IMG_0001.HEIC", 1), "IMG_0001.HEIC")
+        XCTAssertEqual(ArchiveNames.numbered("IMG_0001.HEIC", 2), "IMG_0001 (2).HEIC")
+        XCTAssertEqual(ArchiveNames.numbered("IMG_0001.HEIC", 12), "IMG_0001 (12).HEIC")
+        XCTAssertEqual(ArchiveNames.numbered("notes", 3), "notes (3)")
+    }
+
+    func testARepeatedNameGetsTheNextFreeNumberAndNothingIsOverwritten() throws {
+        try withFolders { source, archive, restore in
+            let first = Data(repeating: 1, count: 1_000)
+            try first.write(to: source)
+            let item = ArchiveItem(id: "a", name: "IMG_0001.HEIC", source: .file(source))
+            let one = try VerifiedArchive.copyEvery(item, to: archive)
+            XCTAssertEqual(one.receipt.url.lastPathComponent, "IMG_0001.HEIC")
+            XCTAssertTrue(one.parts.isEmpty)
+
+            let second = Data(repeating: 2, count: 2_000)
+            try second.write(to: source)
+            let two = try VerifiedArchive.copyEvery(ArchiveItem(id: "b", name: "IMG_0001.HEIC", source: .file(source)), to: archive)
+            XCTAssertEqual(two.receipt.url.lastPathComponent, "IMG_0001 (2).HEIC", "The stored name is the one the record saves.")
+            XCTAssertEqual(two.receipt.fingerprint.bytes, 2_000)
+
+            // A gap is filled first: the numbers are decided by what is in the folder, nothing else.
+            try Data([9]).write(to: archive.appendingPathComponent("IMG_0001 (4).HEIC"))
+            let third = Data(repeating: 3, count: 3_000)
+            try third.write(to: source)
+            let three = try VerifiedArchive.copyEvery(ArchiveItem(id: "c", name: "IMG_0001.HEIC", source: .file(source)), to: archive)
+            XCTAssertEqual(three.receipt.url.lastPathComponent, "IMG_0001 (3).HEIC")
+
+            XCTAssertEqual(try Data(contentsOf: archive.appendingPathComponent("IMG_0001.HEIC")), first)
+            XCTAssertEqual(try Data(contentsOf: archive.appendingPathComponent("IMG_0001 (2).HEIC")), second)
+            XCTAssertEqual(try Data(contentsOf: archive.appendingPathComponent("IMG_0001 (3).HEIC")), third)
+            XCTAssertEqual(try Data(contentsOf: archive.appendingPathComponent("IMG_0001 (4).HEIC")), Data([9]), "Never overwritten.")
+            XCTAssertEqual(try VerifiedArchive.restore(three.receipt, to: restore).lastPathComponent, "IMG_0001 (3).HEIC")
+        }
+    }
+
+    func testTwoCopiesAtOnceNeverTakeTheSameName() throws {
+        let folder = URL(fileURLWithPath: "/tmp/TidyAwayNames-\(UUID().uuidString)", isDirectory: true)
+        let nothingThere: (URL) -> Bool = { _ in false }
+        let first = try ArchiveNames.reserve({ [ArchiveNames.numbered("IMG_7.HEIC", $0)] }, in: folder, exists: nothingThere)
+        let second = try ArchiveNames.reserve({ [ArchiveNames.numbered("img_7.heic", $0)] }, in: folder, exists: nothingThere)
+        XCTAssertEqual(first.names, ["IMG_7.HEIC"])
+        XCTAssertEqual(second.names, ["img_7 (2).heic"], "Names that differ only in case count as the same on most drives.")
+        ArchiveNames.release(first.names, in: folder)
+        ArchiveNames.release(second.names, in: folder)
+        let again = try ArchiveNames.reserve({ [ArchiveNames.numbered("IMG_7.HEIC", $0)] }, in: folder, exists: nothingThere)
+        XCTAssertEqual(again.number, 1, "Released names are free again.")
+        ArchiveNames.release(again.names, in: folder)
+    }
+
+    func testEveryFileOfAnItemTakesTheSameNumber() throws {
+        let folder = URL(fileURLWithPath: "/tmp/TidyAwayParts-\(UUID().uuidString)", isDirectory: true)
+        // A Live Photo's video name is taken by something else; the still's name is free.
+        let taken: Set<String> = ["IMG_9.MOV"]
+        let exists: (URL) -> Bool = { taken.contains($0.lastPathComponent) }
+        func names(_ number: Int) -> [String] {
+            let primary = ArchiveNames.numbered("IMG_9.HEIC", number)
+            return [primary, ArchivePlan.name(for: ArchivePlan.pairedVideo, primary: primary, resourceFilename: "IMG_9.MOV")]
+        }
+        let chosen = try ArchiveNames.reserve(names, in: folder, exists: exists)
+        defer { ArchiveNames.release(chosen.names, in: folder) }
+        XCTAssertEqual(chosen.names, ["IMG_9 (2).HEIC", "IMG_9 (2).MOV"])
+
+        // Files already there that are this item's own, from a try that stopped, are used again.
+        let resumed = try ArchiveNames.reserve({ [ArchiveNames.numbered("IMG_8.HEIC", $0)] }, in: folder,
+                                               reuse: { $0 == 1 }, exists: { _ in true })
+        defer { ArchiveNames.release(resumed.names, in: folder) }
+        XCTAssertEqual(resumed.number, 1)
+    }
+
     private func withFolders(_ work: (URL, URL, URL) throws -> Void) throws {
         let files = FileManager.default
         let root = files.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)

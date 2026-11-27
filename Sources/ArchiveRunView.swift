@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Progress of one archive run, and the request to stop after the current item.
 @MainActor
@@ -18,6 +19,25 @@ final class ArchiveRun: ObservableObject {
     var failures: Int { reasons.values.reduce(0, +) }
 
     func failed(_ error: Error) { reasons[Self.reason(for: error), default: 0] += 1 }
+
+    private var background: UIBackgroundTaskIdentifier = .invalid
+
+    /// Asks iOS for the short extra time it allows when the app is switched away mid-run, so the piece
+    /// being copied isn't cut off. Ends by itself when iOS says time is up; the run then stops the way
+    /// it always did when the app was suspended.
+    func holdBackgroundTime() {
+        guard background == .invalid else { return }
+        background = UIApplication.shared.beginBackgroundTask(withName: "Archive copy") {
+            // iOS calls this on the main thread.
+            MainActor.assumeIsolated { self.releaseBackgroundTime() }
+        }
+    }
+
+    func releaseBackgroundTime() {
+        guard background != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(background)
+        background = .invalid
+    }
 
     /// A few plain words for why an item couldn't be copied.
     static func reason(for error: Error) -> String {

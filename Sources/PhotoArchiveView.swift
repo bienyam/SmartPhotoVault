@@ -1508,6 +1508,7 @@ struct PhotoArchiveView: View {
         run.start(selection.count)
         showRun = true
         UIApplication.shared.isIdleTimerDisabled = true
+        run.holdBackgroundTime()
         let folder = OnlineFolders.chosen(OnlinePlace(service))
         Task {
             if service == .oneDrive, let token = try? await account.accessToken() {
@@ -1566,6 +1567,7 @@ struct PhotoArchiveView: View {
                                          left: run.stopping ? selection.count - run.tried : 0, place: service.name)
             recordOutcome("Archive copy to \(service.name) \(operation) completed. Verified \(records.count) of \(selection.count) items in \(Self.seconds(since: started)), \(Self.throughput(records.reduce(0) { $0 + $1.totalBytes }, since: started)).")
             UIApplication.shared.isIdleTimerDisabled = false
+            run.releaseBackgroundTime()
             busy = false
         }
     }
@@ -1589,6 +1591,7 @@ struct PhotoArchiveView: View {
         run.start(selection.count)
         showRun = true
         UIApplication.shared.isIdleTimerDisabled = true
+        run.holdBackgroundTime()
         Task {
             let started = Date()
             var records: [ArchivedRecord] = []
@@ -1652,6 +1655,7 @@ struct PhotoArchiveView: View {
                                          left: run.stopping ? selection.count - run.tried : 0, place: "Google Drive")
             recordOutcome("Archive copy to Google Drive \(operation) completed. Verified \(records.count) of \(selection.count) items in \(Self.seconds(since: started)), \(Self.throughput(records.reduce(0) { $0 + $1.totalBytes }, since: started)).")
             UIApplication.shared.isIdleTimerDisabled = false
+            run.releaseBackgroundTime()
             busy = false
         }
     }
@@ -1679,6 +1683,7 @@ struct PhotoArchiveView: View {
         run.start(selection.count)
         showRun = true
         UIApplication.shared.isIdleTimerDisabled = true
+        run.holdBackgroundTime()
         Task {
             let started = Date()
             var successes: [ArchiveReceipt] = []
@@ -1708,11 +1713,12 @@ struct PhotoArchiveView: View {
                                                 folderName: destination.lastPathComponent, bytes: receipt.fingerprint.bytes,
                                                 digest: receipt.fingerprint.digest, date: Date(),
                                                 viaHomeServer: home, folderBookmark: bookmark, photoID: Self.photoID(item),
-                                                parts: stored.parts.isEmpty ? nil : stored.parts)
+                                                parts: stored.parts.isEmpty ? nil : stored.parts, unflushed: true)
                     run.copied += 1
                     run.bytes += record.totalBytes
                     copiedBytes += record.totalBytes
-                    // Saved as each item finishes, so an interrupted run keeps what it already copied.
+                    // Saved as each item finishes, so an interrupted run keeps what it already copied. It
+                    // waits as unconfirmed, and counts as a backup only once the drive confirms it below.
                     if Self.save(record) { copies[item.id] = record } else { problems.append(Self.notSaved(item)) }
                 case let .failure(error):
                     problems.append("\(item.name) — \(error.localizedDescription)")
@@ -1731,6 +1737,15 @@ struct PhotoArchiveView: View {
                 if !flushed {
                     copies = [:]
                     problems.append("The drive didn't confirm it saved everything, so nothing can be deleted yet. The copies are on the drive; check them from the drive panel.")
+                } else {
+                    // Only now do the saved copies count as backups, as already archived and for removal.
+                    let confirmed = copies.mapValues(\.confirming)
+                    if Self.confirm(Array(confirmed.values)) {
+                        copies = confirmed
+                    } else {
+                        copies = [:]
+                        problems.append("The drive saved everything, but this \(Device.name) couldn't note that, so nothing can be deleted yet. The copies are on the drive; check them from the drive panel.")
+                    }
                 }
             }
             let copied = Set(successes.map(\.id))
@@ -1754,6 +1769,7 @@ struct PhotoArchiveView: View {
             run.outcome = ArchiveOutcome(completion: completion, failures: problems,
                                          left: run.stopping ? selection.count - run.tried : 0, place: destination.lastPathComponent)
             UIApplication.shared.isIdleTimerDisabled = false
+            run.releaseBackgroundTime()
             busy = false
         }
     }
@@ -1839,6 +1855,11 @@ struct PhotoArchiveView: View {
         let saved = (try? InventoryStore.openDefault().saveArchived([record])) != nil
         if saved, let id = record.photoID { ArchiveThumbnails.rememberSoon([id]) }
         return saved
+    }
+
+    /// Marks copies as confirmed once the drive has written everything out.
+    private static func confirm(_ records: [ArchivedRecord]) -> Bool {
+        (try? InventoryStore.openDefault().saveArchived(records)) != nil
     }
 
     private static func notSaved(_ item: ArchiveItem) -> String {
