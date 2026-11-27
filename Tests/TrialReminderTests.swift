@@ -39,6 +39,9 @@ final class TrialReminderTests: XCTestCase {
         XCTAssertTrue(body.hasPrefix("Your TidyAway Pro free trial ends on "))
         XCTAssertTrue(body.contains("Settings › your name › Subscriptions"))
         XCTAssertFalse(body.lowercased().contains("we'll remind"))
+        // True even if the trial was already cancelled: no promise that it will renew.
+        XCTAssertTrue(body.contains("To stop it renewing, check Settings"))
+        XCTAssertFalse(body.contains("Nothing to do"))
         XCTAssertTrue(TrialReminder.dateLine(ends: ends).contains(TrialReminder.day(ends)))
     }
 

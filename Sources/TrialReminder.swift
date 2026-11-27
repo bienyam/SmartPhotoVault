@@ -33,8 +33,10 @@ enum TrialReminder {
 
     static let title = "Your free trial ends in 2 days"
 
+    /// Stays true even if the trial was cancelled after the reminder was planned (the reminder is
+    /// only cleared at the next re-check), so it never assumes the plan will renew.
     static func body(ends: Date) -> String {
-        "Your TidyAway Pro free trial ends on \(day(ends)). Nothing to do if you want to keep it; cancel in Settings › your name › Subscriptions."
+        "Your TidyAway Pro free trial ends on \(day(ends)). To stop it renewing, check Settings › your name › Subscriptions."
     }
 
     /// Shown in the Pro section instead when no reminder could be set (notifications are off, or
