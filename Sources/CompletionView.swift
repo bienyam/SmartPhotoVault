@@ -52,7 +52,7 @@ struct CompletionView: View {
                                 Label(item.title, systemImage: item.icon)
                                     .font(.headline)
                                     .frame(maxWidth: .infinity, minHeight: 54)
-                                    .foregroundStyle(item.prominent ? Color.white : Brand.primary)
+                                    .foregroundStyle(item.prominent ? Brand.onAccent : Brand.primary)
                                     .background(item.prominent ? Brand.primary : Brand.surface,
                                                 in: RoundedRectangle(cornerRadius: 16))
                             }
@@ -88,7 +88,7 @@ struct ConfettiBurst: View {
     private let pieces: [Piece] = (0..<90).map { _ in
         Piece(x: .random(in: 0...1), speed: .random(in: 260...520), drift: .random(in: -60...60),
               spin: .random(in: -6...6), size: .random(in: 6...12), delay: .random(in: 0...0.5),
-              color: [Brand.primary, Brand.safe, Brand.caution, Color.blue, Color.pink].randomElement()!)
+              color: [Brand.primary, Brand.safe, Brand.caution, Brand.confettiBlue, Brand.confettiPink].randomElement()!)
     }
     @State private var start = Date()
 

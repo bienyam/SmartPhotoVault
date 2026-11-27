@@ -15,7 +15,7 @@ enum ArchiveStyle {
     static let safeBack = Color(light: 0xDFF3E8, dark: 0x12382A)
     static let safeText = Color(light: 0x186642, dark: 0x3DDC97)
     /// The completion screen, the same in both modes.
-    static let done = Color(red: 0.094, green: 0.40, blue: 0.259)
+    static let done = Brand.archiveDone
 }
 
 /// The one big button at the bottom of an Archive screen.
@@ -146,9 +146,9 @@ struct ArchiveKeys: View {
             stack {
                 Image(systemName: locked && on ? "lock.fill" : kind.icon)
                     .font(.headline.weight(.heavy))
-                    .foregroundStyle(Color(red: 0.078, green: 0.086, blue: 0.122))
+                    .foregroundStyle(Brand.onTangerineLight)
                     .frame(width: 36, height: 36)
-                    .background(Color(red: 1, green: 0.541, blue: 0.361), in: Circle())
+                    .background(Brand.tangerineLight, in: Circle())
                 Text(kind.rawValue).font(.title3.weight(.heavy))
                 if !small { Text(note).font(.footnote).lineLimit(2) }
             }
@@ -188,7 +188,7 @@ struct AssetCover: View {
                 if let image {
                     Image(uiImage: image).resizable().scaledToFill()
                 } else {
-                    LinearGradient(colors: [Color(red: 0.55, green: 0.42, blue: 0.36), Color(red: 0.30, green: 0.26, blue: 0.30)],
+                    LinearGradient(colors: [Brand.coverDuskTop, Brand.coverDuskBottom],
                                    startPoint: .topLeading, endPoint: .bottomTrailing)
                 }
             }
@@ -255,7 +255,7 @@ struct ArchiveCard: View {
                     AssetCover(assetID: coverID, side: 600)
                     LinearGradient(colors: [.black.opacity(0.25), .black.opacity(0.82)], startPoint: .top, endPoint: .bottom)
                 } else {
-                    LinearGradient(colors: [Color(red: 1, green: 0.62, blue: 0.45), Color(red: 0.78, green: 0.31, blue: 0.12)],
+                    LinearGradient(colors: [Brand.coverTangerineTop, Brand.coverTangerineBottom],
                                    startPoint: .topLeading, endPoint: .bottomTrailing)
                     Image(systemName: symbol)
                         .font(.system(size: 44, weight: .semibold))

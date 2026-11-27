@@ -108,10 +108,10 @@ struct ArchiveProgressView: View {
     private var details: some View {
         VStack(spacing: 14) {
             ZStack {
-                Circle().stroke(Color.gray.opacity(0.28), lineWidth: 18)
+                Circle().stroke(Brand.ringTrack, lineWidth: 18)
                 Circle()
                     .trim(from: 0, to: max(0.01, fraction))
-                    .stroke(Color(red: 1, green: 0.541, blue: 0.361), style: StrokeStyle(lineWidth: 18, lineCap: .round))
+                    .stroke(Brand.tangerineLight, style: StrokeStyle(lineWidth: 18, lineCap: .round))
                     .rotationEffect(.degrees(-90))
                 AssetCover(assetID: run.currentID ?? "sample-", side: 500)
                     .id(run.currentID)
@@ -194,15 +194,15 @@ struct ArchiveDoneView: View {
 
     var body: some View {
         ZStack {
-            (worked ? ArchiveStyle.done : Color(red: 0.45, green: 0.28, blue: 0)).ignoresSafeArea()
+            (worked ? ArchiveStyle.done : Brand.failure).ignoresSafeArea()
             if worked && !reduceMotion { ConfettiBurst().ignoresSafeArea().allowsHitTesting(false) }
             ScrollView {
                 VStack(spacing: 14) {
                     Image(systemName: worked ? "checkmark" : "exclamationmark")
                         .font(.system(size: 64, weight: .black))
-                        .foregroundStyle(worked ? ArchiveStyle.done : Color(red: 0.45, green: 0.28, blue: 0))
+                        .foregroundStyle(worked ? ArchiveStyle.done : Brand.failure)
                         .frame(width: 132, height: 132)
-                        .background(Color.white, in: Circle())
+                        .background(Brand.onAccent, in: Circle())
                         .scaleEffect(shown ? 1 : 0.4)
                         .padding(.top, 36)
                         .accessibilityHidden(true)

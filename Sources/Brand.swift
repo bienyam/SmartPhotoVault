@@ -78,6 +78,41 @@ enum Brand {
     static let storageFree = Color(light: 0xE5E5EA, dark: 0x3A3A3C)
     /// The thin ring around the Free dot in the legend, so the empty track can be seen on a card.
     static let storageFreeEdge = Color(light: 0xAEAEB2, dark: 0x7C7C80)
+
+    // MARK: Roles that used to be literals (1.0.2 polish), values unchanged unless noted
+
+    /// The empty part of the archive progress ring and similar tracks.
+    static let ringTrack = Color.gray.opacity(0.28)
+    /// The light tangerine of the archive progress ring and the Move out / Get back keys, both modes.
+    static let tangerineLight = Color(light: 0xFF8A5C, dark: 0xFF8A5C)
+    /// Dark ink on the light tangerine key circles.
+    static let onTangerineLight = Color(light: 0x14161F, dark: 0x14161F)
+    /// The archive completion screen when it worked: deep green in both modes.
+    static let archiveDone = Color(light: 0x186642, dark: 0x186642)
+    /// The archive completion screen when nothing was copied: brown, a little deeper in dark mode
+    /// so it doesn't glare. White type reads on both.
+    static let failure = Color(light: 0x734700, dark: 0x5C3900)
+    /// White on a colored badge or button, both modes.
+    static let onAccent = Color(light: 0xFFFFFF, dark: 0xFFFFFF)
+    /// Numbered step badges and the round tag on drive rows: deep tangerine in both modes.
+    static let stepBadge = Color(light: 0xB8441A, dark: 0xB8441A)
+    /// The deep orange of the Welcome "Get started" button, both modes (white on the lighter
+    /// dark-mode orange is hard to read).
+    static let welcomeAction = Color(light: 0xC8501F, dark: 0xC8501F)
+    /// Welcome: the black stage, the peach kicker text and the find chips.
+    static let welcomeStage = Color(light: 0x000000, dark: 0x000000)
+    static let welcomePeach = Color(light: 0xFFD6BD, dark: 0xFFD6BD)
+    static let welcomeTick = Color(light: 0x3DDB96, dark: 0x3DDB96)
+    static let chipInk = Color(light: 0x7A2E0F, dark: 0x7A2E0F)
+    static let chipCream = Color(light: 0xFFF7ED, dark: 0xFFF7ED)
+    /// Stand-ins while a cover picture loads: a warm dusk gradient, and a tangerine one.
+    static let coverDuskTop = Color(light: 0x8C6B5C, dark: 0x8C6B5C)
+    static let coverDuskBottom = Color(light: 0x4D424D, dark: 0x4D424D)
+    static let coverTangerineTop = Color(light: 0xFF9E73, dark: 0xFF9E73)
+    static let coverTangerineBottom = Color(light: 0xC74F1F, dark: 0xC74F1F)
+    /// Confetti on the completion screens.
+    static let confettiBlue = Color(light: 0x007AFF, dark: 0x0A84FF)
+    static let confettiPink = Color(light: 0xFF2D55, dark: 0xFF375F)
 }
 
 extension Color {

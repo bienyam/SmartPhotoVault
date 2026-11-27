@@ -735,18 +735,19 @@ struct PhoneBreakdown: View {
             Text("What's using your \(Device.name)").font(.headline)
             GeometryReader { proxy in
                 HStack(spacing: 2) {
-                    Rectangle().fill(Brand.primary)
+                    // The same colors as the hero bar and iPhone Storage in Settings.
+                    Rectangle().fill(Brand.storagePhotos)
                         .frame(width: proxy.size.width * fraction(photos))
-                    Rectangle().fill(Color.gray.opacity(0.7))
+                    Rectangle().fill(Brand.storageRest)
                         .frame(width: proxy.size.width * fraction(rest))
-                    Rectangle().fill(Color.secondary.opacity(0.2))
+                    Rectangle().fill(Brand.storageFree)
                 }
                 .clipShape(Capsule())
             }
             .frame(height: 12)
-            legend(Brand.primary, "Photos & videos", isDemo ? "—" : photos.fileSize)
-            legend(Color.gray.opacity(0.7), "Apps, System Data & other", isDemo ? "—" : rest.fileSize)
-            legend(Color.secondary.opacity(0.2), "Free", storage.available.fileSize)
+            legend(Brand.storagePhotos, "Photos & videos", isDemo ? "—" : photos.fileSize)
+            legend(Brand.storageRest, "Apps, System Data & other", isDemo ? "—" : rest.fileSize)
+            legend(Brand.storageFree, "Free", storage.available.fileSize)
             if mostlyNotPhotos {
                 NavigationLink { StorageExplainer() } label: {
                     HStack {
@@ -778,11 +779,32 @@ struct PhoneBreakdown: View {
     private func legend(_ color: Color, _ title: String, _ value: String) -> some View {
         HStack(spacing: 8) {
             Circle().fill(color).frame(width: 10, height: 10)
+                // The empty track needs an edge to show on the card, as in the hero legend.
+                .overlay(Circle().stroke(Brand.storageFreeEdge, lineWidth: color == Brand.storageFree ? 1 : 0))
             Text(title).font(.subheadline)
             Spacer()
             Text(value).font(.subheadline).foregroundStyle(.secondary)
         }
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// The full storage card, opened from the hero card.
+struct WhatsUsingView: View {
+    let storage: DeviceStorage
+    let photosBytes: Int64
+    let isDemo: Bool
+
+    var body: some View {
+        ScrollView {
+            PhoneBreakdown(storage: storage, photosBytes: photosBytes, isDemo: isDemo)
+                .frame(maxWidth: 520)
+                .padding(20)
+                .frame(maxWidth: .infinity)
+        }
+        .background(Brand.background)
+        .navigationTitle("What's using it")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 

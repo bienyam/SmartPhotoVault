@@ -187,7 +187,7 @@ struct GroupSkimView: View {
                     Image(systemName: out ? "circle" : "checkmark.circle.fill")
                         .font(.body.weight(.bold))
                         .symbolRenderingMode(.palette)
-                        .foregroundStyle(.white, out ? Color.white : Color(red: 0.722, green: 0.267, blue: 0.102))
+                        .foregroundStyle(.white, out ? Brand.onAccent : Brand.stepBadge)
                         .shadow(radius: 2)
                         .padding(4)
                 }
