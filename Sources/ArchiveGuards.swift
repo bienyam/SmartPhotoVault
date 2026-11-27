@@ -100,7 +100,7 @@ struct FreeArchiveBudget {
     static func reportedSizes(_ items: [(String, String)]) -> [String: Int64] {
         guard !items.isEmpty else { return [:] }
         var byPhoto: [String: Int64] = [:]
-        PHAsset.fetchAssets(withLocalIdentifiers: items.map(\.1), options: nil).enumerateObjects { asset, _, _ in
+        PHAsset.fetchAssets(withLocalIdentifiers: items.map { $0.1 }, options: nil).enumerateObjects { asset, _, _ in
             if let size = DuplicateScanner.reportedSize(of: PHAssetResource.assetResources(for: asset)), size > 0 {
                 byPhoto[asset.localIdentifier] = size
             }
@@ -148,7 +148,7 @@ enum AlreadyArchivedHere {
         guard record.cloud == nil, record.driveFileID == nil, let bookmark = record.folderBookmark else { return false }
         var stale = false
         guard let folder = try? URL(resolvingBookmarkData: bookmark, bookmarkDataIsStale: &stale) else { return false }
-        return folder.standardizedFileURL.path == path
+        return folder.resolvingSymlinksInPath().standardizedFileURL.path == path
     }
 }
 

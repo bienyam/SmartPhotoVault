@@ -195,7 +195,8 @@ struct CleanupListView: View {
             if var check = BackupCheck.alert(for: .list, selected: records, archived: archived) {
                 // On a free plan, say in the alert when Copy first can't fit in what is left of 5 GB.
                 if !unlimited, !sample {
-                    check.freeLeft = max(0, ProStore.freeArchiveBytes - (await FreeArchiveBudget.usedNow()))
+                    let used = await FreeArchiveBudget.usedNow()
+                    check.freeLeft = max(0, ProStore.freeArchiveBytes - used)
                 }
                 backup = check
             } else {

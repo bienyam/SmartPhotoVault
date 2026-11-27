@@ -237,10 +237,11 @@ enum ArchiveProver {
     /// folder or home server. Anything that can't be reached, or doesn't answer within `timeout`
     /// seconds, counts as not there.
     static func copyStillThere(_ record: ArchivedRecord, wifi: ArchiveWiFi, timeout: TimeInterval = ArchiveDeadline.perCopy) async -> Bool {
-        await ArchiveDeadline.within(timeout) {
+        let answer = await ArchiveDeadline.within(timeout) { () async throws -> Bool in
             for file in record.files { try await presentCopy(file, wifi: wifi) }
             return true
-        } ?? false
+        }
+        return answer ?? false
     }
 
     private static func presentCopy(_ record: ArchivedRecord, wifi: ArchiveWiFi) async throws {

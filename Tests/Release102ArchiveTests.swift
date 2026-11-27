@@ -139,8 +139,8 @@ final class Release102ArchiveTests: XCTestCase {
         let here = try makeFolder()
         let elsewhere = try makeFolder()
         let saved = record("r", photo: "p1", folder: try here.bookmarkData())
-        XCTAssertTrue(AlreadyArchivedHere.inFolder(saved, here.standardizedFileURL.path))
-        XCTAssertFalse(AlreadyArchivedHere.inFolder(saved, elsewhere.standardizedFileURL.path),
+        XCTAssertTrue(AlreadyArchivedHere.inFolder(saved, here.resolvingSymlinksInPath().standardizedFileURL.path))
+        XCTAssertFalse(AlreadyArchivedHere.inFolder(saved, elsewhere.resolvingSymlinksInPath().standardizedFileURL.path),
                        "A copy in another folder doesn't stop a copy to this one.")
         var drive = saved
         drive.driveFileID = "g1"

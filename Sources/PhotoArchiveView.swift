@@ -1762,7 +1762,7 @@ struct PhotoArchiveView: View {
         UIApplication.shared.isIdleTimerDisabled = true
         run.holdBackgroundTime()
         let sizes = allowanceSizes
-        let destinationPath = destination.standardizedFileURL.path
+        let destinationPath = destination.resolvingSymlinksInPath().standardizedFileURL.path
         let unlimited = pro.allows(.unlimitedArchive)
         Task {
             // The free 5 GB is checked again for each item as it starts, against what is archived now.
