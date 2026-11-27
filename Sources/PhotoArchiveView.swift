@@ -1408,7 +1408,7 @@ struct PhotoArchiveView: View {
             ForEach(receipts) { receipt in
                 VStack(alignment: .leading, spacing: 6) {
                     Label(receipt.url.lastPathComponent, systemImage: "checkmark.circle")
-                    Text(restored.contains(receipt.id) ? "Restored bytes verified" : "Copied bytes verified")
+                    Text(restored.contains(receipt.id) ? "Restored bytes verified" : "Copied, same size as the original")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                     Button("Test restore") {
@@ -1423,7 +1423,7 @@ struct PhotoArchiveView: View {
                 Label(failures[index], systemImage: "exclamationmark.circle")
             }
             if !receipts.isEmpty {
-                Text("Verification checks the bytes this \(Device.name) could read back. It cannot confirm provider sync. Keep this screen open to test a restore.")
+                Text("Each copy was checked to be the same size as its original. A test restore brings one back and checks it in full. This can't confirm provider sync. Keep this screen open to test a restore.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }

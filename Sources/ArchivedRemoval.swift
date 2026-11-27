@@ -98,6 +98,9 @@ struct ArchivedRemovalView: View {
 
     private var bytes: Int64 { proofs.reduce(0) { $0 + $1.record.totalBytes } }
 
+    /// The first check (1.0.2, D12): what it confirms for every copy is its size.
+    static let copiedTitle = "Copied, same size as the original"
+
     /// Copies on a drive, folder or home server are read back in full before removal; cloud copies
     /// are matched by the service's checksum.
     private var readsCopiesBack: Bool {
@@ -272,7 +275,7 @@ struct ArchivedRemovalView: View {
     /// The four checks, ticked as they pass.
     @ViewBuilder
     private var checklist: some View {
-        check(true, "Copied, byte for byte",
+        check(true, ArchivedRemovalView.copiedTitle,
               "\(proofs.count) of \(total): each copy is there and the same size as its original")
         VStack(alignment: .leading, spacing: 4) {
             check(true, "Where they are", done.place)

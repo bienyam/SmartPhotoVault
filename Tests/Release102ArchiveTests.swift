@@ -238,6 +238,13 @@ final class Release102ArchiveTests: XCTestCase {
         XCTAssertEqual(noAlbums.confirming.favorite, false, "Confirming a copy keeps its details.")
     }
 
+    // MARK: - D12: the first check says what it checks
+
+    @MainActor func testTheFirstCheckSaysSameSizeNotByteForByte() {
+        XCTAssertEqual(ArchivedRemovalView.copiedTitle, "Copied, same size as the original")
+        XCTAssertFalse(ArchivedRemovalView.copiedTitle.contains("byte for byte"))
+    }
+
     func testAFullReadBackReportsProgressAndCatchesChangedBytes() throws {
         let folder = try makeFolder()
         let bytes = Data(repeating: 0x2a, count: 700_000)
