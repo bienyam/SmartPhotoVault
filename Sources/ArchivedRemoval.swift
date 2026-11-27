@@ -65,6 +65,9 @@ struct ArchivedRemovalView: View {
     /// How much of the originals the check has read again so far, so a large video never looks stuck.
     @State private var reading = ProofProgress()
     @State private var readBytes: Int64 = 0
+    /// How much of the copies on a drive, folder or home server has been read back so far (1.0.2, A3).
+    @State private var readingCopies = ProofProgress()
+    @State private var copyBytes: Int64 = 0
     /// Bringing one copy back and checking it against its original. Removal waits for it.
     @State private var test = RestoreTest.notYet
     /// What removal is doing right now, with a count, so a long step never looks stuck.
@@ -95,6 +98,12 @@ struct ArchivedRemovalView: View {
 
     private var bytes: Int64 { proofs.reduce(0) { $0 + $1.record.totalBytes } }
 
+    /// Copies on a drive, folder or home server are read back in full before removal; cloud copies
+    /// are matched by the service's checksum.
+    private var readsCopiesBack: Bool {
+        done.copies.values.contains { $0.cloud == nil && $0.driveFileID == nil }
+    }
+
     var body: some View {
         List {
             Section {
@@ -109,7 +118,14 @@ struct ArchivedRemovalView: View {
                             .font(.footnote).foregroundStyle(.secondary)
                             .accessibilityIdentifier("archive-recheck-read")
                     }
-                    Text("Each copy must still be there, the same size as its original to the byte. Keep this open.")
+                    if copyBytes > 0 {
+                        Text("Read back \(copyBytes.fileSize) of the copies on \(done.place) so far.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                            .accessibilityIdentifier("archive-recheck-copies")
+                    }
+                    Text(readsCopiesBack
+                         ? "Each copy must still be there, the same size as its original to the byte. Copies on a drive or server are read back in full the first time. Keep this open."
+                         : "Each copy must still be there, the same size as its original to the byte. Keep this open.")
                         .font(.footnote).foregroundStyle(.secondary)
                 } else if let phase {
                     ProgressView(value: Double(phaseDone), total: Double(max(phaseTotal, 1))) {
@@ -189,9 +205,13 @@ struct ArchivedRemovalView: View {
         let progress = reading
         progress.reset()
         readBytes = 0
+        let copiesRead = readingCopies
+        copiesRead.reset()
+        copyBytes = 0
         let watch = Task {
             while !Task.isCancelled {
                 readBytes = progress.bytes
+                copyBytes = copiesRead.bytes
                 try? await Task.sleep(nanoseconds: 500_000_000)
             }
         }
@@ -214,7 +234,8 @@ struct ArchivedRemovalView: View {
                     let record = copies[item.id]
                     group.addTask {
                         (item, await Result(awaiting: {
-                            let proof = try await ArchiveProver.prove(photoID: id, record: record, wifi: network, progress: progress)
+                            let proof = try await ArchiveProver.prove(photoID: id, record: record, wifi: network, progress: progress,
+                                                                      copies: copiesRead)
                             // A confirmed copy the person can't see (OneDrive's app folder in work and school
                             // accounts) is not enough: its original stays.
                             // For a Live Photo or edited photo, that goes for every one of its files.

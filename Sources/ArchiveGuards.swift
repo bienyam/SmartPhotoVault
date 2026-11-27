@@ -25,6 +25,43 @@ enum ArchiveDeadline {
     }
 }
 
+/// Which copies on a drive, folder or home server have been read back in full and matched their
+/// fingerprint, and what each looked like then (size and modification date). While a copy still looks
+/// exactly like that, later checks before removal stay size-only; any change reads it back again.
+/// Kept on this iPhone, never with file names: each entry is keyed by the record's ID and the file's
+/// size and fingerprint.
+enum ReadBackLedger {
+    static let key = "archive.readBack.v1"
+    private static let lock = NSLock()
+
+    /// One file of one record. The files of a Live Photo or edited photo share the record's ID and
+    /// differ by their size and fingerprint.
+    static func entry(_ record: ArchivedRecord) -> String {
+        "\(record.id)#\(record.bytes)#\(record.digest.lowercased())"
+    }
+
+    static func value(_ stamp: CopyStamp) -> String {
+        "\(stamp.bytes)@\(stamp.modified.map { String($0.timeIntervalSince1970) } ?? "-")"
+    }
+
+    /// True when this copy was read back in full and hasn't changed since.
+    static func readBack(_ record: ArchivedRecord, stamp: CopyStamp, store: UserDefaults = .standard) -> Bool {
+        guard stamp.modified != nil else { return false }
+        lock.lock()
+        defer { lock.unlock() }
+        let known = store.dictionary(forKey: key) as? [String: String] ?? [:]
+        return known[entry(record)] == value(stamp)
+    }
+
+    static func note(_ record: ArchivedRecord, stamp: CopyStamp, store: UserDefaults = .standard) {
+        lock.lock()
+        defer { lock.unlock() }
+        var known = store.dictionary(forKey: key) as? [String: String] ?? [:]
+        known[entry(record)] = value(stamp)
+        store.set(known, forKey: key)
+    }
+}
+
 /// Resumes a continuation once, with whichever answer comes first.
 private final class AnswerOnce<T: Sendable>: @unchecked Sendable {
     private let lock = NSLock()

@@ -62,10 +62,15 @@ enum ArchiveProver {
         }
     }
 
-    static func prove(photoID: String, record: ArchivedRecord?, wifi: ArchiveWiFi, progress: ProofProgress? = nil) async throws -> ArchiveProof {
+    /// `copies` hears how much of the copies on a drive, folder or home server has been read back.
+    static func prove(photoID: String, record: ArchivedRecord?, wifi: ArchiveWiFi, progress: ProofProgress? = nil,
+                      copies: ProofProgress? = nil) async throws -> ArchiveProof {
         guard let record else { throw ArchiveProofError.notRecorded }
         let modified = try originalModificationDate(photoID)
-        let stamp = try await currentStamp(record, wifi: wifi)
+        // A copy on a drive, folder or server is read back in full once (1.0.2, A3); cloud copies are
+        // matched by the service's own checksum, as before.
+        let readBack = copies ?? ProofProgress()
+        let stamp = try await currentStamp(record, wifi: wifi, readBack: readBack)
         guard record.hasParts else {
             // A single file (owner, 2026-11-24): the original must still be that one file and nothing
             // more, and reading it again in full must give the recorded fingerprint. A photo or video
@@ -80,7 +85,7 @@ enum ArchiveProver {
         // the same check as the first.
         try await reading { cancelled in try sameParts(photoID, as: record, cancelled: cancelled, progress: progress) }
         var others: [CopyStamp] = []
-        for file in record.files.dropFirst() { others.append(try await currentStamp(file, wifi: wifi)) }
+        for file in record.files.dropFirst() { others.append(try await currentStamp(file, wifi: wifi, readBack: readBack)) }
         return ArchiveProof(photoID: photoID, record: record, copy: stamp, originalModified: modified, partCopies: others)
     }
 
@@ -173,7 +178,11 @@ enum ArchiveProver {
 
     /// The copy as the destination describes it now. It must exist, be off this iPhone and be exactly the
     /// recorded size; a Drive copy must also carry the recorded SHA-256 when Drive reports one.
-    private static func currentStamp(_ record: ArchivedRecord, wifi: ArchiveWiFi) async throws -> CopyStamp {
+    /// With `readBack` (the check before removal), a copy on a drive, folder or home server is also read
+    /// back in full, without the cache, and must give the fingerprint taken when it was archived, unless
+    /// it already did since it last changed (`ReadBackLedger`). Without it (right before the delete),
+    /// size only, as before.
+    private static func currentStamp(_ record: ArchivedRecord, wifi: ArchiveWiFi, readBack: ProofProgress? = nil) async throws -> CopyStamp {
         if let service = record.cloud, let fileID = record.driveFileID {
             let account = await CloudAccount.shared(service)
             let token = try await account.accessToken()
@@ -186,8 +195,16 @@ enum ArchiveProver {
         let folder = try Self.folder(of: record)
         let name = record.name
         let wifiCheck: ArchiveWiFi? = record.viaHomeServer ? wifi : nil
+        let expected = fingerprint(of: record)
         let stamp = try await Task.detached(priority: .userInitiated) {
-            try VerifiedArchive.copyStamp(named: name, in: folder, wifi: wifiCheck)
+            let quick = try VerifiedArchive.copyStamp(named: name, in: folder, wifi: wifiCheck)
+            guard quick.bytes == record.bytes else { throw ArchiveProofError.copyDiffers }
+            guard let readBack, !ReadBackLedger.readBack(record, stamp: quick) else { return quick }
+            guard !record.digest.isEmpty else { throw ArchiveProofError.copyDiffers }
+            let full = try VerifiedArchive.checkCopy(named: name, in: folder, expected: expected, wifi: wifiCheck,
+                                                     read: { readBack.add($0) })
+            ReadBackLedger.note(record, stamp: full)
+            return full
         }.value
         guard stamp.bytes == record.bytes else { throw ArchiveProofError.copyDiffers }
         return stamp

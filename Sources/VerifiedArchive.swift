@@ -303,14 +303,17 @@ enum VerifiedArchive {
     /// Reads a whole archive copy back from where it is stored and compares it with the fingerprint taken
     /// when it was archived. Anything missing, different or not yet uploaded throws.
     /// `offDevice` is only ever false in tests, which have no second volume to write to.
+    /// `read` hears how many bytes of the copy have come back, for a progress line.
     static func checkCopy(named name: String, in folder: URL, expected: ArchiveFingerprint,
-                          wifi: ArchiveWiFi?, offDevice: Bool = true) throws -> CopyStamp {
+                          wifi: ArchiveWiFi?, offDevice: Bool = true, read progress: ((Int) -> Void)? = nil) throws -> CopyStamp {
         try wifi?.requireConnection()
         return try scoped(folder) {
             try coordinateRead(folder.appendingPathComponent(name)) { url in
                 let before = try stamp(url, offDevice: offDevice)
                 guard before.bytes == expected.bytes,
-                      try read(url, wifi: wifi, skipCache: true) == expected else { throw ArchiveProofError.copyDiffers }
+                      try read(url, wifi: wifi, skipCache: true, chunk: { progress?($0.count) }) == expected else {
+                    throw ArchiveProofError.copyDiffers
+                }
                 guard try stamp(url, offDevice: offDevice) == before else { throw ArchiveProofError.changedSinceCheck }
                 return before
             }

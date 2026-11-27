@@ -62,4 +62,40 @@ final class Release102ArchiveTests: XCTestCase {
         let noFolder = await ArchiveProver.copyStillThere(record("x", photo: "p1"), wifi: wifi)
         XCTAssertFalse(noFolder, "A record whose folder can't be found has no copy to count.")
     }
+
+    // MARK: - A3: local copies are read back in full once before removal
+
+    func testAReadBackCopyStaysSizeOnlyUntilItChanges() throws {
+        let store = try XCTUnwrap(UserDefaults(suiteName: "readback-\(UUID().uuidString)"))
+        let saved = record("r", photo: "p1")
+        let stamp = CopyStamp(bytes: 3, modified: date, checksum: nil)
+        XCTAssertFalse(ReadBackLedger.readBack(saved, stamp: stamp, store: store), "Never read back: read it in full.")
+        ReadBackLedger.note(saved, stamp: stamp, store: store)
+        XCTAssertTrue(ReadBackLedger.readBack(saved, stamp: stamp, store: store))
+        XCTAssertFalse(ReadBackLedger.readBack(saved, stamp: CopyStamp(bytes: 3, modified: date.addingTimeInterval(1), checksum: nil), store: store),
+                       "A copy changed since it was read back is read back again.")
+        XCTAssertFalse(ReadBackLedger.readBack(saved, stamp: CopyStamp(bytes: 3, modified: nil, checksum: nil), store: store),
+                       "Without a modification date a change can't be seen, so it is always read back.")
+        XCTAssertFalse(ReadBackLedger.readBack(record("other", photo: "p1"), stamp: stamp, store: store))
+        let key = try XCTUnwrap((store.dictionary(forKey: ReadBackLedger.key) as? [String: String])?.keys.first)
+        XCTAssertFalse(key.contains("IMG_1"), "No file names are kept.")
+    }
+
+    func testAFullReadBackReportsProgressAndCatchesChangedBytes() throws {
+        let folder = try makeFolder()
+        let bytes = Data(repeating: 0x2a, count: 700_000)
+        let source = try makeFolder().appendingPathComponent("IMG_9.MOV")
+        try bytes.write(to: source)
+        let receipt = try VerifiedArchive.copy(ArchiveItem(id: "a", name: "IMG_9.MOV", source: .file(source)), to: folder)
+        let progress = ProofProgress()
+        _ = try VerifiedArchive.checkCopy(named: "IMG_9.MOV", in: folder, expected: receipt.fingerprint, wifi: nil,
+                                          offDevice: false, read: { progress.add($0) })
+        XCTAssertEqual(progress.bytes, Int64(bytes.count), "Progress hears every byte read back.")
+        var changed = bytes
+        changed[10] = 0
+        try changed.write(to: receipt.url)
+        XCTAssertThrowsError(try VerifiedArchive.checkCopy(named: "IMG_9.MOV", in: folder, expected: receipt.fingerprint,
+                                                           wifi: nil, offDevice: false),
+                             "Same size, different bytes: only the full read-back sees it.")
+    }
 }
