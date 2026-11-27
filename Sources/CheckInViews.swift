@@ -249,6 +249,12 @@ struct CheckInReportView: View {
                         Text(junk > 0 ? "\(junk.fileSize) ready to clear" : "Nothing to clear")
                             .font(.title2.bold())
                             .accessibilityIdentifier("report-headline")
+                        if !pro.allows(.smartPicks), let extra = latest?.proJunkBytes, extra > 0 {
+                            // Smart picks stay out of the headline on a free plan; their rows carry the PRO badge below.
+                            Text("+ \(extra.fileSize) more with TidyAway Pro")
+                                .font(.footnote).foregroundStyle(ArchiveStyle.muted)
+                                .accessibilityIdentifier("report-pro-extra")
+                        }
                     } else {
                         Text("Run a check to see your numbers")
                             .font(.title3.bold())

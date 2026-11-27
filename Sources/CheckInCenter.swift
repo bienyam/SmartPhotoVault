@@ -63,9 +63,10 @@ final class CheckInCenter: NSObject, ObservableObject {
     }
 
     /// The last check on this iPhone, recorded when Free up makes its groups.
-    func noteCheck(groups: [CleanupGroup], rescue: RescueSummary) {
+    /// `allowsSmartPicks` is the plan's: without it the "ready to clear" number counts only what Free can clear.
+    func noteCheck(groups: [CleanupGroup], rescue: RescueSummary, allowsSmartPicks: Bool) {
         guard !demo else { return }
-        store.latestJunk = CheckInRunner.tally(groups: groups, rescue: rescue)
+        store.latestJunk = CheckInRunner.tally(groups: groups, rescue: rescue, allowsSmartPicks: allowsSmartPicks)
     }
 
     private func askForNotifications() async {
@@ -131,7 +132,9 @@ enum CheckInRunner {
         let store = CheckInStore()
         let pro = store.proSeen
         let settings = store.settings.effective(pro: pro)
-        if recount, let fresh = await self.recount(), !Task.isCancelled { store.latestJunk = fresh }
+        if recount, let fresh = await self.recount(allowsSmartPicks: pro || Grandfather.isSet()), !Task.isCancelled {
+            store.latestJunk = fresh
+        }
         guard !Task.isCancelled else { return }
         let reading = currentReading(store: store)
 
@@ -161,28 +164,34 @@ enum CheckInRunner {
         let access = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         let count = (access == .authorized || access == .limited) ? PHAsset.fetchAssets(with: nil).count : nil
         return CheckInReading(date: now, freeBytes: device.available, totalBytes: device.total,
-                              junkBytes: last?.junkBytes, libraryCount: count, groups: last?.groups ?? [:])
+                              junkBytes: last?.junkBytes, libraryCount: count, groups: last?.groups ?? [:],
+                              proJunkBytes: last?.proJunkBytes)
     }
 
     /// Junk totals from Free up's groups: every smart group (each item once) plus duplicate copies.
-    static func tally(groups: [CleanupGroup], rescue: RescueSummary, now: Date = .now) -> CheckInReading {
+    /// Smart groups are smart picks: without them (`allowsSmartPicks` false) their space is counted in
+    /// `proJunkBytes`, never in `junkBytes`, so "ready to clear" is what this plan can clear.
+    /// Every group's own tally is kept either way; the report lists it with the PRO badge.
+    static func tally(groups: [CleanupGroup], rescue: RescueSummary, allowsSmartPicks: Bool = true,
+                      now: Date = .now) -> CheckInReading {
         var seen = Set<String>()
-        var junk: Int64 = 0
+        var smartBytes: Int64 = 0
         var tallies: [String: CheckInTally] = [:]
         for group in groups where group.id != "for-you" {
             tallies[group.id] = CheckInTally(count: group.items.count, bytes: group.bytes)
-            for item in group.items where seen.insert(item.id).inserted { junk += item.displayBytes }
+            for item in group.items where seen.insert(item.id).inserted { smartBytes += item.displayBytes }
         }
         tallies["duplicates"] = CheckInTally(count: rescue.duplicateCopies, bytes: rescue.duplicateBytes)
-        junk += rescue.duplicateBytes
+        let junk = rescue.duplicateBytes + (allowsSmartPicks ? smartBytes : 0)
         tallies["videos"] = CheckInTally(count: rescue.videos.count, bytes: rescue.videoBytes)
         tallies["screenshots"] = CheckInTally(count: rescue.screenshots.items.count, bytes: rescue.screenshots.localBytes)
-        return CheckInReading(date: now, freeBytes: 0, totalBytes: 0, junkBytes: junk, libraryCount: nil, groups: tallies)
+        return CheckInReading(date: now, freeBytes: 0, totalBytes: 0, junkBytes: junk, libraryCount: nil, groups: tallies,
+                              proJunkBytes: allowsSmartPicks ? 0 : smartBytes)
     }
 
     /// Remakes the totals from the saved check and recognition results, without anything deleted since.
     /// Reads only; stops as soon as iOS asks.
-    static func recount() async -> CheckInReading? {
+    static func recount(allowsSmartPicks: Bool) async -> CheckInReading? {
         let access = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         guard access == .authorized || access == .limited,
               let saved = try? InventoryStore.openDefault().load() else { return nil }
@@ -198,7 +207,7 @@ enum CheckInRunner {
         let facts = AssetFacts.all(for: snapshot.assets)
         let groups = CleanupGrouper.groups(in: snapshot, insights: insights, facts: facts)
         guard !Task.isCancelled else { return nil }
-        return tally(groups: groups, rescue: RescueSummary(snapshot: snapshot))
+        return tally(groups: groups, rescue: RescueSummary(snapshot: snapshot), allowsSmartPicks: allowsSmartPicks)
     }
 
     /// The repeating reminder, with the latest numbers when there are some.

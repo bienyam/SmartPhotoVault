@@ -82,6 +82,68 @@ final class HomeAndCheckupTests: XCTestCase {
         XCTAssertEqual(totals.total, 0)
     }
 
+    // MARK: Free plan numbers (B6)
+
+    private func planFixture() -> (RescueSummary, [CleanupGroup], [KeepSet]) {
+        let shot = photo("s1", bytes: 3_000, screenshot: true)
+        let clip = video("v1", bytes: 50_000)
+        let blurry = photo("p1", bytes: 2_000)
+        let keep = photo("k1", bytes: 7_000)
+        let extra = photo("k2", bytes: 4_000)
+        let summary = rescue([shot, clip, blurry, keep, extra])
+        let set = KeepSet(keep: keep, extras: [extra], because: "the sharpest")
+        // The screenshot is also an old screenshot: already counted for free, so never "more with Pro".
+        let smart = [CleanupGroup(id: "blurry", tier: .safe, title: "Blurry photos", why: "", info: "", items: [blurry]),
+                     CleanupGroup(id: "old-screenshots", tier: .probably, title: "Old screenshots", why: "", info: "", items: [shot])]
+        return (summary, smart, [set])
+    }
+
+    func testFreePlanTotalCountsOnlyWhatFreeCanClear() {
+        let (summary, smart, sets) = planFixture()
+        let free = TidyTotals.make(rescue: summary, smart: smart, archived: [], sets: sets,
+                                   allowsSmartPicks: false, allowsSmartPro: false)
+        XCTAssertEqual(free.total, 53_000, "Screenshot and video only.")
+        XCTAssertEqual(free.shelves[TidyRow.Shelf.look.rawValue], 0, "Smart picks and Best shots stay out of the shelf total.")
+        XCTAssertEqual(free.proOnly, 6_000, "The blurry photo and the look-alike extra, each once.")
+    }
+
+    func testProAndGrandfatheredTotalsAreUnchanged() {
+        let (summary, smart, sets) = planFixture()
+        let today = TidyTotals.make(rescue: summary, smart: smart, archived: [], sets: sets)
+        let pro = TidyTotals.make(rescue: summary, smart: smart, archived: [], sets: sets,
+                                  allowsSmartPicks: true, allowsSmartPro: true)
+        XCTAssertEqual(pro, today)
+        XCTAssertEqual(pro.total, 59_000)
+        XCTAssertEqual(pro.proOnly, 0)
+        // Started on 1.0: smart picks are theirs, Best shots is still Smart Pro.
+        let early = TidyTotals.make(rescue: summary, smart: smart, archived: [], sets: sets,
+                                    allowsSmartPicks: true, allowsSmartPro: false)
+        XCTAssertEqual(early.total, 55_000)
+        XCTAssertEqual(early.proOnly, 4_000)
+    }
+
+    func testFreeCheckInSaysOnlyWhatFreeCanClear() {
+        let (summary, smart, _) = planFixture()
+        let free = CheckInRunner.tally(groups: smart, rescue: summary, allowsSmartPicks: false, now: now)
+        let pro = CheckInRunner.tally(groups: smart, rescue: summary, allowsSmartPicks: true, now: now)
+        XCTAssertEqual(free.junkBytes, summary.duplicateBytes, "No duplicates here, so nothing Free can clear is counted.")
+        XCTAssertEqual(free.proJunkBytes, 5_000, "The smart picks, each item once.")
+        XCTAssertEqual(pro.junkBytes, summary.duplicateBytes + 5_000)
+        XCTAssertEqual(pro.proJunkBytes, 0)
+        XCTAssertEqual(free.groups, pro.groups, "Every row is still listed; Pro rows carry the badge.")
+        XCTAssertEqual(CheckInRunner.tally(groups: smart, rescue: summary, now: now), pro, "Default is today's Pro tally.")
+        XCTAssertFalse(CheckInText.body(latest: CheckInReading(date: now, freeBytes: 0, totalBytes: 0, junkBytes: free.junkBytes,
+                                                              libraryCount: nil), previous: nil).contains("ready to clear"),
+                       "A free check-in with nothing Free can clear doesn't claim any.")
+    }
+
+    func testOldSavedReadingsStillDecode() throws {
+        let old = #"{"date":0,"freeBytes":1,"totalBytes":2,"junkBytes":3,"groups":{}}"#
+        let reading = try JSONDecoder().decode(CheckInReading.self, from: Data(old.utf8))
+        XCTAssertEqual(reading.junkBytes, 3)
+        XCTAssertNil(reading.proJunkBytes)
+    }
+
     func testShelvesAreNamedAsApproved() {
         XCTAssertEqual(TidyRow.Shelf.allCases.map(\.title), ["Safe to clear", "Worth a look", "Move it, keep it"])
     }

@@ -110,6 +110,17 @@ struct FreeUpView: View {
             .onChange(of: insights.revision) { Task { await makeSets() } }
             .onChange(of: pro.unlocked) { _, unlocked in
                 if unlocked, let rescue = model.rescue { sorter.start(rescue.screenshots.items.map(\.id)) }
+                // The totals and the check-in numbers follow the plan.
+                if let rescue = model.rescue, !model.isDemo {
+                    CheckInCenter.shared.noteCheck(groups: smart, rescue: rescue, allowsSmartPicks: pro.allows(.smartPicks))
+                }
+                Task { await remakeTotals() }
+            }
+            .onChange(of: pro.grandfathered) {
+                if let rescue = model.rescue, !model.isDemo {
+                    CheckInCenter.shared.noteCheck(groups: smart, rescue: rescue, allowsSmartPicks: pro.allows(.smartPicks))
+                }
+                Task { await remakeTotals() }
             }
         }
     }
@@ -492,7 +503,9 @@ struct FreeUpView: View {
         }.value
         smart = made
         // Check-ins compare against the latest totals, including in the background.
-        if let rescue = model.rescue { CheckInCenter.shared.noteCheck(groups: made, rescue: rescue) }
+        if let rescue = model.rescue {
+            CheckInCenter.shared.noteCheck(groups: made, rescue: rescue, allowsSmartPicks: pro.allows(.smartPicks))
+        }
         await remakeTotals()
     }
 
@@ -520,8 +533,11 @@ struct FreeUpView: View {
             return
         }
         let groups = smart, places = archived, kept = sets
+        // On a free plan the total is what Free can clear; Pro-only finds are counted apart.
+        let picks = pro.allows(.smartPicks), smartPro = pro.allows(.smartPro)
         totals = await Task.detached(priority: .utility) {
-            TidyTotals.make(rescue: rescue, smart: groups, archived: places, sets: kept)
+            TidyTotals.make(rescue: rescue, smart: groups, archived: places, sets: kept,
+                            allowsSmartPicks: picks, allowsSmartPro: smartPro)
         }.value
     }
 
@@ -572,6 +588,13 @@ struct FreeUpView: View {
                         estimateChip
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                if let extra = totals?.proOnly, extra > 0 {
+                    // Pro-only finds stay out of the estimate above; they're listed with the PRO badge.
+                    Text("+ \(extra.fileSize) more with TidyAway Pro")
+                        .font(.footnote).foregroundStyle(Brand.muted)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityIdentifier("hero-pro-extra")
                 }
                 review(rescue)
             } else if model.freeUpStart == .empty {
