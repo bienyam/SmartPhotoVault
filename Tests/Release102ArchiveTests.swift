@@ -109,6 +109,30 @@ final class Release102ArchiveTests: XCTestCase {
         XCTAssertTrue(FreeArchiveBudget.reportedSizes([]).isEmpty)
     }
 
+    // MARK: - B5: Copy first says when the free 5 GB can't hold the selection
+
+    private func photo(_ id: String, bytes: Int64) -> AssetRecord {
+        AssetRecord(id: id, filename: "\(id).mov", mediaType: 2, favorite: false, createdAt: date,
+                    resources: [], issue: "Original resource is not available locally.",
+                    isScreenshot: false, albumIDs: [], cloudBytes: bytes)
+    }
+
+    func testTheNotBackedUpAlertSaysWhenTheFreeAllowanceCannotHoldThem() throws {
+        var check = try XCTUnwrap(BackupCheck.alert(for: .list, selected: [photo("a", bytes: 3_000)], archived: []))
+        XCTAssertTrue(check.copyFits, "Pro, or nothing known: no limit line.")
+        XCTAssertNil(check.allowanceLine)
+        check.freeLeft = 5_000
+        XCTAssertTrue(check.copyFits)
+        XCTAssertNil(check.allowanceLine)
+        check.freeLeft = 0
+        XCTAssertFalse(check.copyFits)
+        XCTAssertEqual(check.allowanceLine, "Your free 5 GB of archiving is used. Archiving more needs TidyAway Pro.")
+        check.freeLeft = 1_000
+        XCTAssertFalse(check.copyFits)
+        XCTAssertTrue(check.allowanceLine?.hasPrefix("Only ") == true)
+        XCTAssertTrue(check.allowanceLine?.hasSuffix("Archiving more needs TidyAway Pro.") == true)
+    }
+
     func testAFullReadBackReportsProgressAndCatchesChangedBytes() throws {
         let folder = try makeFolder()
         let bytes = Data(repeating: 0x2a, count: 700_000)

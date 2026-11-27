@@ -33,6 +33,23 @@ struct BackupCheck: Identifiable {
 
     var total: Int { backedUp.count + notBackedUp.count }
     var notBackedUpBytes: Int64 { notBackedUp.reduce(0) { $0 + $1.displayBytes } }
+    /// What is left of the free 5 GB of archiving. Nil with Pro: no limit.
+    var freeLeft: Int64? = nil
+
+    /// Whether Copy first can copy everything that isn't backed up without passing the free 5 GB.
+    var copyFits: Bool {
+        guard let freeLeft else { return true }
+        return notBackedUpBytes <= freeLeft
+    }
+
+    /// Said in the alert when the free 5 GB can't hold these, so Copy first never lands on a limit
+    /// the person wasn't told about (1.0.2, B5). Nil when they fit.
+    var allowanceLine: String? {
+        guard !copyFits, let freeLeft else { return nil }
+        return freeLeft <= 0
+            ? "Your free 5 GB of archiving is used. Archiving more needs TidyAway Pro."
+            : "Only \(freeLeft.fileSize) of your free 5 GB of archiving is left, not enough for these. Archiving more needs TidyAway Pro."
+    }
 
     /// The alert shows only when something could really be lost.
     var needsAlert: Bool { !notBackedUp.isEmpty }
@@ -227,6 +244,14 @@ struct BackupAlert: View {
                 .foregroundStyle(Brand.muted)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
+            if let allowance = check.allowanceLine {
+                Text(allowance)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Brand.ink)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("backup-allowance")
+            }
             VStack(alignment: .leading, spacing: 0) {
                 line(symbol: "checkmark", color: Brand.safe, bold: check.backedUpLine, rest: "verified copy in your archive")
                     .accessibilityIdentifier("backup-have")
@@ -246,6 +271,15 @@ struct BackupAlert: View {
                 .frame(maxWidth: .infinity, minHeight: 44)
                 .accessibilityHint("Apple asks you to confirm next")
                 .accessibilityIdentifier("backup-delete-anyway")
+            if !check.copyFits {
+                // Tapping outside is Cancel too; when the free 5 GB can't hold these, it is also a button.
+                Button("Cancel", action: cancel)
+                    .font(.body.weight(.semibold))
+                    .tint(Brand.muted)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .accessibilityHint("Nothing is deleted")
+                    .accessibilityIdentifier("backup-cancel")
+            }
         }
         .padding(20)
         .frame(maxWidth: 420)

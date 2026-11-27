@@ -37,6 +37,7 @@ struct CleanupListView: View {
     @State private var preview: PreviewRequest?
     /// Set when some selected items have no verified archive copy: the alert before Apple's confirmation.
     @State private var backup: BackupCheck?
+    @EnvironmentObject private var pro: ProStore
     @State private var ratingTrigger = 0
 
     private var kept: Set<String> { Set(sets.map(\.keep.id)) }
@@ -180,6 +181,7 @@ struct CleanupListView: View {
     private func delete() {
         let records = selectedRecords
         let sample = model.isDemo
+        let unlimited = pro.allows(.unlimitedArchive)
         working = true
         Task {
             // Sample items have no archive copies. The archive list and Photos are read off the main
@@ -190,7 +192,11 @@ struct CleanupListView: View {
                 archived = await BackupLedger.verifiedPhotoIDs(among: records.map(\.id))
             }
             working = false
-            if let check = BackupCheck.alert(for: .list, selected: records, archived: archived) {
+            if var check = BackupCheck.alert(for: .list, selected: records, archived: archived) {
+                // On a free plan, say in the alert when Copy first can't fit in what is left of 5 GB.
+                if !unlimited, !sample {
+                    check.freeLeft = max(0, ProStore.freeArchiveBytes - (await FreeArchiveBudget.usedNow()))
+                }
                 backup = check
             } else {
                 remove()
