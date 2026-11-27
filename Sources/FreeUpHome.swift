@@ -858,6 +858,25 @@ struct ProOffer: Identifiable {
     let symbol: String
 }
 
+/// The half sheet's buy button and the line under it. With a free trial the billed price is in the
+/// button itself and leads the line under it, so the amount charged is never quieter than the trial
+/// (App Review guideline 3.1.2). Prices and the trial length come from the App Store.
+enum ProSheetCopy {
+    static func button(trial: String?, price: String?, unit: String) -> String {
+        guard let price else { return "Get TidyAway Pro" }
+        if trial != nil { return "Try free, then \(price)/\(unit)" }
+        return "Get Pro · \(price) a \(unit)"
+    }
+
+    static func priceLine(trial: String?, price: String?, unit: String, loading: Bool) -> String {
+        guard let price else {
+            return loading ? "Getting the price from the App Store…" : "The price is shown by the App Store before you pay."
+        }
+        if let trial { return "\(price) a \(unit) after the \(trial) free trial. Cancel anytime in Settings." }
+        return "Renews each \(unit) until you cancel. Cancel anytime in Settings."
+    }
+}
+
 /// "Available in TidyAway Pro": what the feature does, one benefit, the trial and the price from
 /// the App Store, then See all plans and Not now. Opens only when a PRO item is tapped.
 struct ProFeatureSheet: View {
@@ -882,20 +901,12 @@ struct ProFeatureSheet: View {
     }
 
     private var buttonTitle: String {
-        if let trial { return "Start \(trial) free trial" }
-        if let product = offered.product { return "Get Pro · \(product.displayPrice) a \(offered.unit)" }
-        return "Get TidyAway Pro"
+        ProSheetCopy.button(trial: trial, price: offered.product?.displayPrice, unit: offered.unit)
     }
 
     private var priceLine: String {
-        guard let product = offered.product else {
-            return pro.loadingProducts || pro.waitingToBuy != nil
-                ? "Getting the price from the App Store…"
-                : "The price is shown by the App Store before you pay."
-        }
-        return trial == nil
-            ? "Renews each \(offered.unit) until you cancel. Cancel anytime in Settings."
-            : "Then \(product.displayPrice) a \(offered.unit). Cancel anytime in Settings."
+        ProSheetCopy.priceLine(trial: trial, price: offered.product?.displayPrice, unit: offered.unit,
+                               loading: pro.loadingProducts || pro.waitingToBuy != nil)
     }
 
     var body: some View {
@@ -944,9 +955,11 @@ struct ProFeatureSheet: View {
                 .buttonStyle(ArchiveButtonStyle())
                 .disabled(pro.busy)
                 .accessibilityIdentifier("pro-sheet-start")
+                // The amount charged is as prominent as the trial: the same size and weight as the
+                // button's label, in the main text colour (App Review guideline 3.1.2).
                 Text(priceLine)
-                    .font(.footnote)
-                    .foregroundStyle(Brand.muted)
+                    .font(offered.product == nil ? Font.footnote : Font.body.weight(.semibold))
+                    .foregroundStyle(offered.product == nil ? Brand.muted : Brand.ink)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
                     .accessibilityIdentifier("pro-sheet-price")
