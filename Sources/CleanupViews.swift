@@ -39,15 +39,9 @@ struct CleanupListView: View {
     @State private var backup: BackupCheck?
     @State private var ratingTrigger = 0
 
-    private var kept: Set<String> { Set(sets.map(\.keep.id)) }
-    /// Everything the viewer can swipe through, in the order the list shows it.
-    private var previewItems: [AssetRecord] {
-        guard !sets.isEmpty else { return items }
-        return sets.flatMap { [$0.keep] + $0.extras } + items.filter { !inSets.contains($0.id) }
-    }
-    private var keptNotes: [String: String] {
-        Dictionary(sets.map { ($0.keep.id, "Keeping this one: \($0.because)") }, uniquingKeysWith: { first, _ in first })
-    }
+    /// What can be selected, worked out once per list of items rather than on every tap.
+    @State private var cache = CleanupSelectionCache()
+    private var derived: CleanupSelection { cache.selection(items: items, sets: sets) }
 
     private func row(_ asset: AssetRecord, selectable: Bool, note: String? = nil) -> some View {
         AssetRow(asset: asset, selectable: selectable, selected: selected.contains(asset.id), note: note,
@@ -56,14 +50,14 @@ struct CleanupListView: View {
             toggle(asset)
         }
     }
-    private var selectable: [AssetRecord] { items.filter { !$0.favorite && !kept.contains($0.id) } }
-    private var inSets: Set<String> { Set(sets.flatMap(\.extras).map(\.id)) }
-    private var selectedRecords: [AssetRecord] { selectable.filter { selected.contains($0.id) } }
-    private var selectedBytes: Int64 { selectedRecords.reduce(0) { $0 + $1.displayBytes } }
-    private var allSelected: Bool { !selectable.isEmpty && selectedRecords.count == selectable.count }
+    /// Only worked out when the selection is acted on; the body uses the counts below.
+    private var selectedRecords: [AssetRecord] { derived.records(selected) }
 
     var body: some View {
-        List {
+        let derived = self.derived
+        let selectedCount = derived.count(of: selected)
+        let allSelected = derived.allSelected(selected)
+        return List {
             Group {
             if items.isEmpty {
                 Text("Nothing here right now.").foregroundStyle(.secondary)
@@ -83,7 +77,7 @@ struct CleanupListView: View {
                         }
                     }
                 }
-                let rest = items.filter { !inSets.contains($0.id) }
+                let rest = derived.rest
                 if !rest.isEmpty {
                     Section("Blurry, accidental and dark") {
                         ForEach(rest) { asset in
@@ -96,8 +90,8 @@ struct CleanupListView: View {
             .hiddenBehindPreview(preview != nil)
         }
         .fullScreenCover(item: $preview) { request in
-            PhotoPreview(title: title, items: previewItems, request: request,
-                         selectable: allowsRemoval ? Set(selectable.map(\.id)) : [], notes: keptNotes,
+            PhotoPreview(title: title, items: derived.previewItems, request: request,
+                         selectable: allowsRemoval ? derived.selectableIDs : [], notes: derived.keptNotes,
                          selected: $selected, changed: { agreed = false })
         }
         .navigationTitle(title)
@@ -106,10 +100,10 @@ struct CleanupListView: View {
             if let guidance {
                 ToolbarItem(placement: .topBarTrailing) { InfoButton(title: title, text: guidance) }
             }
-            if allowsRemoval && !selectable.isEmpty {
+            if allowsRemoval && !derived.selectable.isEmpty {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(allSelected ? "Deselect all" : "Select all") {
-                        selected = allSelected ? [] : Set(selectable.map(\.id))
+                        selected = allSelected ? [] : derived.selectableIDs
                         agreed = false
                     }
                     .accessibilityIdentifier("select-all")
@@ -119,15 +113,15 @@ struct CleanupListView: View {
         .safeAreaInset(edge: .bottom) {
             if allowsRemoval && !items.isEmpty {
                 VStack(spacing: 0) {
-                    RemovalBar(count: selectedRecords.count, bytes: selectedBytes,
-                               fullText: RemovalDisclosure.items(count: selectedRecords.count, from: source),
+                    RemovalBar(count: selectedCount, bytes: derived.bytes(of: selected),
+                               fullText: RemovalDisclosure.items(count: selectedCount, from: source),
                                working: working, message: message, agreed: $agreed, delete: delete)
-                    if !selectedRecords.isEmpty {
+                    if selectedCount > 0 {
                         // The alternative to deleting: copy them off with Archive. Archiving removes nothing.
                         Button {
                             ArchiveBasket.shared.send(selectedRecords)
                         } label: {
-                            Label("Or archive \(selectedRecords.count == 1 ? "it" : "them") instead", systemImage: "externaldrive.badge.plus")
+                            Label("Or archive \(selectedCount == 1 ? "it" : "them") instead", systemImage: "externaldrive.badge.plus")
                                 .font(.subheadline.weight(.semibold))
                                 .frame(maxWidth: .infinity, minHeight: 36)
                         }
@@ -170,7 +164,7 @@ struct CleanupListView: View {
     }
 
     private func toggle(_ asset: AssetRecord) {
-        guard allowsRemoval, !asset.favorite, !kept.contains(asset.id) else { return }
+        guard allowsRemoval, !asset.favorite, !derived.kept.contains(asset.id) else { return }
         if selected.contains(asset.id) { selected.remove(asset.id) } else { selected.insert(asset.id) }
         agreed = false
     }
@@ -201,7 +195,7 @@ struct CleanupListView: View {
     /// Hands the selection to Photos, which shows Apple's own confirmation.
     private func remove() {
         let records = selectedRecords
-        let bytes = selectedBytes
+        let bytes = derived.bytes(of: selected)
         guard !records.isEmpty else { return }
         working = true
         Task {
@@ -214,6 +208,80 @@ struct CleanupListView: View {
             } else {
                 message = outcomeMessage(outcome)
             }
+        }
+    }
+}
+
+/// What a cleanup list can select. Built once per list of items, then every tap is a lookup.
+/// Select all never includes a kept photo or a favorite.
+struct CleanupSelection {
+    /// Items that can be ticked, in list order.
+    let selectable: [AssetRecord]
+    let selectableIDs: Set<String>
+    /// The photo kept in each look-alike set.
+    let kept: Set<String>
+    /// Items outside the look-alike sets, shown under their own heading.
+    let rest: [AssetRecord]
+    /// Everything the viewer can swipe through, in the order the list shows it.
+    let previewItems: [AssetRecord]
+    let keptNotes: [String: String]
+    private let sizes: [String: Int64]
+
+    init(items: [AssetRecord], sets: [KeepSet]) {
+        let kept = Set(sets.map(\.keep.id))
+        let inSets = Set(sets.flatMap(\.extras).map(\.id))
+        let selectable = items.filter { !$0.favorite && !kept.contains($0.id) }
+        let rest = items.filter { !inSets.contains($0.id) }
+        self.kept = kept
+        self.selectable = selectable
+        self.rest = rest
+        selectableIDs = Set(selectable.map(\.id))
+        previewItems = sets.isEmpty ? items : sets.flatMap { [$0.keep] + $0.extras } + rest
+        keptNotes = Dictionary(sets.map { ($0.keep.id, "Keeping this one: \($0.because)") }, uniquingKeysWith: { first, _ in first })
+        sizes = Dictionary(selectable.map { ($0.id, $0.displayBytes) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    /// How many of the selected items can be removed.
+    func count(of selected: Set<String>) -> Int {
+        selected.reduce(0) { selectableIDs.contains($1) ? $0 + 1 : $0 }
+    }
+    func bytes(of selected: Set<String>) -> Int64 {
+        selected.reduce(0) { $0 + (sizes[$1] ?? 0) }
+    }
+    /// The selected items that can be removed, in list order.
+    func records(_ selected: Set<String>) -> [AssetRecord] {
+        selectable.filter { selected.contains($0.id) }
+    }
+    func allSelected(_ selected: Set<String>) -> Bool {
+        !selectable.isEmpty && count(of: selected) == selectable.count
+    }
+}
+
+/// Holds one `CleanupSelection` until the list is given different items.
+final class CleanupSelectionCache {
+    private var items: [AssetRecord] = []
+    private var sets: [KeepSet] = []
+    private var cached: CleanupSelection?
+    /// How many times the selection was worked out. Tests read it.
+    private(set) var builds = 0
+
+    func selection(items: [AssetRecord], sets: [KeepSet]) -> CleanupSelection {
+        if let cached, Self.same(items, self.items), Self.same(sets, self.sets) { return cached }
+        let made = CleanupSelection(items: items, sets: sets)
+        self.items = items
+        self.sets = sets
+        cached = made
+        builds += 1
+        return made
+    }
+
+    /// Arrays are values, so the same storage means the same contents. Holding on to the last
+    /// arrays keeps their storage from being reused for different items.
+    private static func same<Element>(_ lhs: [Element], _ rhs: [Element]) -> Bool {
+        guard lhs.count == rhs.count else { return false }
+        guard !lhs.isEmpty else { return true }
+        return lhs.withUnsafeBufferPointer { left in
+            rhs.withUnsafeBufferPointer { right in left.baseAddress == right.baseAddress }
         }
     }
 }
