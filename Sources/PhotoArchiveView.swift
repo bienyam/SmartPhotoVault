@@ -1549,14 +1549,14 @@ struct PhotoArchiveView: View {
         let folder = OnlineFolders.chosen(OnlinePlace(service))
         let sizes = allowanceSizes
         let network = wifi
-        let placeLabel = folder.label(in: OnlinePlace(service))
+        let placeID = PlaceIdentity.online(folder)
         let unlimited = pro.allows(.unlimitedArchive)
         Task {
             // The free 5 GB is checked again for each item as it starts, against what is archived now.
             var budget = FreeArchiveBudget(used: await FreeArchiveBudget.usedNow(), unlimited: unlimited)
             // An item whose confirmed copy is already in this place, unchanged and still there at the
             // same size, is not copied again (1.0.2). Another photo with the same name still gets "(2)".
-            let here = await AlreadyArchivedHere.find(selection, wifi: network) { $0.cloud == service && $0.folderName == placeLabel }
+            let here = await AlreadyArchivedHere.find(selection, wifi: network) { $0.cloud == service && $0.folderID == placeID }
             run.alreadyHere = here.count
             run.tried += here.count
             if service == .oneDrive, let token = try? await account.accessToken() {
@@ -1596,7 +1596,7 @@ struct PhotoArchiveView: View {
                                                     bytes: uploaded.fingerprint.bytes, digest: uploaded.fingerprint.digest, date: Date(),
                                                     viaHomeServer: false, folderBookmark: nil, driveFileID: uploaded.fileID,
                                                     photoID: Self.photoID(item), cloud: service, cloudHash: uploaded.serviceHash,
-                                                    parts: stored.parts.isEmpty ? nil : stored.parts).remembering(PhotoDetails.of(Self.photoID(item)))
+                                                    parts: stored.parts.isEmpty ? nil : stored.parts).remembering(PhotoDetails.of(Self.photoID(item))).placed(placeID)
                         records.append(record)
                         copiedItems.append(item)
                         run.copied += 1
@@ -1651,16 +1651,13 @@ struct PhotoArchiveView: View {
         run.holdBackgroundTime()
         let sizes = allowanceSizes
         let network = wifi
-        let placeLabel = OnlineFolders.chosen(.google).label(in: .google)
+
         let unlimited = pro.allows(.unlimitedArchive)
         Task {
             // The free 5 GB is checked again for each item as it starts, against what is archived now.
             var budget = FreeArchiveBudget(used: await FreeArchiveBudget.usedNow(), unlimited: unlimited)
-            // An item whose confirmed copy is already in this place, unchanged and still there at the
-            // same size, is not copied again (1.0.2). Another photo with the same name still gets "(2)".
-            let here = await AlreadyArchivedHere.find(selection, wifi: network) { $0.cloud == nil && $0.driveFileID != nil && $0.folderName == placeLabel }
-            run.alreadyHere = here.count
-            run.tried += here.count
+            // Filled in once the Drive folder's ID is known, below.
+            var here: Set<String> = []
             let started = Date()
             var records: [ArchivedRecord] = []
             var copies: [String: ArchivedRecord] = [:]
@@ -1671,8 +1668,17 @@ struct PhotoArchiveView: View {
                 let chosen = OnlineFolders.chosen(.google)
                 let folderID = chosen.isRoot ? try await GoogleDriveClient.archiveFolder(token: try await account.accessToken()) : chosen.id
                 driveFolder = folderID
+                // An item whose confirmed copy is already in this Drive folder (by its ID), unchanged and
+                // still there at the same size, is not copied again (1.0.2). Another photo with the same
+                // name still gets "(2)".
+                here = await AlreadyArchivedHere.find(selection, wifi: network) {
+                    $0.cloud == nil && $0.driveFileID != nil && $0.folderID == folderID
+                }
+                run.alreadyHere = here.count
+                run.tried += here.count
+                let found = here
                 await withTaskGroup(of: (ArchiveItem, Result<(fileID: String, fingerprint: ArchiveFingerprint, parts: [ArchivedPart]), Error>).self) { group in
-                var waiting = selection.filter { !here.contains($0.id) }[...]
+                var waiting = selection.filter { !found.contains($0.id) }[...]
                 var running = 0
                 while true {
                     while running < Self.copiesAtOnce, !run.stopping, let item = waiting.popFirst() {
@@ -1701,7 +1707,7 @@ struct PhotoArchiveView: View {
                                                     folderName: chosen.label(in: .google), bytes: uploaded.fingerprint.bytes,
                                                     digest: uploaded.fingerprint.digest, date: Date(),
                                                     viaHomeServer: false, folderBookmark: nil, driveFileID: uploaded.fileID,
-                                                    photoID: Self.photoID(item), parts: uploaded.parts.isEmpty ? nil : uploaded.parts).remembering(PhotoDetails.of(Self.photoID(item)))
+                                                    photoID: Self.photoID(item), parts: uploaded.parts.isEmpty ? nil : uploaded.parts).remembering(PhotoDetails.of(Self.photoID(item))).placed(folderID)
                         records.append(record)
                         copiedItems.append(item)
                         run.copied += 1
@@ -1762,14 +1768,14 @@ struct PhotoArchiveView: View {
         UIApplication.shared.isIdleTimerDisabled = true
         run.holdBackgroundTime()
         let sizes = allowanceSizes
-        let destinationPath = destination.resolvingSymlinksInPath().standardizedFileURL.path
+        let placeID = PlaceIdentity.folder(destination)
         let unlimited = pro.allows(.unlimitedArchive)
         Task {
             // The free 5 GB is checked again for each item as it starts, against what is archived now.
             var budget = FreeArchiveBudget(used: await FreeArchiveBudget.usedNow(), unlimited: unlimited)
             // An item whose confirmed copy is already in this place, unchanged and still there at the
             // same size, is not copied again (1.0.2). Another photo with the same name still gets "(2)".
-            let here = await AlreadyArchivedHere.find(selection, wifi: wifiCheck) { AlreadyArchivedHere.inFolder($0, destinationPath) }
+            let here = await AlreadyArchivedHere.find(selection, wifi: wifiCheck) { AlreadyArchivedHere.inFolder($0, placeID) }
             run.alreadyHere = here.count
             run.tried += here.count
             let started = Date()
@@ -1806,7 +1812,7 @@ struct PhotoArchiveView: View {
                                                 folderName: destination.lastPathComponent, bytes: receipt.fingerprint.bytes,
                                                 digest: receipt.fingerprint.digest, date: Date(),
                                                 viaHomeServer: home, folderBookmark: bookmark, photoID: Self.photoID(item),
-                                                parts: stored.parts.isEmpty ? nil : stored.parts, unflushed: true).remembering(PhotoDetails.of(Self.photoID(item)))
+                                                parts: stored.parts.isEmpty ? nil : stored.parts, unflushed: true).remembering(PhotoDetails.of(Self.photoID(item))).placed(placeID)
                     run.copied += 1
                     run.bytes += record.totalBytes
                     copiedBytes += record.totalBytes

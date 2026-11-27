@@ -136,16 +136,37 @@ final class Release102ArchiveTests: XCTestCase {
     // MARK: - Skipping what is already archived in the same place
 
     func testOnlyARecordForTheSameFolderCountsAsAlreadyArchivedHere() throws {
-        let here = try makeFolder()
-        let elsewhere = try makeFolder()
-        let saved = record("r", photo: "p1", folder: try here.bookmarkData())
-        XCTAssertTrue(AlreadyArchivedHere.inFolder(saved, here.resolvingSymlinksInPath().standardizedFileURL.path))
-        XCTAssertFalse(AlreadyArchivedHere.inFolder(saved, elsewhere.resolvingSymlinksInPath().standardizedFileURL.path),
-                       "A copy in another folder doesn't stop a copy to this one.")
+        // Two different folders with the same name, "Archive", in different places.
+        let here = try makeFolder().appendingPathComponent("Archive", isDirectory: true)
+        let elsewhere = try makeFolder().appendingPathComponent("Archive", isDirectory: true)
+        try FileManager.default.createDirectory(at: here, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: elsewhere, withIntermediateDirectories: true)
+        let hereID = try XCTUnwrap(PlaceIdentity.folder(here))
+        let elsewhereID = try XCTUnwrap(PlaceIdentity.folder(elsewhere))
+        XCTAssertNotEqual(hereID, elsewhereID, "Same name, different place.")
+        XCTAssertEqual(PlaceIdentity.folder(here), hereID, "The same folder is the same place every time.")
+
+        let saved = record("r", photo: "p1", folder: try here.bookmarkData()).placed(hereID)
+        XCTAssertTrue(AlreadyArchivedHere.inFolder(saved, hereID))
+        XCTAssertFalse(AlreadyArchivedHere.inFolder(saved, elsewhereID), "A copy in another folder of the same name doesn't count.")
         var drive = saved
         drive.driveFileID = "g1"
-        XCTAssertFalse(AlreadyArchivedHere.inFolder(drive, here.standardizedFileURL.path), "A Google Drive record is never a folder record.")
-        XCTAssertFalse(AlreadyArchivedHere.inFolder(record("x", photo: "p1"), here.standardizedFileURL.path))
+        XCTAssertFalse(AlreadyArchivedHere.inFolder(drive, hereID), "A Google Drive record is never a folder record.")
+        XCTAssertFalse(AlreadyArchivedHere.inFolder(record("x", photo: "p1", folder: try here.bookmarkData()), hereID),
+                       "A record saved before places were kept is never taken as already archived.")
+        XCTAssertFalse(AlreadyArchivedHere.inFolder(saved, nil))
+    }
+
+    func testOnlinePlacesMatchByFolderNotByName() throws {
+        let trips = OnlineFolder(id: "Trips/Beach", path: "Trips/Beach")
+        let work = OnlineFolder(id: "Work/Beach", path: "Work/Beach")
+        XCTAssertEqual(trips.name, work.name, "Both folders are called Beach.")
+        XCTAssertNotEqual(PlaceIdentity.online(trips), PlaceIdentity.online(work))
+        XCTAssertEqual(PlaceIdentity.online(.root), "online:")
+        let saved = record("r", photo: "p1").placed(PlaceIdentity.online(trips))
+        let back = try JSONDecoder().decode(ArchivedRecord.self, from: JSONEncoder().encode(saved))
+        XCTAssertEqual(back.folderID, "online:Trips/Beach", "The place survives the archive list.")
+        XCTAssertNil(record("old", photo: "p1").folderID)
     }
 
     func testAnEditedPhotoIsNeverSkippedAsAlreadyArchived() {

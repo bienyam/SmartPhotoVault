@@ -143,12 +143,37 @@ enum AlreadyArchivedHere {
         return Set(present.flatMap { itemsByPhoto[$0] ?? [] })
     }
 
-    /// A drive, folder or home-server record whose folder is `path`.
-    static func inFolder(_ record: ArchivedRecord, _ path: String) -> Bool {
-        guard record.cloud == nil, record.driveFileID == nil, let bookmark = record.folderBookmark else { return false }
-        var stale = false
-        guard let folder = try? URL(resolvingBookmarkData: bookmark, bookmarkDataIsStale: &stale) else { return false }
-        return folder.resolvingSymlinksInPath().standardizedFileURL.path == path
+    /// A drive, folder or home-server record for the place `placeID` (`PlaceIdentity.folder`).
+    static func inFolder(_ record: ArchivedRecord, _ placeID: String?) -> Bool {
+        guard record.cloud == nil, record.driveFileID == nil, let placeID, let saved = record.folderID else { return false }
+        return saved == placeID
+    }
+}
+
+/// What makes an archive destination the same place, by identity rather than by name (1.0.2).
+enum PlaceIdentity {
+    /// A drive, Files folder or server: the volume's UUID (when the volume gives one) and the folder's
+    /// full resolved path. Two folders with the same name in different places, or the same path on two
+    /// different drives, are different places. Nil when the folder can't be described.
+    static func folder(_ url: URL) -> String? {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        let resolved = url.resolvingSymlinksInPath().standardizedFileURL
+        let volume = (try? resolved.resourceValues(forKeys: [.volumeUUIDStringKey]))?.volumeUUIDString ?? "-"
+        let path = resolved.path
+        return path.isEmpty ? nil : "folder:\(volume):\(path)"
+    }
+
+    /// OneDrive or Dropbox: the folder inside TidyAway's app folder ("" is the app folder itself).
+    static func online(_ folder: OnlineFolder) -> String { "online:\(folder.id)" }
+}
+
+extension ArchivedRecord {
+    /// The same record, also holding which place it went to.
+    func placed(_ placeID: String?) -> ArchivedRecord {
+        var record = self
+        record.folderID = placeID
+        return record
     }
 }
 

@@ -620,7 +620,7 @@ struct PrivacyView: View {
                               text: "Checks read originals already available on your \(Device.name). If you approve an archive or restore, the app writes a copy to your chosen folder, downloading the original from iCloud first when it isn't on your \(Device.name). The source stays in place and the provider may sync the copy.",
                               identifier: "privacy-copies", open: $open)
                 AccordionText(title: "The list of archived copies",
-                              text: "After a verified archive copy, the app keeps a local list of the file name, folder, size, checksum and date, with a reference to the folder you chose, so you can find and restore it.",
+                              text: "After a verified archive copy, the app keeps a local list of the file name, folder, size, checksum and date, with a reference to the folder you chose, so you can find and restore it. For photos you archive, the list also keeps each photo's date, location, albums and favorite status on this \(Device.name), so Get back can restore them. None of this is sent anywhere.",
                               identifier: "privacy-list", open: $open)
                 AccordionText(title: "When you delete",
                               text: "If you approve deleting items, the app asks Apple Photos to delete exactly those items. Apple shows its own confirmation and normally keeps deleted items in Recently Deleted for up to 30 days. The approval, item count and outcome are recorded in the local activity log.",

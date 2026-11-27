@@ -39,6 +39,11 @@ struct ArchivedRecord: Codable, Identifiable, Equatable {
     /// Photos' identifiers of the person's own albums the item was in.
     var albumIDs: [String]? = nil
     var favorite: Bool? = nil
+    /// Which place the copy went to, by identity rather than name (1.0.2): the drive's volume and the
+    /// folder's path for a drive, folder or server; the folder ID for Google Drive; the folder inside
+    /// TidyAway's app folder for OneDrive and Dropbox. Two folders with the same name are different
+    /// places. Nil in records saved before, which are never taken as already archived in a place.
+    var folderID: String? = nil
 }
 
 extension ArchivedRecord {
