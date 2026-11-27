@@ -13,10 +13,15 @@ final class DashboardUITests: XCTestCase {
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         XCTAssertFalse(springboard.alerts.firstMatch.exists, "Opening the app must not request Photos access.")
         start.tap()
-        let alert = springboard.alerts.firstMatch
-        guard alert.waitForExistence(timeout: 10) else {
-            XCTFail("Expected the Photos consent dialog after tapping Free up space.")
-            return
+        // Springboard hosts the dialog through iOS 26; newer runtimes may host it
+        // in the app's own process, so look in both places.
+        var alert = springboard.alerts.firstMatch
+        if !alert.waitForExistence(timeout: 10) {
+            alert = app.alerts.firstMatch
+            guard alert.waitForExistence(timeout: 5) else {
+                XCTFail("Expected the Photos consent dialog after tapping Free up space. Springboard: \(springboard.debugDescription)")
+                return
+            }
         }
         let labels = ["Allow Full Access", "Allow Access to All Photos"]
         guard let allow = labels.map({ alert.buttons[$0] }).first(where: { $0.exists }) else {
