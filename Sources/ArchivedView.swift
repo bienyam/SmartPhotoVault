@@ -202,6 +202,8 @@ struct ArchivedDayView: View {
                         // The saved small copy when the original has left this iPhone.
                         ArchivedThumb(record: record, side: 1000).frame(width: 320, height: 420)
                     }
+                    .accessibilityAddTraits(selected.contains(record.id) ? .isSelected : [])
+                    .accessibilityValue(selected.contains(record.id) ? "Selected" : "Not selected")
                     .accessibilityIdentifier("archived-\(record.id)")
                 }
             }

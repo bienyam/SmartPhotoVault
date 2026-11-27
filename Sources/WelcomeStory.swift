@@ -35,13 +35,19 @@ struct WelcomeStoryView: View {
                 VStack {
                     HStack {
                         Spacer()
-                        Button("Skip") { show(Self.lastBeat) }
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 7)
-                            .background(.black.opacity(0.35), in: Capsule())
-                            .accessibilityIdentifier("welcome-skip")
+                        Button { show(Self.lastBeat) } label: {
+                            Text("Skip")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 7)
+                                .background(.black.opacity(0.35), in: Capsule())
+                                // The capsule looks the same; the tap area is at least 44 points.
+                                .frame(minWidth: 44, minHeight: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("welcome-skip")
                     }
                     Spacer()
                     StoryDots(current: beat, count: Self.lastBeat + 1)

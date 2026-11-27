@@ -79,7 +79,15 @@ struct CompletionView: View {
 }
 
 /// A short burst of brand-coloured confetti falling from the top, drawn with Canvas.
+/// Nothing is drawn with Reduce Motion on, and the timeline stops after `lifetime`, so the screen
+/// isn't redrawn every frame while it stays open.
 struct ConfettiBurst: View {
+    /// How long the burst lasts, in seconds.
+    static let lifetime: TimeInterval = 4
+
+    /// True when the burst may be drawn.
+    static func plays(reduceMotion: Bool) -> Bool { !reduceMotion }
+
     private struct Piece {
         let x: Double, speed: Double, drift: Double, spin: Double, size: Double, delay: Double
         let color: Color
@@ -91,12 +99,24 @@ struct ConfettiBurst: View {
               color: [Brand.primary, Brand.safe, Brand.caution, Brand.confettiBlue, Brand.confettiPink].randomElement()!)
     }
     @State private var start = Date()
+    @State private var finished = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        TimelineView(.animation) { timeline in
+        if Self.plays(reduceMotion: reduceMotion) && !finished {
+            burst
+                .task {
+                    try? await Task.sleep(for: .seconds(Self.lifetime))
+                    finished = true
+                }
+        }
+    }
+
+    private var burst: some View {
+        TimelineView(.animation(paused: finished)) { timeline in
             Canvas { context, size in
                 let elapsed = timeline.date.timeIntervalSince(start)
-                guard elapsed < 4 else { return }
+                guard elapsed < Self.lifetime else { return }
                 for piece in pieces {
                     let t = max(0, elapsed - piece.delay)
                     let y = -20 + piece.speed * t
@@ -105,7 +125,7 @@ struct ConfettiBurst: View {
                     var copy = context
                     copy.translateBy(x: x, y: y)
                     copy.rotate(by: .radians(piece.spin * t))
-                    copy.opacity = max(0, 1 - elapsed / 4)
+                    copy.opacity = max(0, 1 - elapsed / Self.lifetime)
                     let rect = CGRect(x: -piece.size / 2, y: -piece.size / 4, width: piece.size, height: piece.size / 2)
                     copy.fill(Path(roundedRect: rect, cornerRadius: 1.5), with: .color(piece.color))
                 }

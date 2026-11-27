@@ -708,6 +708,8 @@ final class DashboardUITests: XCTestCase {
         app.launch()
         let skip = app.buttons["welcome-skip"]
         XCTAssertTrue(skip.waitForExistence(timeout: 10), "The story should open with a Skip button.")
+        XCTAssertGreaterThanOrEqual(skip.frame.height, 44, "Skip is at least 44 points tall to tap.")
+        XCTAssertGreaterThanOrEqual(skip.frame.width, 44)
         keepScreenshot(of: app, named: "Welcome moment")
         skip.tap()
         XCTAssertTrue(app.buttons["Get started"].waitForExistence(timeout: 5))

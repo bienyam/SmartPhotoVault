@@ -181,6 +181,7 @@ struct AssetCover: View {
     var side: CGFloat = 300
     @State private var image: UIImage?
     @State private var request: PHImageRequestID?
+    @State private var loading: Task<Void, Never>?
 
     var body: some View {
         Color.clear
@@ -196,7 +197,9 @@ struct AssetCover: View {
             .accessibilityHidden(true)
             .onAppear(perform: load)
             .onDisappear {
-                if let request { PHImageManager.default().cancelImageRequest(request) }
+                loading?.cancel()
+                loading = nil
+                if let request { Thumbnails.manager.cancelImageRequest(request) }
                 request = nil
             }
     }
@@ -205,19 +208,26 @@ struct AssetCover: View {
         guard image == nil, !assetID.hasPrefix("sample-") else { return }
         let access = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         guard access == .authorized || access == .limited else { return }
-        guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [assetID], options: nil).firstObject else {
-            image = ArchiveThumbnails.cached(assetID)
-            return
-        }
-        let options = PHImageRequestOptions()
-        // Photos kept in iCloud may fetch a small preview, as they do in Photos.
-        options.isNetworkAccessAllowed = true
-        options.deliveryMode = .opportunistic
-        options.resizeMode = .fast
-        request = PHImageManager.default().requestImage(for: asset, targetSize: CGSize(width: side, height: side),
-                                                        contentMode: .aspectFill, options: options) { picture, info in
-            guard (info?[PHImageCancelledKey] as? Bool) != true, let picture else { return }
-            DispatchQueue.main.async { image = picture }
+        let id = assetID, side = side
+        loading?.cancel()
+        loading = Task {
+            // The look-up reads the Photos database, so it runs off the main thread.
+            let found = await Thumbnails.asset(id)
+            guard !Task.isCancelled else { return }
+            guard let asset = found else {
+                image = ArchiveThumbnails.cached(id)
+                return
+            }
+            let options = PHImageRequestOptions()
+            // Photos kept in iCloud may fetch a small preview, as they do in Photos.
+            options.isNetworkAccessAllowed = true
+            options.deliveryMode = .opportunistic
+            options.resizeMode = .fast
+            request = Thumbnails.manager.requestImage(for: asset, targetSize: CGSize(width: side, height: side),
+                                                      contentMode: .aspectFill, options: options) { picture, info in
+                guard (info?[PHImageCancelledKey] as? Bool) != true, let picture else { return }
+                DispatchQueue.main.async { image = picture }
+            }
         }
     }
 }
