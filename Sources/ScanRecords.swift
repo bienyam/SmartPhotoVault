@@ -81,6 +81,12 @@ struct ScanSnapshot: Codable {
                      assets: assets.filter { !ids.contains($0.id) }, albums: albums)
     }
     var verifiedCount: Int { assets.filter { $0.fingerprint != nil }.count }
+    /// `groups.count` without building and sorting the groups.
+    var duplicateGroupCount: Int {
+        var seen: [String: Int] = [:]
+        for asset in assets { if let key = asset.fingerprint { seen[key, default: 0] += 1 } }
+        return seen.values.filter { $0 > 1 }.count
+    }
     var candidateBytes: Int64 { groups.reduce(0) { $0 + $1.extraBytes } }
 }
 

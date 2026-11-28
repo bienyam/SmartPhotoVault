@@ -107,6 +107,9 @@ struct CheckInReading: Codable, Equatable {
     var libraryCount: Int?
     /// Free up groups by id: how many items and how much space.
     var groups: [String: CheckInTally] = [:]
+    /// Space only the Pro smart picks could add, kept out of `junkBytes` on a free plan. Nil in
+    /// readings saved before 1.0.2.
+    var proJunkBytes: Int64? = nil
 }
 
 struct CheckInTally: Codable, Equatable {

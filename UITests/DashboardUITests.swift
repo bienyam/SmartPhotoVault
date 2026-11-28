@@ -13,10 +13,15 @@ final class DashboardUITests: XCTestCase {
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         XCTAssertFalse(springboard.alerts.firstMatch.exists, "Opening the app must not request Photos access.")
         start.tap()
-        let alert = springboard.alerts.firstMatch
-        guard alert.waitForExistence(timeout: 10) else {
-            XCTFail("Expected the Photos consent dialog after tapping Free up space.")
-            return
+        // Springboard hosts the dialog through iOS 26; newer runtimes may host it
+        // in the app's own process, so look in both places.
+        var alert = springboard.alerts.firstMatch
+        if !alert.waitForExistence(timeout: 10) {
+            alert = app.alerts.firstMatch
+            guard alert.waitForExistence(timeout: 5) else {
+                XCTFail("Expected the Photos consent dialog after tapping Free up space. Springboard: \(springboard.debugDescription)")
+                return
+            }
         }
         let labels = ["Allow Full Access", "Allow Access to All Photos"]
         guard let allow = labels.map({ alert.buttons[$0] }).first(where: { $0.exists }) else {
@@ -80,6 +85,18 @@ final class DashboardUITests: XCTestCase {
         attachment.lifetime = .keepAlways
         add(attachment)
         app.terminate()
+    }
+
+    func testLimitedAccessBannerOffersChooseMoreAndSettings() {
+        let app = XCUIApplication()
+        app.launchArguments += ["--skip-welcome", "--demo", "--limited-access"]
+        app.launch()
+        let message = app.staticTexts["limited-access-message"]
+        XCTAssertTrue(message.waitForExistence(timeout: 15), "Limited access explains the small totals.")
+        XCTAssertTrue(message.label.contains("TidyAway can see only the photos you chose."))
+        XCTAssertTrue(app.buttons["limited-choose-more"].exists)
+        XCTAssertTrue(app.buttons["limited-settings"].exists)
+        XCTAssertGreaterThanOrEqual(app.buttons["limited-choose-more"].frame.height, 44)
     }
 
     func testFreeUpLeadsWithOneAction() {
@@ -705,6 +722,8 @@ final class DashboardUITests: XCTestCase {
         app.launch()
         let skip = app.buttons["welcome-skip"]
         XCTAssertTrue(skip.waitForExistence(timeout: 10), "The story should open with a Skip button.")
+        XCTAssertGreaterThanOrEqual(skip.frame.height, 44, "Skip is at least 44 points tall to tap.")
+        XCTAssertGreaterThanOrEqual(skip.frame.width, 44)
         keepScreenshot(of: app, named: "Welcome moment")
         skip.tap()
         XCTAssertTrue(app.buttons["Get started"].waitForExistence(timeout: 5))

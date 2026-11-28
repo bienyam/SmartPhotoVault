@@ -66,6 +66,14 @@ struct GroupSkimView: View {
     @State private var seen = 0
     @State private var visible = 0
     @State private var preview: PreviewRequest?
+    /// The bottom of the visible area in window coordinates, measured from the screen itself
+    /// rather than UIScreen (wrong for split view, Stage Manager and external displays).
+    @State private var viewportBottom: CGFloat = 0
+
+    /// True when a cell has really been on screen: clear of the top bar and the bottom bar.
+    static func isShown(_ frame: CGRect, viewportBottom: CGFloat) -> Bool {
+        frame.height > 1 && frame.minY > 60 && frame.maxY < viewportBottom - 150
+    }
 
     /// Everything in the group, the photo that stays first in each look-alike set.
     private var previewItems: [AssetRecord] {
@@ -136,6 +144,14 @@ struct GroupSkimView: View {
         }
         .hiddenBehindPreview(preview != nil)
         .background(Brand.background)
+        .background {
+            GeometryReader { geo in
+                let bottom = geo.frame(in: .global).maxY + geo.safeAreaInsets.bottom
+                Color.clear
+                    .onAppear { viewportBottom = bottom }
+                    .onChange(of: bottom) { _, now in viewportBottom = now }
+            }
+        }
         .onPreferenceChange(SkimVisible.self) { visible = $0 }
         .task(id: visible) {
             // Rows prepared ahead of scrolling pass through the screen for an instant; only what stays counts.
@@ -187,7 +203,7 @@ struct GroupSkimView: View {
                     Image(systemName: out ? "circle" : "checkmark.circle.fill")
                         .font(.body.weight(.bold))
                         .symbolRenderingMode(.palette)
-                        .foregroundStyle(.white, out ? Color.white : Color(red: 0.722, green: 0.267, blue: 0.102))
+                        .foregroundStyle(.white, out ? Brand.onAccent : Brand.stepBadge)
                         .shadow(radius: 2)
                         .padding(4)
                 }
@@ -220,7 +236,7 @@ struct GroupSkimView: View {
             if position % 4 == 0 || position == positions.count {
                 GeometryReader { geo in
                     let frame = geo.frame(in: .global)
-                    let shown = frame.height > 1 && frame.minY > 60 && frame.maxY < UIScreen.main.bounds.height - 150
+                    let shown = Self.isShown(frame, viewportBottom: viewportBottom)
                     Color.clear.preference(key: SkimVisible.self, value: shown ? position : 0)
                 }
             }

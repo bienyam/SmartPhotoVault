@@ -15,7 +15,7 @@ enum ArchiveStyle {
     static let safeBack = Color(light: 0xDFF3E8, dark: 0x12382A)
     static let safeText = Color(light: 0x186642, dark: 0x3DDC97)
     /// The completion screen, the same in both modes.
-    static let done = Color(red: 0.094, green: 0.40, blue: 0.259)
+    static let done = Brand.archiveDone
 }
 
 /// The one big button at the bottom of an Archive screen.
@@ -146,9 +146,9 @@ struct ArchiveKeys: View {
             stack {
                 Image(systemName: locked && on ? "lock.fill" : kind.icon)
                     .font(.headline.weight(.heavy))
-                    .foregroundStyle(Color(red: 0.078, green: 0.086, blue: 0.122))
+                    .foregroundStyle(Brand.onTangerineLight)
                     .frame(width: 36, height: 36)
-                    .background(Color(red: 1, green: 0.541, blue: 0.361), in: Circle())
+                    .background(Brand.tangerineLight, in: Circle())
                 Text(kind.rawValue).font(.title3.weight(.heavy))
                 if !small { Text(note).font(.footnote).lineLimit(2) }
             }
@@ -181,6 +181,7 @@ struct AssetCover: View {
     var side: CGFloat = 300
     @State private var image: UIImage?
     @State private var request: PHImageRequestID?
+    @State private var loading: Task<Void, Never>?
 
     var body: some View {
         Color.clear
@@ -188,7 +189,7 @@ struct AssetCover: View {
                 if let image {
                     Image(uiImage: image).resizable().scaledToFill()
                 } else {
-                    LinearGradient(colors: [Color(red: 0.55, green: 0.42, blue: 0.36), Color(red: 0.30, green: 0.26, blue: 0.30)],
+                    LinearGradient(colors: [Brand.coverDuskTop, Brand.coverDuskBottom],
                                    startPoint: .topLeading, endPoint: .bottomTrailing)
                 }
             }
@@ -196,7 +197,9 @@ struct AssetCover: View {
             .accessibilityHidden(true)
             .onAppear(perform: load)
             .onDisappear {
-                if let request { PHImageManager.default().cancelImageRequest(request) }
+                loading?.cancel()
+                loading = nil
+                if let request { Thumbnails.manager.cancelImageRequest(request) }
                 request = nil
             }
     }
@@ -205,19 +208,26 @@ struct AssetCover: View {
         guard image == nil, !assetID.hasPrefix("sample-") else { return }
         let access = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         guard access == .authorized || access == .limited else { return }
-        guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [assetID], options: nil).firstObject else {
-            image = ArchiveThumbnails.cached(assetID)
-            return
-        }
-        let options = PHImageRequestOptions()
-        // Photos kept in iCloud may fetch a small preview, as they do in Photos.
-        options.isNetworkAccessAllowed = true
-        options.deliveryMode = .opportunistic
-        options.resizeMode = .fast
-        request = PHImageManager.default().requestImage(for: asset, targetSize: CGSize(width: side, height: side),
-                                                        contentMode: .aspectFill, options: options) { picture, info in
-            guard (info?[PHImageCancelledKey] as? Bool) != true, let picture else { return }
-            DispatchQueue.main.async { image = picture }
+        let id = assetID, side = self.side
+        loading?.cancel()
+        loading = Task {
+            // The look-up reads the Photos database, so it runs off the main thread.
+            let found = await Thumbnails.asset(id)
+            guard !Task.isCancelled else { return }
+            guard let asset = found else {
+                image = ArchiveThumbnails.cached(id)
+                return
+            }
+            let options = PHImageRequestOptions()
+            // Photos kept in iCloud may fetch a small preview, as they do in Photos.
+            options.isNetworkAccessAllowed = true
+            options.deliveryMode = .opportunistic
+            options.resizeMode = .fast
+            request = Thumbnails.manager.requestImage(for: asset, targetSize: CGSize(width: side, height: side),
+                                                      contentMode: .aspectFill, options: options) { picture, info in
+                guard (info?[PHImageCancelledKey] as? Bool) != true, let picture else { return }
+                DispatchQueue.main.async { image = picture }
+            }
         }
     }
 }
@@ -255,7 +265,7 @@ struct ArchiveCard: View {
                     AssetCover(assetID: coverID, side: 600)
                     LinearGradient(colors: [.black.opacity(0.25), .black.opacity(0.82)], startPoint: .top, endPoint: .bottom)
                 } else {
-                    LinearGradient(colors: [Color(red: 1, green: 0.62, blue: 0.45), Color(red: 0.78, green: 0.31, blue: 0.12)],
+                    LinearGradient(colors: [Brand.coverTangerineTop, Brand.coverTangerineBottom],
                                    startPoint: .topLeading, endPoint: .bottomTrailing)
                     Image(systemName: symbol)
                         .font(.system(size: 44, weight: .semibold))

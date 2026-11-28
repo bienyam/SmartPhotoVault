@@ -614,15 +614,23 @@ struct TidyRow: Identifiable {
 struct TidyTotals: Equatable {
     var shelves: [Int: Int64] = [:]
     var total: Int64 = 0
+    /// Space only the Pro lists could add on top of `total` (each item once, never counted in it).
+    /// Zero for Pro, and for people who started on 1.0 apart from the Smart Pro rows.
+    var proOnly: Int64 = 0
 
     /// Items can sit in more than one group (a duplicate screenshot, a look-alike in Best shots),
     /// so the totals count each item once. Phone space only: iCloud-only originals don't count.
     /// Only what the lists let someone select counts: never a favorite, never the photo kept in a
     /// look-alike set, so the estimate matches what can actually be freed.
-    static func make(rescue: RescueSummary, smart: [CleanupGroup], archived: [ArchivedPlace], sets: [KeepSet]) -> TidyTotals {
+    /// On a plan without smart picks or Smart Pro, those rows' items are left out of the shelves and
+    /// the total, and are counted in `proOnly` instead, so the number is what this plan can clear.
+    static func make(rescue: RescueSummary, smart: [CleanupGroup], archived: [ArchivedPlace], sets: [KeepSet],
+                     allowsSmartPicks: Bool = true, allowsSmartPro: Bool = true) -> TidyTotals {
         var safe: [String: Int64] = [:]
         var look: [String: Int64] = [:]
         var move: [String: Int64] = [:]
+        // Pro-only finds on this plan, kept apart from the shelves.
+        var locked: [String: Int64] = [:]
         let favorites = Set(rescue.snapshot.assets.filter(\.favorite).map(\.id))
         let kept = Set((sets + smart.flatMap(\.sets)).map(\.keep.id))
         func count(_ item: AssetRecord, _ shelf: inout [String: Int64], keptStays: Bool = false) {
@@ -636,14 +644,20 @@ struct TidyTotals: Equatable {
         for item in rescue.screenshots.items { count(item, &safe) }
         for place in archived {
             for record in place.records {
-                if let photo = record.photoID, !favorites.contains(photo) { safe[photo] = max(safe[photo] ?? 0, record.totalBytes) }
+                guard let photo = record.photoID, !favorites.contains(photo) else { continue }
+                if allowsSmartPro { safe[photo] = max(safe[photo] ?? 0, record.totalBytes) }
+                else { locked[photo] = max(locked[photo] ?? 0, record.totalBytes) }
             }
         }
         for group in smart {
-            for item in group.items { count(item, &look, keptStays: true) }
+            for item in group.items {
+                if allowsSmartPicks { count(item, &look, keptStays: true) } else { count(item, &locked, keptStays: true) }
+            }
         }
         for set in sets {
-            for item in set.extras { count(item, &look, keptStays: true) }
+            for item in set.extras {
+                if allowsSmartPro { count(item, &look, keptStays: true) } else { count(item, &locked, keptStays: true) }
+            }
         }
         for type in rescue.otherTypes where type.category.allowsRemoval {
             for item in type.items { count(item, &look) }
@@ -658,6 +672,7 @@ struct TidyTotals: Equatable {
         all.merge(look) { max($0, $1) }
         all.merge(move) { max($0, $1) }
         totals.total = all.values.reduce(0, +)
+        totals.proOnly = locked.filter { all[$0.key] == nil }.values.reduce(0, +)
         return totals
     }
 }

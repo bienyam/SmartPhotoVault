@@ -35,8 +35,27 @@ final class DashboardModel: ObservableObject {
     @Published var authorization = PHPhotoLibrary.authorizationStatus(for: .readWrite)
     @Published var isScanning = false
     @Published var snapshot: ScanSnapshot? {
-        didSet { rescue = snapshot.map(RescueSummary.init) }
+        didSet {
+            snapshotVersion &+= 1
+            // Saved results arrive with their rows already worked out away from the main thread.
+            if !adoptingSaved { rescue = snapshot.map(RescueSummary.init) }
+        }
     }
+    /// True while the saved results are read at launch, before the Free up rows can show them.
+    @Published private(set) var isLoadingSaved = false
+    /// What the top of the Free up tab shows when there are no results on screen.
+    enum FreeUpStart: Equatable { case scanning, loadingSaved, empty, results }
+    /// The empty "Free up space" state only once the saved results are known to be missing.
+    var freeUpStart: FreeUpStart {
+        Self.freeUpStart(scanning: isScanning, loadingSaved: isLoadingSaved, hasResults: rescue != nil)
+    }
+    nonisolated static func freeUpStart(scanning: Bool, loadingSaved: Bool, hasResults: Bool) -> FreeUpStart {
+        if scanning { return .scanning }
+        if hasResults { return .results }
+        return loadingSaved ? .loadingSaved : .empty
+    }
+    /// The launch-time read of the saved results. Tests wait on it.
+    private(set) var savedLoad: Task<Void, Never>?
     /// The Free up tab's rows, worked out once per scan rather than on every redraw.
     @Published private(set) var rescue: RescueSummary?
     @Published var activity: [ActivityEntry] = []
@@ -57,18 +76,83 @@ final class DashboardModel: ObservableObject {
     /// Items deleted while a check is still running, left out of its final results.
     private var deletedDuringScan: Set<String> = []
     private var partialDate = Date()
+    /// Counts every change to `snapshot`, so a slow launch read never replaces newer results.
+    private var snapshotVersion = 0
+    private var adoptingSaved = false
+    /// Reads and writes of the saved results run here, one at a time and in the order asked,
+    /// so a later save always lands after an earlier one and the main thread never waits on them.
+    private let storeQueue = DispatchQueue(label: "com.bienyam.SmartPhotoVault.saved-scan", qos: .userInitiated)
 
-    init() {
+    convenience init() {
+        self.init(opening: { try InventoryStore.openDefault() })
+    }
+
+    /// `open` supplies the inventory; tests pass their own, or none.
+    init(opening open: () throws -> InventoryStore?) {
         do {
-            store = try InventoryStore.openDefault()
-            if authorization == .authorized || authorization == .limited {
-                snapshot = try store?.load()
-                // didSet doesn't run during init, so fill the rows here.
-                rescue = snapshot.map(RescueSummary.init)
-            }
+            store = try open()
             activity = try store?.activity() ?? []
         } catch { errorMessage = "Could not open local inventory: \(error.localizedDescription)" }
-        if authorization == .authorized || authorization == .limited { startObserving() }
+        if authorization == .authorized || authorization == .limited {
+            loadSaved()
+            startObserving()
+        }
+    }
+
+    private struct SavedScan {
+        let snapshot: ScanSnapshot
+        let rescue: RescueSummary
+    }
+
+    /// Decodes the saved results and works out the Free up rows off the main thread, so a large
+    /// library doesn't hold up the first frame. The Free up tab shows its usual empty state meanwhile.
+    private func loadSaved() {
+        guard let store else { return }
+        isLoadingSaved = true
+        let version = snapshotVersion
+        let queue = storeQueue
+        savedLoad = Task {
+            let result = await withCheckedContinuation { (continuation: CheckedContinuation<Result<SavedScan?, Error>, Never>) in
+                queue.async {
+                    continuation.resume(returning: Result(catching: {
+                        try store.load().map { SavedScan(snapshot: $0, rescue: RescueSummary(snapshot: $0)) }
+                    }))
+                }
+            }
+            self.finishLoading(result, startedAt: version)
+        }
+    }
+
+    private func finishLoading(_ result: Result<SavedScan?, Error>, startedAt version: Int) {
+        isLoadingSaved = false
+        // A scan, sample data, a delete or an access change since the read began is newer: keep it.
+        guard version == snapshotVersion else { return }
+        switch result {
+        case .success(let saved?):
+            adoptingSaved = true
+            snapshot = saved.snapshot
+            adoptingSaved = false
+            // A check already running shows its own early results; these are its fallback if stopped.
+            if !isScanning { rescue = saved.rescue }
+        case .success(nil):
+            libraryChanged = false
+        case .failure(let error):
+            libraryChanged = false
+            errorMessage = "Could not open local inventory: \(error.localizedDescription)"
+        }
+    }
+
+    /// Saves the results off the main thread, after any save asked for earlier.
+    private func persist(_ snapshot: ScanSnapshot, ifFailed failed: (@MainActor () -> Void)? = nil) {
+        guard let store else { return }
+        storeQueue.async {
+            let saved = (try? store.save(snapshot)) != nil
+            Task { @MainActor in
+                if !saved { failed?() }
+                // The save writes its own activity line.
+                if let latest = try? store.activity() { self.activity = latest }
+            }
+        }
     }
 
     private func startObserving() {
@@ -81,7 +165,7 @@ final class DashboardModel: ObservableObject {
                     return
                 }
                 // Keep the results: wiping them forced a full rescan after every edit in Photos.
-                if self.snapshot != nil { self.libraryChanged = true }
+                if self.snapshot != nil || self.isLoadingSaved { self.libraryChanged = true }
             }
         }
     }
@@ -113,7 +197,10 @@ final class DashboardModel: ObservableObject {
         let ids = plans.flatMap(\.removeIDs)
         guard !ids.isEmpty else { return .blocked("Select at least one extra copy.") }
         let operation = String(UUID().uuidString.prefix(8))
-        try? store?.log("Authorized deleting \(ids.count) exact duplicate item(s) from \(plans.count) group(s) in Apple Photos. Disclosure v2. Operation \(operation).")
+        // The sign-off must be on record before anything is deleted, as with archiving.
+        guard Self.recordApproval("Authorized deleting \(ids.count) exact duplicate item(s) from \(plans.count) group(s) in Apple Photos. Disclosure v2. Operation \(operation).", store?.log) else {
+            return .blocked(Self.approvalNotSaved)
+        }
         defer { activity = (try? store?.activity()) ?? [] }
         do {
             for plan in plans {
@@ -139,9 +226,26 @@ final class DashboardModel: ObservableObject {
         if isDemo { return .sample }
         guard !ids.isEmpty else { return .blocked("Select at least one item.") }
         let operation = String(UUID().uuidString.prefix(8))
-        try? store?.log("Authorized deleting \(ids.count) item(s) from \(category) in Apple Photos. Disclosure v2. Operation \(operation).")
+        guard Self.recordApproval("Authorized deleting \(ids.count) item(s) from \(category) in Apple Photos. Disclosure v2. Operation \(operation).", store?.log) else {
+            return .blocked(Self.approvalNotSaved)
+        }
         defer { activity = (try? store?.activity()) ?? [] }
         return await delete(ids, bytes: bytes, operation: operation)
+    }
+
+    /// Same words the archive screen uses when it can't record a sign-off.
+    static let approvalNotSaved = "The app could not save your authorization. Try again."
+
+    /// Writes the user's sign-off to the activity log. False when it couldn't be written,
+    /// including when the log isn't open; then nothing may be removed.
+    nonisolated static func recordApproval(_ message: String, _ log: ((String) throws -> Void)?) -> Bool {
+        guard let log else { return false }
+        do {
+            try log(message)
+            return true
+        } catch {
+            return false
+        }
     }
 
     private func blocked(_ operation: String, _ reason: String) -> DuplicateRemovalOutcome {
@@ -173,7 +277,7 @@ final class DashboardModel: ObservableObject {
             } else if let current = snapshot {
                 let updated = current.removing(Set(ids))
                 snapshot = updated
-                try? store?.save(updated)
+                persist(updated)
             }
             return .removed(count: ids.count, bytes: bytes)
         } catch {
@@ -236,14 +340,13 @@ final class DashboardModel: ObservableObject {
             libraryChanged = false
             inventory = counts(for: records)
             duplicateScanStatus = "Scan complete."
-            do {
-                if let store {
-                    try store.save(result)
-                } else {
-                    duplicateScanStatus = "Scan complete. Results are available for this session only."
+            if store != nil {
+                persist(result) { [weak self] in
+                    guard let self, !self.isScanning else { return }
+                    self.duplicateScanStatus = "Scan complete. Results couldn’t be saved and are available for this session only."
                 }
-            } catch {
-                duplicateScanStatus = "Scan complete. Results couldn’t be saved and are available for this session only."
+            } else {
+                duplicateScanStatus = "Scan complete. Results are available for this session only."
             }
             activity = (try? store?.activity()) ?? []
         } catch is CancellationError {
@@ -264,7 +367,7 @@ final class DashboardModel: ObservableObject {
         if !deletedDuringScan.isEmpty, let current = snapshot {
             let updated = current.removing(deletedDuringScan)
             snapshot = updated
-            try? store?.save(updated)
+            persist(updated)
         } else {
             rescue = snapshot.map(RescueSummary.init)
         }

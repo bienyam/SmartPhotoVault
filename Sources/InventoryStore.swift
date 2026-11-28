@@ -41,17 +41,23 @@ final class InventoryStore: @unchecked Sendable {
         return try InventoryStore(url: directory.appendingPathComponent("inventory.sqlite"))
     }
 
+    /// Call off the main thread: a large scan takes a while to encode.
     func save(_ snapshot: ScanSnapshot) throws {
+        // Encoded before taking the lock, so other screens' log writes aren't held up meanwhile.
+        let json = try JSONEncoder().encode(snapshot)
+        let summary = "Scan saved: \(snapshot.assets.count) assets, \(snapshot.verifiedCount) fully hashed, \(snapshot.duplicateGroupCount) duplicate groups."
         lock.lock()
         defer { lock.unlock() }
-        let json = String(decoding: try JSONEncoder().encode(snapshot), as: UTF8.self)
         try execute("BEGIN IMMEDIATE")
         do {
             let statement = try prepare("INSERT OR REPLACE INTO snapshot(id,payload) VALUES(1,?)")
             defer { sqlite3_finalize(statement) }
-            sqlite3_bind_text(statement, 1, json, -1, transient)
-            guard sqlite3_step(statement) == SQLITE_DONE else { throw error() }
-            try log("Scan saved: \(snapshot.assets.count) assets, \(snapshot.verifiedCount) fully hashed, \(snapshot.groups.count) duplicate groups.")
+            // Still stored as TEXT, bound straight from the encoded bytes without another copy.
+            let bound = json.withUnsafeBytes { raw in
+                sqlite3_bind_text(statement, 1, raw.baseAddress?.assumingMemoryBound(to: CChar.self), Int32(raw.count), transient)
+            }
+            guard bound == SQLITE_OK, sqlite3_step(statement) == SQLITE_DONE else { throw error() }
+            try log(summary)
             try execute("COMMIT")
         } catch {
             try? execute("ROLLBACK")
@@ -59,15 +65,23 @@ final class InventoryStore: @unchecked Sendable {
         }
     }
 
+    /// Call off the main thread: a large scan takes a while to decode.
     func load() throws -> ScanSnapshot? {
+        // Decoded after the lock is released, so other screens' log writes aren't held up meanwhile.
+        guard let data = try savedPayload() else { return nil }
+        return try JSONDecoder().decode(ScanSnapshot.self, from: data)
+    }
+
+    /// The stored scan's bytes, copied once.
+    private func savedPayload() throws -> Data? {
         lock.lock()
         defer { lock.unlock() }
         let statement = try prepare("SELECT payload FROM snapshot WHERE id=1")
         defer { sqlite3_finalize(statement) }
         let status = sqlite3_step(statement)
         if status == SQLITE_DONE { return nil }
-        guard status == SQLITE_ROW, let value = sqlite3_column_text(statement, 0) else { throw error() }
-        return try JSONDecoder().decode(ScanSnapshot.self, from: Data(String(cString: value).utf8))
+        guard status == SQLITE_ROW, let value = sqlite3_column_blob(statement, 0) else { throw error() }
+        return Data(bytes: value, count: Int(sqlite3_column_bytes(statement, 0)))
     }
 
     func log(_ message: String) throws {
@@ -126,8 +140,10 @@ final class InventoryStore: @unchecked Sendable {
         while true {
             let status = sqlite3_step(statement)
             if status == SQLITE_DONE { return records }
-            guard status == SQLITE_ROW, let value = sqlite3_column_text(statement, 0) else { throw error() }
-            if let record = try? decoder.decode(ArchivedRecord.self, from: Data(String(cString: value).utf8)) {
+            guard status == SQLITE_ROW else { throw error() }
+            // One copy of the stored bytes. An empty payload has no pointer; it fails to decode and is skipped, as before.
+            let data = sqlite3_column_blob(statement, 0).map { Data(bytes: $0, count: Int(sqlite3_column_bytes(statement, 0))) } ?? Data()
+            if let record = try? decoder.decode(ArchivedRecord.self, from: data) {
                 records.append(record)
             }
         }

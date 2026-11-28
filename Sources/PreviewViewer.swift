@@ -312,7 +312,16 @@ final class PreviewLoader: ObservableObject {
         if let request { PHImageManager.default().cancelImageRequest(request) }
     }
 
-    func load(_ record: AssetRecord) {
+    /// The picture size to ask for: the longer side of the page in pixels, with room to zoom, capped.
+    /// Uses the page's own size and the screen's scale from SwiftUI, not UIScreen.main.
+    static func side(for page: CGSize, scale: CGFloat) -> CGFloat {
+        let longer = max(page.width, page.height)
+        // Before the page has a size, ask for a size that suits a phone.
+        let points = longer > 0 ? longer : 900
+        return min(3_000, points * max(scale, 1) * 1.5)
+    }
+
+    func load(_ record: AssetRecord, side: CGFloat) {
         guard !started else { return }
         started = true
         guard !record.id.hasPrefix("sample-") else {
@@ -326,8 +335,6 @@ final class PreviewLoader: ObservableObject {
             return
         }
         let manager = PHImageManager.default()
-        let scale = UIScreen.main.scale
-        let side = min(3_000, max(UIScreen.main.bounds.width, UIScreen.main.bounds.height) * scale * 1.5)
         let target = CGSize(width: side, height: side)
         let report: (Double) -> Void = { [weak self] value in
             DispatchQueue.main.async { self?.progress = value < 1 ? value : nil }
@@ -394,6 +401,7 @@ struct PreviewPage: View {
     let record: AssetRecord
     let active: Bool
     @StateObject private var loader = PreviewLoader()
+    @Environment(\.displayScale) private var displayScale
 
     private var isVideo: Bool { record.mediaType == PHAssetMediaType.video.rawValue }
     private var spoken: String { "\(isVideo ? "Video" : "Photo"), \(PreviewFacts.date(record))" }
@@ -474,7 +482,13 @@ struct PreviewPage: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear { loader.load(record) }
+        .background {
+            GeometryReader { geo in
+                Color.clear.onAppear {
+                    loader.load(record, side: PreviewLoader.side(for: geo.size, scale: displayScale))
+                }
+            }
+        }
         .onDisappear { loader.pause() }
         .onChange(of: active) { _, now in
             if !now { loader.pause() }

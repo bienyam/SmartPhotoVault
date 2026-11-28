@@ -44,10 +44,11 @@ struct FreeUpView: View {
                                 whatsUsingLink(storage)
                             }
                         }
-                        if model.isScanning {
-                            scanning
-                        } else if model.rescue == nil {
-                            start
+                        switch model.freeUpStart {
+                        case .scanning: scanning
+                        case .loadingSaved: loadingSaved
+                        case .empty: start
+                        case .results: EmptyView()
                         }
                         problems
                         if let rescue = model.rescue {
@@ -109,6 +110,17 @@ struct FreeUpView: View {
             .onChange(of: insights.revision) { Task { await makeSets() } }
             .onChange(of: pro.unlocked) { _, unlocked in
                 if unlocked, let rescue = model.rescue { sorter.start(rescue.screenshots.items.map(\.id)) }
+                // The totals and the check-in numbers follow the plan.
+                if let rescue = model.rescue, !model.isDemo {
+                    CheckInCenter.shared.noteCheck(groups: smart, rescue: rescue, allowsSmartPicks: pro.allows(.smartPicks))
+                }
+                Task { await remakeTotals() }
+            }
+            .onChange(of: pro.grandfathered) {
+                if let rescue = model.rescue, !model.isDemo {
+                    CheckInCenter.shared.noteCheck(groups: smart, rescue: rescue, allowsSmartPicks: pro.allows(.smartPicks))
+                }
+                Task { await remakeTotals() }
             }
         }
     }
@@ -170,6 +182,17 @@ struct FreeUpView: View {
         .homeCard()
     }
 
+    /// While the saved results are read at launch: no empty state, so it never flashes before them.
+    private var loadingSaved: some View {
+        ProgressView()
+            .tint(Brand.primary)
+            .controlSize(.large)
+            .frame(maxWidth: .infinity, minHeight: 120)
+            .accessibilityLabel("Looking")
+            .accessibilityIdentifier("free-up-loading")
+            .homeCard()
+    }
+
     private var scanning: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Looking through your photos").font(.title3.bold()).foregroundStyle(Brand.ink)
@@ -199,6 +222,9 @@ struct FreeUpView: View {
     private var problems: some View {
         if let error = model.errorMessage {
             Text(error).font(.subheadline).foregroundStyle(Brand.caution)
+        }
+        if LimitedAccessBanner.shows(authorization: model.authorization, isDemo: model.isDemo) {
+            LimitedAccessBanner()
         }
         if model.authorization == .denied || model.authorization == .restricted {
             VStack(alignment: .leading, spacing: 8) {
@@ -480,7 +506,9 @@ struct FreeUpView: View {
         }.value
         smart = made
         // Check-ins compare against the latest totals, including in the background.
-        if let rescue = model.rescue { CheckInCenter.shared.noteCheck(groups: made, rescue: rescue) }
+        if let rescue = model.rescue {
+            CheckInCenter.shared.noteCheck(groups: made, rescue: rescue, allowsSmartPicks: pro.allows(.smartPicks))
+        }
         await remakeTotals()
     }
 
@@ -496,7 +524,9 @@ struct FreeUpView: View {
         guard !model.isDemo, let snapshot = model.rescue?.snapshot else { return }
         let found = insights.insights
         sets = await Task.detached(priority: .utility) {
-            CleanupGrouper.keepSets(in: snapshot.assets, insights: found, facts: AssetFacts.all(for: snapshot.assets))
+            // Best shots offers items for deletion, so bursts stay out (A4).
+            CleanupGrouper.keepSets(in: snapshot.assets, insights: found, facts: AssetFacts.all(for: snapshot.assets),
+                                    includeBursts: false)
         }.value
         await remakeTotals()
     }
@@ -508,8 +538,11 @@ struct FreeUpView: View {
             return
         }
         let groups = smart, places = archived, kept = sets
+        // On a free plan the total is what Free can clear; Pro-only finds are counted apart.
+        let picks = pro.allows(.smartPicks), smartPro = pro.allows(.smartPro)
         totals = await Task.detached(priority: .utility) {
-            TidyTotals.make(rescue: rescue, smart: groups, archived: places, sets: kept)
+            TidyTotals.make(rescue: rescue, smart: groups, archived: places, sets: kept,
+                            allowsSmartPicks: picks, allowsSmartPro: smartPro)
         }.value
     }
 
@@ -561,8 +594,15 @@ struct FreeUpView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                if let extra = totals?.proOnly, extra > 0 {
+                    // Pro-only finds stay out of the estimate above; they're listed with the PRO badge.
+                    Text("+ \(extra.fileSize) more with TidyAway Pro")
+                        .font(.footnote).foregroundStyle(Brand.muted)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityIdentifier("hero-pro-extra")
+                }
                 review(rescue)
-            } else if !model.isScanning {
+            } else if model.freeUpStart == .empty {
                 Button("Free up space") { model.startDuplicateScan() }
                     .buttonStyle(ArchiveButtonStyle())
                     .accessibilityHint("Checks photos on this \(Device.name)")
@@ -697,18 +737,19 @@ struct PhoneBreakdown: View {
             Text("What's using your \(Device.name)").font(.headline)
             GeometryReader { proxy in
                 HStack(spacing: 2) {
-                    Rectangle().fill(Brand.primary)
+                    // The same colors as the hero bar and iPhone Storage in Settings.
+                    Rectangle().fill(Brand.storagePhotos)
                         .frame(width: proxy.size.width * fraction(photos))
-                    Rectangle().fill(Color.gray.opacity(0.7))
+                    Rectangle().fill(Brand.storageRest)
                         .frame(width: proxy.size.width * fraction(rest))
-                    Rectangle().fill(Color.secondary.opacity(0.2))
+                    Rectangle().fill(Brand.storageFree)
                 }
                 .clipShape(Capsule())
             }
             .frame(height: 12)
-            legend(Brand.primary, "Photos & videos", isDemo ? "—" : photos.fileSize)
-            legend(Color.gray.opacity(0.7), "Apps, System Data & other", isDemo ? "—" : rest.fileSize)
-            legend(Color.secondary.opacity(0.2), "Free", storage.available.fileSize)
+            legend(Brand.storagePhotos, "Photos & videos", isDemo ? "—" : photos.fileSize)
+            legend(Brand.storageRest, "Apps, System Data & other", isDemo ? "—" : rest.fileSize)
+            legend(Brand.storageFree, "Free", storage.available.fileSize)
             if mostlyNotPhotos {
                 NavigationLink { StorageExplainer() } label: {
                     HStack {
@@ -740,11 +781,32 @@ struct PhoneBreakdown: View {
     private func legend(_ color: Color, _ title: String, _ value: String) -> some View {
         HStack(spacing: 8) {
             Circle().fill(color).frame(width: 10, height: 10)
+                // The empty track needs an edge to show on the card, as in the hero legend.
+                .overlay(Circle().stroke(Brand.storageFreeEdge, lineWidth: color == Brand.storageFree ? 1 : 0))
             Text(title).font(.subheadline)
             Spacer()
             Text(value).font(.subheadline).foregroundStyle(.secondary)
         }
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// The full storage card, opened from the hero card.
+struct WhatsUsingView: View {
+    let storage: DeviceStorage
+    let photosBytes: Int64
+    let isDemo: Bool
+
+    var body: some View {
+        ScrollView {
+            PhoneBreakdown(storage: storage, photosBytes: photosBytes, isDemo: isDemo)
+                .frame(maxWidth: 520)
+                .padding(20)
+                .frame(maxWidth: .infinity)
+        }
+        .background(Brand.background)
+        .navigationTitle("What's using it")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 

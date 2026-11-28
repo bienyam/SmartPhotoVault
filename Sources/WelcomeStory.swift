@@ -17,7 +17,7 @@ struct WelcomeStoryView: View {
 
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            Brand.welcomeStage.ignoresSafeArea()
             Group {
                 switch beat {
                 case 0: MomentBeat(animate: !reduceMotion).id(0)
@@ -35,13 +35,19 @@ struct WelcomeStoryView: View {
                 VStack {
                     HStack {
                         Spacer()
-                        Button("Skip") { show(Self.lastBeat) }
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 7)
-                            .background(.black.opacity(0.35), in: Capsule())
-                            .accessibilityIdentifier("welcome-skip")
+                        Button { show(Self.lastBeat) } label: {
+                            Text("Skip")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 7)
+                                .background(.black.opacity(0.35), in: Capsule())
+                                // The capsule looks the same; the tap area is at least 44 points.
+                                .frame(minWidth: 44, minHeight: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("welcome-skip")
                     }
                     Spacer()
                     StoryDots(current: beat, count: Self.lastBeat + 1)
@@ -162,7 +168,7 @@ private struct ScanBeat: View {
             Circle().stroke(.white.opacity(0.14), lineWidth: 16)
             Circle()
                 .trim(from: 0, to: fill)
-                .stroke(LinearGradient(colors: [Brand.primary, Color(red: 1, green: 0.84, blue: 0.74)],
+                .stroke(LinearGradient(colors: [Brand.primary, Brand.welcomePeach],
                                        startPoint: .leading, endPoint: .trailing),
                         style: StrokeStyle(lineWidth: 16, lineCap: .round))
                 .rotationEffect(.degrees(-90))
@@ -173,7 +179,7 @@ private struct ScanBeat: View {
                 Text("EXAMPLE SCAN")
                     .font(.caption.weight(.semibold))
                     .tracking(1)
-                    .foregroundStyle(Color(red: 1, green: 0.84, blue: 0.74))
+                    .foregroundStyle(Brand.welcomePeach)
             }
             .foregroundStyle(.white)
         }
@@ -240,9 +246,9 @@ private struct PayoffBeat: View {
                             Text("Get started")
                                 .font(.headline)
                                 .frame(maxWidth: .infinity, minHeight: 56)
-                                .foregroundStyle(Color.white)
+                                .foregroundStyle(Brand.onAccent)
                                 // Deep orange in both modes: white on the lighter dark-mode orange is hard to read.
-                                .background(Color(red: 0.784, green: 0.314, blue: 0.122), in: RoundedRectangle(cornerRadius: 16))
+                                .background(Brand.welcomeAction, in: RoundedRectangle(cornerRadius: 16))
                                 .shadow(color: Brand.primary.opacity(glow ? 0.85 : 0.45), radius: glow ? 20 : 12, y: 8)
                         }
                         Text("TidyAway asks for Photos access only when you start a scan, and it only reads at that stage.")
@@ -272,7 +278,7 @@ private struct PayoffBeat: View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Image(systemName: "checkmark.circle.fill")
                 .font(.subheadline.weight(.bold))
-                .foregroundStyle(Color(red: 0.24, green: 0.86, blue: 0.59))
+                .foregroundStyle(Brand.welcomeTick)
                 .accessibilityHidden(true)
             Text(text).font(.subheadline)
                 .fixedSize(horizontal: false, vertical: true)
@@ -358,7 +364,7 @@ private struct StoryCopy: View {
             Text(kicker.uppercased())
                 .font(.caption.weight(.semibold))
                 .tracking(1)
-                .foregroundStyle(Color(red: 1, green: 0.84, blue: 0.74))
+                .foregroundStyle(Brand.welcomePeach)
             Text(headline)
                 .font(.system(size: 34, weight: .heavy))
                 .shadow(color: .black.opacity(0.35), radius: 12)
@@ -381,10 +387,10 @@ private struct FindChip: View {
             Circle().fill(Brand.primary).frame(width: 7, height: 7)
             Text(text).font(.footnote.weight(.bold))
         }
-        .foregroundStyle(Color(red: 0.48, green: 0.18, blue: 0.06))
+        .foregroundStyle(Brand.chipInk)
         .padding(.horizontal, 11)
         .padding(.vertical, 7)
-        .background(Color(red: 1, green: 0.97, blue: 0.93), in: Capsule())
+        .background(Brand.chipCream, in: Capsule())
         .shadow(color: .black.opacity(0.25), radius: 10, y: 6)
     }
 }

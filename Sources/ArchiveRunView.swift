@@ -50,6 +50,8 @@ final class ArchiveRun: ObservableObject {
         case CloudError.notConfirmedYet: return "Not confirmed by the service yet"
         case CloudError.server(let name, _): return "\(name) didn't accept them"
         case GoogleDriveError.server: return "Google Drive didn't accept them"
+        case GoogleDriveError.notConnected: return "Google Drive needs you to sign in again"
+        case CloudError.notConnected(let name): return "\(name) needs you to sign in again"
         case ArchiveError.editedDuringCopy: return "Edited while it was being copied"
         case is OverFreeArchive: return "Over the free 5 GB of archiving"
         case ArchiveError.wifi: return "Wi-Fi to the file server dropped"
@@ -96,24 +98,53 @@ struct ArchiveOutcome {
 struct ArchiveProgressView: View {
     @ObservedObject var run: ArchiveRun
     let usesDrive: Bool
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private var fraction: Double { run.total > 0 ? Double(run.tried) / Double(run.total) : 0 }
+    /// The ring gives up room to the text at the largest text sizes.
+    private var ring: CGFloat { typeSize.isAccessibilitySize ? 150 : 240 }
 
     var body: some View {
+        // Scrolls at large text sizes, and Stop stays pinned at the bottom where it can always be reached.
+        GeometryReader { proxy in
+            ScrollView {
+                details
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 20)
+                    .frame(maxWidth: 520)
+                    .frame(maxWidth: .infinity, minHeight: proxy.size.height)
+            }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            Button(run.stopping ? "Stopping after this item…" : "Stop") { run.stopping = true }
+                .buttonStyle(ArchiveOutlineStyle())
+                .disabled(run.stopping)
+                .accessibilityIdentifier("archive-stop")
+                .frame(maxWidth: 520)
+                .padding(.horizontal, 24)
+                .padding(.top, 8)
+                .padding(.bottom, 24)
+                .frame(maxWidth: .infinity)
+                .background(Brand.background)
+        }
+        .background(Brand.background)
+        .interactiveDismissDisabled()
+    }
+
+    private var details: some View {
         VStack(spacing: 14) {
-            Spacer(minLength: 20)
             ZStack {
-                Circle().stroke(Color.gray.opacity(0.28), lineWidth: 18)
+                Circle().stroke(Brand.ringTrack, lineWidth: 18)
                 Circle()
                     .trim(from: 0, to: max(0.01, fraction))
-                    .stroke(Color(red: 1, green: 0.541, blue: 0.361), style: StrokeStyle(lineWidth: 18, lineCap: .round))
+                    .stroke(Brand.tangerineLight, style: StrokeStyle(lineWidth: 18, lineCap: .round))
                     .rotationEffect(.degrees(-90))
                 AssetCover(assetID: run.currentID ?? "sample-", side: 500)
                     .id(run.currentID)
-                    .frame(width: 170, height: 170)
+                    .frame(width: ring * 170 / 240, height: ring * 170 / 240)
                     .clipShape(Circle())
             }
-            .frame(width: 240, height: 240)
+            .frame(width: ring, height: ring)
             .accessibilityHidden(true)
             Text("\(run.tried.formatted()) of \(run.total.formatted())")
                 .font(.largeTitle.bold()).monospacedDigit()
@@ -167,17 +198,7 @@ struct ArchiveProgressView: View {
             Text(usesDrive ? "Keep TidyAway open and stay online." : "Keep TidyAway open. Keep your drive plugged in or your server in reach.")
                 .font(.subheadline).foregroundStyle(ArchiveStyle.muted)
                 .multilineTextAlignment(.center)
-            Spacer(minLength: 20)
-            Button(run.stopping ? "Stopping after this item…" : "Stop") { run.stopping = true }
-                .buttonStyle(ArchiveOutlineStyle())
-                .disabled(run.stopping)
-                .accessibilityIdentifier("archive-stop")
         }
-        .padding(24)
-        .frame(maxWidth: 520)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Brand.background)
-        .interactiveDismissDisabled()
     }
 }
 
@@ -201,15 +222,15 @@ struct ArchiveDoneView: View {
 
     var body: some View {
         ZStack {
-            (worked ? ArchiveStyle.done : Color(red: 0.45, green: 0.28, blue: 0)).ignoresSafeArea()
+            (worked ? ArchiveStyle.done : Brand.failure).ignoresSafeArea()
             if worked && !reduceMotion { ConfettiBurst().ignoresSafeArea().allowsHitTesting(false) }
             ScrollView {
                 VStack(spacing: 14) {
                     Image(systemName: worked ? "checkmark" : "exclamationmark")
                         .font(.system(size: 64, weight: .black))
-                        .foregroundStyle(worked ? ArchiveStyle.done : Color(red: 0.45, green: 0.28, blue: 0))
+                        .foregroundStyle(worked ? ArchiveStyle.done : Brand.failure)
                         .frame(width: 132, height: 132)
-                        .background(Color.white, in: Circle())
+                        .background(Brand.onAccent, in: Circle())
                         .scaleEffect(shown ? 1 : 0.4)
                         .padding(.top, 36)
                         .accessibilityHidden(true)

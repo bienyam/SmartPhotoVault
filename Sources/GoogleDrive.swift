@@ -181,12 +181,29 @@ final class GoogleDriveAccount: NSObject, ObservableObject, ASWebAuthenticationP
     func accessToken() async throws -> String {
         guard var current = tokens else { throw GoogleDriveError.notConnected }
         if current.expiry.timeIntervalSinceNow > 120 { return current.accessToken }
-        let refreshed = try await GoogleTokenService.refresh(current.refreshToken)
+        let refreshed: (accessToken: String, expiry: Date)
+        do {
+            refreshed = try await GoogleTokenService.refresh(current.refreshToken)
+        } catch GoogleTokenError.signInRejected {
+            // Google no longer accepts this sign-in (revoked, expired or password changed). Forget it,
+            // so the screens show Connect Google Drive again instead of failing every item.
+            forgetRejectedSignIn()
+            throw GoogleDriveError.notConnected
+        }
         current.accessToken = refreshed.accessToken
         current.expiry = refreshed.expiry
         tokens = current
         GoogleKeychain.save(current)
         return current.accessToken
+    }
+
+    /// Archived files stay in Google Drive; only this iPhone's copy of the sign-in is removed.
+    private func forgetRejectedSignIn() {
+        guard tokens != nil else { return }
+        GoogleKeychain.delete()
+        tokens = nil
+        email = nil
+        message = GoogleDriveError.notConnected.errorDescription
     }
 
     private func signIn(url: URL) async throws -> URL {
@@ -209,6 +226,12 @@ final class GoogleDriveAccount: NSObject, ObservableObject, ASWebAuthenticationP
                 .flatMap(\.windows).first { $0.isKeyWindow } ?? ASPresentationAnchor()
         }
     }
+}
+
+/// Google (or OneDrive or Dropbox) turned the saved sign-in down for good, so asking again won't help
+/// until the person reconnects.
+enum GoogleTokenError: Error {
+    case signInRejected
 }
 
 enum GoogleTokenService {
@@ -256,8 +279,20 @@ enum GoogleTokenService {
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.httpBody = formBody(fields)
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw GoogleDriveError.signInFailed }
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard status == 200 else {
+            if isRejectedSignIn(status: status, body: data) { throw GoogleTokenError.signInRejected }
+            throw GoogleDriveError.signInFailed
+        }
         return try JSONDecoder().decode(TokenResponse.self, from: data)
+    }
+
+    /// Google, Microsoft and Dropbox answer `invalid_grant` when a refresh token was revoked or expired. Other errors,
+    /// such as a server problem, may pass, so the sign-in is kept for those.
+    static func isRejectedSignIn(status: Int, body: Data) -> Bool {
+        struct Failure: Decodable { let error: String }
+        guard (400...401).contains(status), let failure = try? JSONDecoder().decode(Failure.self, from: body) else { return false }
+        return failure.error == "invalid_grant"
     }
 }
 
