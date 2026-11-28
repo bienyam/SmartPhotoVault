@@ -40,10 +40,10 @@ The Storage Score and the storage bar are worked out on your iPhone from its fre
 
 ## Purchases
 
-TidyAway Pro is sold through Apple. Apple handles payment; the app only learns whether Pro is active.
+TidyAway Pro is sold through Apple. Apple handles payment; the app only learns whether Pro is active. If you start a free trial, the app can set one reminder on your iPhone two days before the trial ends, if you allow notifications. It's a notification on your iPhone; nothing is sent anywhere.
 
 ## Questions
 
-For privacy questions, use the [TidyAway support page](https://github.com/bienyam/SmartPhotoVault/issues). Issues are public, so leave out personal photos and library information.
+For privacy questions, email [hello@tidyaway.app](mailto:hello@tidyaway.app) or use the [TidyAway support page](https://tidyaway.app/support). If you report a problem on the public issue list linked from that page, leave out personal photos and library information.
 
-Last updated: November 26, 2026.
+Last updated: November 27, 2026.

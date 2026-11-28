@@ -35,6 +35,14 @@ final class ProStore: ObservableObject {
     @Published var notice: String?
     /// True in TestFlight builds while `TesterAccess` is on: every Pro feature works, nothing is bought.
     @Published private(set) var testerAccess = false
+    /// True while a monthly or yearly subscription is active, whatever the plan. Buying lifetime
+    /// doesn't cancel a subscription, so "Manage subscription" stays reachable until it ends.
+    @Published private(set) var hasActiveSubscription = false
+    /// The end of a free trial that will turn into a paid plan, from Apple's transaction. Nil otherwise.
+    @Published private(set) var trialEnds: Date?
+    /// True while the reminder two days before the trial ends is pending. When it isn't (notifications
+    /// are off), the Pro section shows the end date instead.
+    @Published private(set) var trialReminderSet = false
 
     var unlocked: Bool { plan != .none || testerAccess }
     /// What the screens show. Testers are shown as Pro, the same as a paying customer.
@@ -45,6 +53,15 @@ final class ProStore: ObservableObject {
     private var productLoad: Task<Void, Never>?
     /// Identifies the queued buy, so one cancelled with its screen is never carried out later.
     private var queuedBuy: UUID?
+    /// When a purchase last unlocked Pro here. A re-check in the moments after never takes it away,
+    /// since Apple's entitlement list can lag a just-finished purchase.
+    private var purchasedAt: Date?
+    /// When a subscription was last bought here, for the same reason.
+    private var subscribedAt: Date?
+    /// UI tests started with `--pro` keep that plan; nothing re-checks it.
+    private var pinned = false
+    /// How long a just-bought plan is kept even if a re-check doesn't list it yet.
+    static let purchaseGrace: TimeInterval = 30
 
     /// The one question every screen asks before opening a Pro feature.
     func allows(_ feature: ProFeature) -> Bool {
@@ -59,6 +76,7 @@ final class ProStore: ObservableObject {
         if ProcessInfo.processInfo.arguments.contains("--pro") {
             plan = .lifetime
             checking = false
+            pinned = true
             return
         }
         #endif
@@ -84,27 +102,93 @@ final class ProStore: ObservableObject {
         checking = true
         // Prices are fetched alongside the purchase check, not after it, so the buttons are ready sooner.
         let prices = Task { await loadProducts() }
-        // Tester builds (TESTER_ACCESS, never the App Review build) unlock Pro for everyone except a
-        // real App Store customer. If Apple's record can't be read, a tester build still unlocks.
-        if TesterAccess.enabled { testerAccess = !(await Self.isAppStoreCustomer()) }
+        // Tester builds (TESTER_ACCESS, never the App Review build) unlock Pro only where Apple's record
+        // says this copy runs in the test environment (TestFlight or Xcode). If the record can't be
+        // read, nothing unlocks; the check is tried again each time the app comes back to the screen.
+        if TesterAccess.enabled { testerAccess = await Self.isTestEnvironment() }
         await refresh()
         checking = false
         await prices.value
     }
 
-    /// Lifetime wins over a subscription. A subscription counts only while it hasn't expired or been revoked.
+    /// Checks again each time the app comes back to the screen. An expired or renewed subscription
+    /// doesn't always send an update while the app stays in memory. Works offline from Apple's cached record.
+    func refreshOnActive() async {
+        // Skipped while the first check, a purchase or a restore is running: each sets the plan itself.
+        guard !pinned, !checking, !busy else { return }
+        if TesterAccess.enabled, !testerAccess { testerAccess = await Self.isTestEnvironment() }
+        await refresh()
+    }
+
+    /// Apple's list of what this account is entitled to right now. It already leaves out expired
+    /// subscriptions and keeps one in Apple's billing grace period, so no expiry date is checked here.
     func refresh() async {
-        var found = Plan.none
+        var entitled: [String] = []
+        var subscription: StoreKit.Transaction?
         for await result in StoreKit.Transaction.currentEntitlements {
             guard case .verified(let transaction) = result, transaction.revocationDate == nil else { continue }
-            if transaction.productID == Self.lifetimeID {
-                found = .lifetime
-            } else if Self.subscriptionIDs.contains(transaction.productID), found == .none,
-                      (transaction.expirationDate ?? .distantFuture) > Date() {
-                found = transaction.productID == Self.yearlyID ? .yearly : .monthly
-            }
+            entitled.append(transaction.productID)
+            if subscription == nil, Self.subscriptionIDs.contains(transaction.productID) { subscription = transaction }
         }
-        plan = found
+        let now = Date()
+        plan = Self.plan(refreshed: Self.plan(entitled: entitled), current: plan, purchasedAt: purchasedAt, now: now)
+        hasActiveSubscription = Self.hasSubscription(entitled: entitled, subscribedAt: subscribedAt, now: now)
+        // Clears the trial reminder once the trial is cancelled, converts or ends. Never asks for permission.
+        // Skipped just after a purchase while Apple's list may not show the new subscription yet.
+        if subscription != nil || subscribedAt.map({ now.timeIntervalSince($0) >= Self.purchaseGrace }) ?? true {
+            await syncTrialReminder(from: subscription, mayAsk: false)
+        }
+    }
+
+    /// The free trial a subscription transaction is in, read from Apple's transaction (end date) and
+    /// renewal info (whether it will renew). Nil for a paid period or a paid introductory offer.
+    private static func freeTrial(from transaction: StoreKit.Transaction?) async -> TrialReminder.Trial? {
+        guard let transaction, transaction.offerType == .introductory,
+              let ends = transaction.expirationDate else { return nil }
+        if #available(iOS 17.2, *), let mode = transaction.offer?.paymentMode, mode != .freeTrial { return nil }
+        var willRenew = true
+        if let status = await transaction.subscriptionStatus, case .verified(let renewal) = status.renewalInfo {
+            willRenew = renewal.willAutoRenew
+        }
+        return TrialReminder.Trial(ends: ends, willRenew: willRenew)
+    }
+
+    /// Plans or clears the trial-end reminder, and what the Pro section shows about the trial.
+    private func syncTrialReminder(from transaction: StoreKit.Transaction?, mayAsk: Bool) async {
+        let trial = await Self.freeTrial(from: transaction)
+        trialEnds = trial?.willRenew == true ? trial?.ends : nil
+        trialReminderSet = await TrialReminder.sync(trial, mayAsk: mayAsk)
+    }
+
+    /// Whether a subscription is active: Apple lists one, or one was bought here in the last
+    /// `purchaseGrace` seconds and the list hasn't caught up yet. Independent of lifetime.
+    static func hasSubscription(entitled productIDs: [String], subscribedAt: Date?, now: Date) -> Bool {
+        if productIDs.contains(where: { subscriptionIDs.contains($0) }) { return true }
+        guard let subscribedAt else { return false }
+        return now.timeIntervalSince(subscribedAt) < purchaseGrace
+    }
+
+    /// The plan from the products Apple lists as entitled, in the order listed. Lifetime wins over a subscription.
+    static func plan(entitled productIDs: [String]) -> Plan {
+        if productIDs.contains(lifetimeID) { return .lifetime }
+        guard let subscription = productIDs.first(where: { subscriptionIDs.contains($0) }) else { return .none }
+        return subscription == yearlyID ? .yearly : .monthly
+    }
+
+    /// What a re-check leaves in place. A plan bought in the last `purchaseGrace` seconds is never
+    /// lowered by a re-check that doesn't list it yet; otherwise the re-check is the answer.
+    static func plan(refreshed found: Plan, current: Plan, purchasedAt: Date?, now: Date) -> Plan {
+        guard let purchasedAt, now.timeIntervalSince(purchasedAt) < purchaseGrace,
+              rank(found) < rank(current) else { return found }
+        return current
+    }
+
+    private static func rank(_ plan: Plan) -> Int {
+        switch plan {
+        case .none: 0
+        case .monthly, .yearly: 1
+        case .lifetime: 2
+        }
     }
 
     /// Fetches the prices once, however many screens ask at the same time.
@@ -184,9 +268,18 @@ final class ProStore: ObservableObject {
                 // Unlock from the verified transaction itself; don't wait for entitlements to catch up.
                 if transaction.revocationDate == nil {
                     plan = Self.plan(after: transaction.productID, current: plan)
+                    purchasedAt = Date()
+                    if Self.subscriptionIDs.contains(transaction.productID) {
+                        subscribedAt = purchasedAt
+                        hasActiveSubscription = true
+                    }
                     trialEligible = false
                 }
                 await transaction.finish()
+                // A purchase that starts a free trial is the one moment notification permission is asked for.
+                if Self.subscriptionIDs.contains(transaction.productID), transaction.revocationDate == nil {
+                    await syncTrialReminder(from: transaction, mayAsk: true)
+                }
             case .success(.unverified):
                 notice = "The purchase could not be verified."
             case .pending:
@@ -215,13 +308,20 @@ final class ProStore: ObservableObject {
         }
     }
 
-    /// True only when Apple's record says this copy came from the App Store itself.
-    private static func isAppStoreCustomer() async -> Bool {
-        guard let app = try? await AppTransaction.shared else { return false }
+    /// True only when Apple's record can be read and says this copy runs in the test environment.
+    /// An unreadable record counts as not a test copy, so a tester build never unlocks by accident.
+    private static func isTestEnvironment() async -> Bool {
+        guard let app = try? await AppTransaction.shared else { return testerUnlocks(in: nil) }
         switch app {
         case .verified(let transaction), .unverified(let transaction, _):
-            return transaction.environment == .production
+            return testerUnlocks(in: transaction.environment)
         }
+    }
+
+    /// Tester access unlocks in the sandbox (TestFlight) and in Xcode, never in production or when
+    /// Apple's record is missing (nil).
+    static func testerUnlocks(in environment: AppStore.Environment?) -> Bool {
+        environment == .sandbox || environment == .xcode
     }
 
     /// The plan a verified purchase leads to. Lifetime is never downgraded by a subscription.
@@ -286,9 +386,15 @@ struct ProPurchaseControls: View {
     var part = Part.all
     @EnvironmentObject private var pro: ProStore
     @Environment(\.openURL) private var openURL
+    /// "Switch to lifetime" asks first: buying lifetime doesn't cancel the subscription.
+    @State private var confirmLifetime = false
+    /// After lifetime is bought while a subscription is still active, offers to open Manage subscription.
+    @State private var offerCancel = false
+    /// Apple's own Manage subscription sheet, shown over the current screen.
+    @State private var showManage = false
 
     static let termsURL = URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!
-    static let privacyURL = URL(string: "https://github.com/bienyam/SmartPhotoVault/blob/main/PRIVACY.md")!
+    static let privacyURL = SupportLinks.privacy
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -296,6 +402,50 @@ struct ProPurchaseControls: View {
             if part != .plans, pro.plan == .none { terms }
         }
         .buttonStyle(.borderless)
+        .manageSubscriptionsSheet(isPresented: $showManage)
+        .alert("Switch to lifetime?", isPresented: $confirmLifetime) {
+            if let lifetime = pro.lifetime {
+                Button("Buy lifetime for \(lifetime.displayPrice)") { buyLifetime(lifetime) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(Self.switchWarning)
+        }
+        .alert("Lifetime is unlocked", isPresented: $offerCancel) {
+            Button("Manage subscription") { showManage = true }
+            Button("Not now", role: .cancel) {}
+        } message: {
+            Text(Self.cancelReminder)
+        }
+    }
+
+    /// Shown before "Switch to lifetime" buys anything.
+    static let switchWarning = "Buying lifetime doesn't cancel your subscription. It keeps renewing until you cancel it: tap Manage subscription here, or go to Settings › your name › Subscriptions."
+    /// Shown after lifetime is bought while a subscription is still active.
+    static let cancelReminder = "Your subscription is still active and renews until you cancel it. Open Manage subscription to cancel it now?"
+    /// Under "Pro is unlocked." while a lifetime unlock and a subscription are both active.
+    static let stillSubscribed = "Your subscription is still active. Lifetime doesn't cancel it; cancel it in Manage subscription or in Settings › your name › Subscriptions."
+
+    private func buyLifetime(_ lifetime: Product) {
+        Task {
+            await pro.purchase(lifetime)
+            if pro.plan == .lifetime, pro.hasActiveSubscription { offerCancel = true }
+        }
+    }
+
+    /// The trial's end date, shown here when no reminder could be set (notifications are off).
+    @ViewBuilder
+    private var trialDate: some View {
+        if let ends = pro.trialEnds, !pro.trialReminderSet {
+            Text(TrialReminder.dateLine(ends: ends))
+                .font(.footnote).foregroundStyle(.secondary)
+                .accessibilityIdentifier("pro-trial-ends")
+        }
+    }
+
+    private var manageButton: some View {
+        Button("Manage subscription") { showManage = true }
+            .accessibilityIdentifier("pro-manage")
     }
 
     /// The plan buttons, or what is already unlocked, with the App Store's progress and notices.
@@ -312,19 +462,22 @@ struct ProPurchaseControls: View {
             Label("Pro is unlocked.", systemImage: "checkmark.seal.fill")
                 .foregroundStyle(Brand.safe)
                 .accessibilityIdentifier("pro-unlocked")
+            // Lifetime doesn't end a subscription bought before it, so its controls stay until it ends.
+            if pro.hasActiveSubscription {
+                Text(Self.stillSubscribed)
+                    .font(.footnote).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("pro-still-subscribed")
+                trialDate
+                manageButton
+            }
         case .monthly, .yearly:
             Label(pro.plan == .yearly ? "Pro is unlocked. Yearly plan." : "Pro is unlocked. Monthly plan.", systemImage: "checkmark.seal.fill")
                 .foregroundStyle(Brand.safe)
                 .accessibilityIdentifier("pro-unlocked")
-            Button("Manage subscription") {
-                Task {
-                    if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
-                        try? await AppStore.showManageSubscriptions(in: scene)
-                    }
-                }
-            }
+            trialDate
+            manageButton
             if let lifetime = pro.lifetime {
-                Button("Switch to lifetime for \(lifetime.displayPrice)") { Task { await pro.purchase(lifetime) } }
+                Button("Switch to lifetime for \(lifetime.displayPrice)") { confirmLifetime = true }
                     .disabled(pro.busy)
             }
         case .none:

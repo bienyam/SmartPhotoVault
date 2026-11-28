@@ -9,6 +9,7 @@ struct SmartPhotoVaultApp: App {
     private let fast = LaunchFlags.has("--ui-fast")
     /// Same as iPhone, Light or Dark, chosen under More. Applied to every screen.
     @AppStorage(AppearanceStore.key) private var appearance = AppearanceChoice.system.rawValue
+    @Environment(\.scenePhase) private var scenePhase
 
     private var look: AppearanceChoice { AppearanceChoice(rawValue: appearance) ?? .system }
 
@@ -18,6 +19,9 @@ struct SmartPhotoVaultApp: App {
         if fast { UIView.setAnimationsEnabled(false) }
         // Background check-ins must be registered before launch finishes.
         CheckInBackground.register()
+        // The notification delegate must be in place before launch finishes too, so tapping a
+        // check-in while the app is closed still opens its report. Skipped with sample data.
+        CheckInCenter.shared.start()
     }
 
     var body: some Scene {
@@ -28,6 +32,11 @@ struct SmartPhotoVaultApp: App {
                 .preferredColorScheme(look.colorScheme)
                 .onAppear { AppearanceStore.apply(look) }
                 .onChange(of: appearance) { AppearanceStore.apply(look) }
+                // Pro is checked again each time the app comes back, so an expired subscription
+                // doesn't stay unlocked until the app is restarted.
+                .onChange(of: scenePhase) { _, phase in
+                    if phase == .active { Task { await pro.refreshOnActive() } }
+                }
         }
     }
 }

@@ -75,6 +75,20 @@ final class CheckInTests: XCTestCase {
         XCTAssertFalse(CheckInFrequency.monthly.needsPro)
     }
 
+    /// After Pro lapses the Check-ins screen shows what runs (monthly, on the saved day of the month),
+    /// while the saved Pro choice stays put for when Pro comes back.
+    func testLapsedProShowsMonthlyAndKeepsTheSavedChoice() {
+        var settings = CheckInSettings()
+        settings.frequency = .weekly
+        settings.dayOfMonth = 15
+        let shown = settings.effective(pro: false)
+        XCTAssertEqual(shown.frequency, .monthly)
+        XCTAssertEqual(shown.dayOfMonth, 15)
+        XCTAssertEqual(CheckInPlan.components(for: shown)?.day, 15)
+        XCTAssertEqual(settings.frequency, .weekly)
+        XCTAssertEqual(settings.effective(pro: true).frequency, .weekly)
+    }
+
     // MARK: Alerts fire once per crossing
 
     private func reading(free: Int64, junk: Int64? = nil, library: Int? = nil) -> CheckInReading {

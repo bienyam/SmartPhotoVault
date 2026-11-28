@@ -3,8 +3,12 @@ import StoreKit
 
 /// Where TidyAway sends people for help and for a rating.
 enum SupportLinks {
-    /// The support page listed on the App Store.
-    static let support = URL(string: "https://github.com/bienyam/SmartPhotoVault/issues")!
+    /// The support page listed on the App Store. It links on to the public GitHub issues as well.
+    static let support = URL(string: "https://tidyaway.app/support")!
+    /// The privacy policy listed on the App Store, also linked next to every purchase.
+    static let privacy = URL(string: "https://tidyaway.app/privacy")!
+    /// The support email address.
+    static let email = "hello@tidyaway.app"
     /// Opens the App Store's own "Write a Review" page for TidyAway.
     static let review = URL(string: "https://apps.apple.com/app/id6836546403?action=write-review")!
 
@@ -14,6 +18,17 @@ enum SupportLinks {
 
     static var build: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
+    }
+
+    /// A new email to support in the person's mail app, with the details support will ask for.
+    /// Nothing is sent until they send it themselves.
+    static func emailURL(details: String) -> URL {
+        var parts = URLComponents()
+        parts.scheme = "mailto"
+        parts.path = email
+        parts.queryItems = [URLQueryItem(name: "subject", value: "TidyAway support"),
+                            URLQueryItem(name: "body", value: "\n\n\(details)")]
+        return parts.url ?? URL(string: "mailto:\(email)")!
     }
 }
 
@@ -663,11 +678,14 @@ struct ContactView: View {
                     .accessibilityIdentifier("contact-copy")
             }
             Section {
+                Button("Email \(SupportLinks.email)") { openURL(SupportLinks.emailURL(details: details)) }
+                    .accessibilityIdentifier("contact-email")
+                    .accessibilityHint("Opens your mail app")
                 Button("Open the support page") { openURL(SupportLinks.support) }
                     .accessibilityIdentifier("contact-open")
                     .accessibilityHint("Opens in your browser")
             } footer: {
-                Text("The support page opens in your browser. TidyAway sends nothing by itself.")
+                Text("Email opens your mail app and the support page opens in your browser. TidyAway sends nothing by itself.")
             }
         }
         .navigationTitle("Contact us")

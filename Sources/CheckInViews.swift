@@ -17,6 +17,9 @@ struct CheckInsView: View {
         found: "The monthly reminder stays free.", symbol: "bell.badge")
 
     private var settings: CheckInSettings { center.settings }
+    /// The frequency that actually runs. After Pro lapses a saved daily or weekly choice runs monthly;
+    /// the saved choice is kept, so it comes back with Pro.
+    private var runningFrequency: CheckInFrequency { settings.effective(pro: pro.allows(.extraCheckIns)).frequency }
 
     var body: some View {
         List {
@@ -26,10 +29,10 @@ struct CheckInsView: View {
             }
             Section("How often") {
                 frequencyPicker
-                if settings.frequency != .off {
+                if runningFrequency != .off {
                     DatePicker("Time", selection: timeBinding, displayedComponents: .hourAndMinute)
                         .accessibilityIdentifier("checkins-time")
-                    if settings.frequency == .weekly {
+                    if runningFrequency == .weekly {
                         Picker("Day", selection: binding(\.weekday)) {
                             ForEach(1...7, id: \.self) { day in
                                 Text(Calendar.current.weekdaySymbols[day - 1]).tag(day)
@@ -37,7 +40,7 @@ struct CheckInsView: View {
                         }
                         .accessibilityIdentifier("checkins-weekday")
                     }
-                    if settings.frequency == .monthly {
+                    if runningFrequency == .monthly {
                         Picker("Day of the month", selection: binding(\.dayOfMonth)) {
                             ForEach(1...28, id: \.self) { day in Text(ordinal(day)).tag(day) }
                         }
@@ -107,7 +110,7 @@ struct CheckInsView: View {
     private var frequencyPicker: some View {
         HStack(spacing: 4) {
             ForEach(CheckInFrequency.allCases) { frequency in
-                let chosen = settings.frequency == frequency
+                let chosen = runningFrequency == frequency
                 let locked = frequency.needsPro && !pro.allows(.extraCheckIns)
                 Button {
                     if locked { offer = Self.proOffer } else { change { $0.frequency = frequency } }

@@ -101,6 +101,34 @@ jobs:
           echo "iPhoneOS SDK: $sdk_version"
           brew install xcodegen
           xcodegen generate
+      # Labels every run so a TestFlight tester build can't be mistaken for the build to submit.
+      # Only review_build runs are for App Review: tester access off and a build number ending in .9.
+      - name: Label the build (App Review or TestFlight)
+        env:
+          REVIEW_BUILD: ${{ inputs.review_build && 'true' || 'false' }}
+          UPLOAD: ${{ inputs.upload && 'true' || 'false' }}
+        run: |
+          if [[ "$REVIEW_BUILD" == "true" ]]; then
+            if [[ "$BUILD_NUMBER" != *.9 || -n "$TESTER_FLAG" ]]; then
+              echo "::error::An App Review build must end in .9 with tester access off (build $BUILD_NUMBER, flag '${TESTER_FLAG}')"
+              exit 1
+            fi
+            {
+              echo "### App Review build $BUILD_NUMBER"
+              echo "Tester access is off. This is a build to submit for App Review."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo "### TestFlight tester build $BUILD_NUMBER: NOT for App Review"
+              echo "Tester access is compiled in. Submit only a build made with review_build ticked (build number ending in .9)."
+            } >> "$GITHUB_STEP_SUMMARY"
+            if [[ "$UPLOAD" == "true" ]]; then
+              echo "::warning::Build $BUILD_NUMBER is a TestFlight tester build with tester access on. Do not submit it for App Review; submit only a review_build (ending in .9)."
+            fi
+            if [[ "$BUILD_NUMBER" == *.9 ]]; then
+              echo "::warning::Build $BUILD_NUMBER ends in .9 only because this is run attempt 9. It is a tester build, not an App Review build."
+            fi
+          fi
       - name: Build unsigned release archive
         env:
           APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}

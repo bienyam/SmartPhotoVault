@@ -304,6 +304,20 @@ final class DashboardUITests: XCTestCase {
         keepScreenshot(of: app, named: "More tab")
     }
 
+    /// Contact us keeps both routes: email and the support page (which links on to the issue list).
+    func testContactOffersEmailAndTheSupportPage() {
+        let app = launch()
+        app.tabBars.buttons["More"].tap()
+        let contact = app.buttons["more-contact"]
+        reveal(contact, in: app)
+        contact.tap()
+        XCTAssertTrue(app.navigationBars["Contact us"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["contact-email"].waitForExistence(timeout: 5), "Email support is offered.")
+        XCTAssertEqual(app.buttons["contact-email"].label, "Email hello@tidyaway.app")
+        XCTAssertTrue(app.buttons["contact-open"].exists, "The support page is still offered.")
+        XCTAssertTrue(app.buttons["contact-copy"].exists)
+    }
+
     /// Regression guard: every tip that shipped is still there, behind the one Tips row.
     func testEveryTipIsStillUnderTips() {
         let app = launch()
