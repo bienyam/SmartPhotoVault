@@ -36,7 +36,11 @@ struct CheckInSettings: Codable, Equatable {
     var daysBefore = 3
     var tidyAfter = true
 
-    /// What actually runs. Without Pro: the monthly reminder only, nothing else.
+    /// Free (1.0.2): tell me about a new long video, such as one recorded by accident in a pocket.
+    var longVideoOn = false
+    var longVideoMinutes = 10
+
+    /// What actually runs. Without Pro: the monthly reminder and the long-video alert, nothing else.
     func effective(pro: Bool) -> CheckInSettings {
         guard !pro else { return self }
         var free = self
@@ -50,9 +54,10 @@ struct CheckInSettings: Codable, Equatable {
 
     /// True when anything would ever send a notification.
     var wantsNotifications: Bool {
-        frequency != .off || lowSpaceOn || junkGrowthOn || newPhotosOn || calendarOn
+        frequency != .off || lowSpaceOn || junkGrowthOn || newPhotosOn || calendarOn || longVideoOn
     }
 
+    static let longVideoChoices = [5, 10, 15, 30, 60]
     static let lowSpaceChoices = [2, 5, 10, 15, 20, 30, 50]
     static let junkChoices = [1, 2, 3, 5, 10]
     static let newPhotoChoices = [50, 100, 200, 300, 500, 1000]
@@ -125,18 +130,76 @@ struct CheckInAlertState: Codable, Equatable {
     var junkBaseline: Int64?
     /// Library size when the last new-photos alert fired, or at the last check-in.
     var libraryBaseline: Int?
+    /// Long-video alert: only videos recorded after this are looked at. Nil until the alert first runs.
+    var longVideoSince: Date?
+    /// Long videos already told about, newest last, so each is mentioned once.
+    var longVideoTold: [String] = []
+}
+
+/// A video the long-video alert might mention. Read from Photos; nothing here is ever changed.
+struct LongVideoCandidate: Equatable {
+    let id: String
+    let recorded: Date
+    let seconds: TimeInterval
+    /// Nil when Photos doesn't report a size.
+    let bytes: Int64?
+    let favorite: Bool
+}
+
+/// Long videos: tells you once about a new video over the length you chose, like an hour recorded in a pocket.
+/// It only notices and tells; any removal happens on screen with your sign-off and Apple's confirmation.
+enum LongVideoAlerts {
+    static let toldLimit = 200
+
+    static func evaluate(_ videos: [LongVideoCandidate], settings: CheckInSettings, state: CheckInAlertState,
+                         now: Date) -> (alert: CheckInAlert?, state: CheckInAlertState) {
+        var state = state
+        guard settings.longVideoOn else {
+            // Off: start from "now" the next time it's switched on, never from old videos.
+            state.longVideoSince = nil
+            return (nil, state)
+        }
+        guard let since = state.longVideoSince else {
+            state.longVideoSince = now
+            return (nil, state)
+        }
+        let minimum = TimeInterval(max(1, settings.longVideoMinutes) * 60)
+        let told = Set(state.longVideoTold)
+        let fresh = videos
+            .filter { $0.recorded > since && $0.recorded <= now && $0.seconds >= minimum && !$0.favorite && !told.contains($0.id) }
+            .sorted { ($0.recorded, $0.id) < ($1.recorded, $1.id) }
+        state.longVideoSince = now
+        guard !fresh.isEmpty else { return (nil, state) }
+        state.longVideoTold = Array((state.longVideoTold + fresh.map(\.id)).suffix(toldLimit))
+        if fresh.count == 1, let video = fresh.first {
+            return (.longVideo(seconds: video.seconds, bytes: video.bytes), state)
+        }
+        let known = fresh.compactMap(\.bytes)
+        return (.longVideos(count: fresh.count, bytes: known.isEmpty ? nil : known.reduce(0, +)), state)
+    }
+
+    /// "42-minute", "1-hour 5-minute" style length for the notification.
+    static func length(_ seconds: TimeInterval) -> String {
+        let minutes = Int((seconds / 60).rounded())
+        if minutes < 60 { return "\(max(1, minutes))-minute" }
+        let hours = minutes / 60, rest = minutes % 60
+        return rest == 0 ? "\(hours)-hour" : "\(hours)-hour \(rest)-minute"
+    }
 }
 
 enum CheckInAlert: Equatable {
     case lowSpace(free: Int64)
     case junkGrew(junk: Int64, by: Int64)
     case newPhotos(count: Int)
+    case longVideo(seconds: TimeInterval, bytes: Int64?)
+    case longVideos(count: Int, bytes: Int64?)
 
     var identifier: String {
         switch self {
         case .lowSpace: "checkin-alert-low"
         case .junkGrew: "checkin-alert-junk"
         case .newPhotos: "checkin-alert-photos"
+        case .longVideo, .longVideos: "checkin-alert-longvideo"
         }
     }
 
@@ -145,6 +208,8 @@ enum CheckInAlert: Equatable {
         case .lowSpace: "Space alert"
         case .junkGrew: "More to clear"
         case .newPhotos: "Lots of new photos"
+        case .longVideo: "Long video recorded"
+        case .longVideos: "Long videos recorded"
         }
     }
 
@@ -156,6 +221,12 @@ enum CheckInAlert: Equatable {
             "\(junk.fileSize) is ready to clear, up \(by.fileSize) since last time. Nothing is removed until you choose."
         case .newPhotos(let count):
             "\(count.formatted()) new photos and videos since your last check-in. TidyAway can find the look-alikes and blurry ones."
+        case .longVideo(let seconds, let bytes):
+            "A new \(LongVideoAlerts.length(seconds)) video\(bytes.map { " (\($0.fileSize))" } ?? "") is taking up space. "
+                + "If it was recorded by accident, like in a pocket, you can review it in TidyAway. Nothing is removed unless you choose."
+        case .longVideos(let count, let bytes):
+            "\(count) new long videos\(bytes.map { " (\($0.fileSize))" } ?? "") are taking up space. "
+                + "If any were recorded by accident, you can review them in TidyAway. Nothing is removed unless you choose."
         }
     }
 }
@@ -403,5 +474,42 @@ struct CheckInStore {
             return
         }
         defaults.set(data, forKey: key)
+    }
+}
+
+extension CheckInSettings {
+    /// Settings saved by an older version lack the newer keys; those take their defaults instead of
+    /// the whole saved choice being thrown away.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = CheckInSettings()
+        frequency = try c.decodeIfPresent(CheckInFrequency.self, forKey: .frequency) ?? d.frequency
+        hour = try c.decodeIfPresent(Int.self, forKey: .hour) ?? d.hour
+        minute = try c.decodeIfPresent(Int.self, forKey: .minute) ?? d.minute
+        weekday = try c.decodeIfPresent(Int.self, forKey: .weekday) ?? d.weekday
+        dayOfMonth = try c.decodeIfPresent(Int.self, forKey: .dayOfMonth) ?? d.dayOfMonth
+        lowSpaceOn = try c.decodeIfPresent(Bool.self, forKey: .lowSpaceOn) ?? d.lowSpaceOn
+        lowSpaceGB = try c.decodeIfPresent(Int.self, forKey: .lowSpaceGB) ?? d.lowSpaceGB
+        junkGrowthOn = try c.decodeIfPresent(Bool.self, forKey: .junkGrowthOn) ?? d.junkGrowthOn
+        junkGrowthGB = try c.decodeIfPresent(Int.self, forKey: .junkGrowthGB) ?? d.junkGrowthGB
+        newPhotosOn = try c.decodeIfPresent(Bool.self, forKey: .newPhotosOn) ?? d.newPhotosOn
+        newPhotos = try c.decodeIfPresent(Int.self, forKey: .newPhotos) ?? d.newPhotos
+        calendarOn = try c.decodeIfPresent(Bool.self, forKey: .calendarOn) ?? d.calendarOn
+        daysBefore = try c.decodeIfPresent(Int.self, forKey: .daysBefore) ?? d.daysBefore
+        tidyAfter = try c.decodeIfPresent(Bool.self, forKey: .tidyAfter) ?? d.tidyAfter
+        longVideoOn = try c.decodeIfPresent(Bool.self, forKey: .longVideoOn) ?? d.longVideoOn
+        longVideoMinutes = try c.decodeIfPresent(Int.self, forKey: .longVideoMinutes) ?? d.longVideoMinutes
+    }
+}
+
+extension CheckInAlertState {
+    /// State saved by an older version lacks the newer keys; those start fresh, the rest is kept.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        lowSpaceArmed = try c.decodeIfPresent(Bool.self, forKey: .lowSpaceArmed) ?? true
+        junkBaseline = try c.decodeIfPresent(Int64.self, forKey: .junkBaseline)
+        libraryBaseline = try c.decodeIfPresent(Int.self, forKey: .libraryBaseline)
+        longVideoSince = try c.decodeIfPresent(Date.self, forKey: .longVideoSince)
+        longVideoTold = try c.decodeIfPresent([String].self, forKey: .longVideoTold) ?? []
     }
 }

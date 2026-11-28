@@ -265,4 +265,131 @@ final class CheckInTests: XCTestCase {
         store.settings = settings
         XCTAssertEqual(store.settings.frequency, .weekly)
     }
+
+    // MARK: Long videos (free, 1.0.2)
+
+    private func video(_ id: String, at recorded: Date, minutes: Double, gb: Double? = nil,
+                       favorite: Bool = false) -> LongVideoCandidate {
+        LongVideoCandidate(id: id, recorded: recorded, seconds: minutes * 60,
+                           bytes: gb.map { Int64(($0 * 1_000).rounded()) * 1_000_000 }, favorite: favorite)
+    }
+
+    func testLongVideoAlertIsFreeAndWantsNotifications() {
+        var settings = CheckInSettings()
+        XCTAssertFalse(settings.longVideoOn)
+        settings.longVideoOn = true
+        XCTAssertTrue(settings.effective(pro: false).longVideoOn)
+        XCTAssertTrue(settings.effective(pro: false).wantsNotifications)
+    }
+
+    func testLongVideoFirstRunOnlyStartsTheClock() {
+        var settings = CheckInSettings()
+        settings.longVideoOn = true
+        let now = date(2026, 12, 3, 9)
+        let old = video("old", at: date(2026, 12, 1), minutes: 60, gb: 4)
+        let result = LongVideoAlerts.evaluate([old], settings: settings, state: CheckInAlertState(), now: now)
+        XCTAssertNil(result.alert)
+        XCTAssertEqual(result.state.longVideoSince, now)
+    }
+
+    func testLongVideoTellsOnceAboutANewLongVideo() {
+        var settings = CheckInSettings()
+        settings.longVideoOn = true
+        settings.longVideoMinutes = 10
+        var state = CheckInAlertState()
+        state.longVideoSince = date(2026, 12, 3, 8)
+        let now = date(2026, 12, 3, 20)
+        let pocket = video("pocket", at: date(2026, 12, 3, 12), minutes: 42, gb: 3.1)
+        let first = LongVideoAlerts.evaluate([pocket], settings: settings, state: state, now: now)
+        XCTAssertEqual(first.alert, .longVideo(seconds: 42 * 60, bytes: 3_100_000_000))
+        XCTAssertEqual(first.alert?.identifier, "checkin-alert-longvideo")
+        XCTAssertTrue(first.alert?.body.contains("42-minute") ?? false)
+        XCTAssertTrue(first.alert?.body.contains("Nothing is removed unless you choose") ?? false)
+        XCTAssertEqual(first.state.longVideoSince, now)
+
+        // The same video is never mentioned again, even if Photos still returns it.
+        var again = first.state
+        again.longVideoSince = date(2026, 12, 3, 8)
+        XCTAssertNil(LongVideoAlerts.evaluate([pocket], settings: settings, state: again, now: now).alert)
+    }
+
+    func testLongVideoSkipsShortOldAndFavoriteVideos() {
+        var settings = CheckInSettings()
+        settings.longVideoOn = true
+        settings.longVideoMinutes = 10
+        var state = CheckInAlertState()
+        state.longVideoSince = date(2026, 12, 3, 8)
+        let now = date(2026, 12, 3, 20)
+        let videos = [
+            video("short", at: date(2026, 12, 3, 12), minutes: 9),
+            video("before", at: date(2026, 12, 3, 7), minutes: 50),
+            video("loved", at: date(2026, 12, 3, 13), minutes: 50, favorite: true),
+        ]
+        XCTAssertNil(LongVideoAlerts.evaluate(videos, settings: settings, state: state, now: now).alert)
+    }
+
+    func testLongVideosAreSummedIntoOneNotification() {
+        var settings = CheckInSettings()
+        settings.longVideoOn = true
+        var state = CheckInAlertState()
+        state.longVideoSince = date(2026, 12, 3, 8)
+        let now = date(2026, 12, 3, 20)
+        let videos = [video("a", at: date(2026, 12, 3, 10), minutes: 15, gb: 1),
+                      video("b", at: date(2026, 12, 3, 11), minutes: 70, gb: 2)]
+        let result = LongVideoAlerts.evaluate(videos, settings: settings, state: state, now: now)
+        XCTAssertEqual(result.alert, .longVideos(count: 2, bytes: 3_000_000_000))
+        XCTAssertEqual(result.state.longVideoTold, ["a", "b"])
+    }
+
+    func testTurningLongVideosOffResetsTheClock() {
+        var state = CheckInAlertState()
+        state.longVideoSince = date(2026, 12, 3, 8)
+        let result = LongVideoAlerts.evaluate([], settings: CheckInSettings(), state: state, now: date(2026, 12, 3, 20))
+        XCTAssertNil(result.alert)
+        XCTAssertNil(result.state.longVideoSince)
+    }
+
+    func testLongVideoLengthWording() {
+        XCTAssertEqual(LongVideoAlerts.length(42 * 60), "42-minute")
+        XCTAssertEqual(LongVideoAlerts.length(60 * 60), "1-hour")
+        XCTAssertEqual(LongVideoAlerts.length(65 * 60), "1-hour 5-minute")
+    }
+
+    /// Settings and alert state saved by 1.0.1 have no long-video keys. They must load with every
+    /// saved choice intact, not fall back to defaults.
+    func testSettingsAndStateSavedBeforeLongVideosStillLoad() throws {
+        let oldSettings = #"{"frequency":"weekly","hour":8,"minute":30,"weekday":3,"dayOfMonth":5,"lowSpaceOn":true,"lowSpaceGB":5,"junkGrowthOn":true,"junkGrowthGB":3,"newPhotosOn":true,"newPhotos":500,"calendarOn":true,"daysBefore":7,"tidyAfter":false}"#
+        let settings = try JSONDecoder().decode(CheckInSettings.self, from: Data(oldSettings.utf8))
+        XCTAssertEqual(settings.frequency, .weekly)
+        XCTAssertEqual(settings.hour, 8)
+        XCTAssertEqual(settings.minute, 30)
+        XCTAssertEqual(settings.weekday, 3)
+        XCTAssertEqual(settings.dayOfMonth, 5)
+        XCTAssertTrue(settings.lowSpaceOn)
+        XCTAssertEqual(settings.lowSpaceGB, 5)
+        XCTAssertTrue(settings.junkGrowthOn)
+        XCTAssertEqual(settings.junkGrowthGB, 3)
+        XCTAssertTrue(settings.newPhotosOn)
+        XCTAssertEqual(settings.newPhotos, 500)
+        XCTAssertTrue(settings.calendarOn)
+        XCTAssertEqual(settings.daysBefore, 7)
+        XCTAssertFalse(settings.tidyAfter)
+        XCTAssertFalse(settings.longVideoOn)
+        XCTAssertEqual(settings.longVideoMinutes, 10)
+
+        let oldState = #"{"lowSpaceArmed":false,"junkBaseline":42,"libraryBaseline":7}"#
+        let state = try JSONDecoder().decode(CheckInAlertState.self, from: Data(oldState.utf8))
+        XCTAssertFalse(state.lowSpaceArmed)
+        XCTAssertEqual(state.junkBaseline, 42)
+        XCTAssertEqual(state.libraryBaseline, 7)
+        XCTAssertNil(state.longVideoSince)
+        XCTAssertEqual(state.longVideoTold, [])
+
+        // And a round trip keeps the new keys.
+        var withVideo = settings
+        withVideo.longVideoOn = true
+        withVideo.longVideoMinutes = 30
+        let decoded = try JSONDecoder().decode(CheckInSettings.self, from: JSONEncoder().encode(withVideo))
+        XCTAssertEqual(decoded, withVideo)
+    }
 }
