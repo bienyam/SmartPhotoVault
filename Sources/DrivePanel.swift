@@ -174,6 +174,10 @@ struct DriveHelpView: View {
                     Label("Changing a drive's format erases everything on it. Copy what you need first. \(Device.name)s with USB-C can erase a drive in Files: touch and hold it, then tap Erase. With Lightning, use a computer.",
                           systemImage: "exclamationmark.triangle")
                         .font(.subheadline).foregroundStyle(Brand.caution)
+                    NavigationLink { WindowsPCGuideView(standalone: false) } label: {
+                        Label("Keep a Windows (NTFS) drive as it is: use your PC", systemImage: "pc")
+                    }
+                    .accessibilityIdentifier("drive-help-windows")
                 }
                 .frame(maxWidth: 520, alignment: .leading)
                 .padding(20)

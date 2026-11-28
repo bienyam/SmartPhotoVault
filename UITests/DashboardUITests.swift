@@ -591,6 +591,41 @@ final class DashboardUITests: XCTestCase {
         app.buttons["drive-help-done"].tap()
     }
 
+    /// The Windows PC guide opens from Home file server and from the drive help, and keeps its steps.
+    func testWindowsPCGuideOpensFromHomeServerAndDriveHelp() {
+        let app = launch()
+        app.tabBars.buttons["Archive"].tap()
+        let picker = app.buttons["storage-location"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 10))
+        reveal(picker, in: app)
+        picker.tap()
+        let home = app.buttons["Home file server"].firstMatch
+        XCTAssertTrue(home.waitForExistence(timeout: 5))
+        home.tap()
+        let guide = app.buttons["home-windows-guide"]
+        reveal(guide, in: app)
+        XCTAssertTrue(guide.waitForExistence(timeout: 5), "Home file server offers the Windows PC guide.")
+        guide.tap()
+        XCTAssertTrue(app.staticTexts["windows-guide-title"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["On your PC"].exists)
+        keepScreenshot(of: app, named: "Windows PC guide")
+        app.buttons["windows-guide-done"].tap()
+
+        let drive = app.buttons["Drive plugged into this iPhone"].firstMatch
+        reveal(drive, in: app)
+        XCTAssertTrue(drive.waitForExistence(timeout: 5))
+        drive.tap()
+        let help = app.buttons["drive-help"]
+        reveal(help, in: app)
+        help.tap()
+        let windows = app.buttons["drive-help-windows"]
+        reveal(windows, in: app)
+        XCTAssertTrue(windows.waitForExistence(timeout: 5), "Drive help points NTFS drives to the Windows PC guide.")
+        windows.tap()
+        XCTAssertTrue(app.staticTexts["windows-guide-title"].waitForExistence(timeout: 5))
+        keepScreenshot(of: app, named: "Windows PC guide from drive help")
+    }
+
     private func launchArchiveGroups(pro: Bool) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments += ["--skip-welcome", "--demo-archive"] + (pro ? ["--pro"] : [])
