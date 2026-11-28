@@ -1,4 +1,5 @@
 import SwiftUI
+import StoreKit
 
 // The pieces of the 1.0.1 Free up page: the fixed backdrop, the storage card with the Storage Score,
 // the three shelves and their rows, and the two sheets (how the score works, and a Pro feature).
@@ -857,6 +858,25 @@ struct ProOffer: Identifiable {
     let symbol: String
 }
 
+/// The half sheet's buy button and the line under it. With a free trial the billed price is in the
+/// button itself and leads the line under it, so the amount charged is never quieter than the trial
+/// (App Review guideline 3.1.2). Prices and the trial length come from the App Store.
+enum ProSheetCopy {
+    static func button(trial: String?, price: String?, unit: String) -> String {
+        guard let price else { return "Get TidyAway Pro" }
+        if trial != nil { return "Try free, then \(price)/\(unit)" }
+        return "Get Pro · \(price) a \(unit)"
+    }
+
+    static func priceLine(trial: String?, price: String?, unit: String, loading: Bool) -> String {
+        guard let price else {
+            return loading ? "Getting the price from the App Store…" : "The price is shown by the App Store before you pay."
+        }
+        if let trial { return "\(price) a \(unit) after the \(trial) free trial. Cancel anytime in Settings." }
+        return "Renews each \(unit) until you cancel. Cancel anytime in Settings."
+    }
+}
+
 /// "Available in TidyAway Pro": what the feature does, one benefit, the trial and the price from
 /// the App Store, then See all plans and Not now. Opens only when a PRO item is tapped.
 struct ProFeatureSheet: View {
@@ -866,28 +886,27 @@ struct ProFeatureSheet: View {
     @Environment(\.openURL) private var openURL
     @State private var showPlans = false
 
+    /// The plan this sheet offers: yearly, which carries the free trial. Monthly only when the App
+    /// Store has no yearly plan right now. Every plan is still under See all plans.
+    private var offered: (product: Product?, id: String, unit: String) {
+        if pro.yearly != nil || pro.monthly == nil { return (pro.yearly, ProStore.yearlyID, "year") }
+        return (pro.monthly, ProStore.monthlyID, "month")
+    }
+
     /// The free trial, if this Apple Account can still have it. Length and price come from the App Store.
     private var trial: String? {
-        guard pro.trialEligible, let intro = pro.monthly?.subscription?.introductoryOffer,
+        guard pro.trialEligible, let intro = offered.product?.subscription?.introductoryOffer,
               intro.paymentMode == .freeTrial else { return nil }
         return ProStore.trialName(intro.period.value, intro.period.unit)
     }
 
     private var buttonTitle: String {
-        if let trial { return "Start \(trial) free trial" }
-        if let monthly = pro.monthly { return "Get Pro · \(monthly.displayPrice) a month" }
-        return "Get TidyAway Pro"
+        ProSheetCopy.button(trial: trial, price: offered.product?.displayPrice, unit: offered.unit)
     }
 
     private var priceLine: String {
-        guard let monthly = pro.monthly else {
-            return pro.loadingProducts || pro.waitingToBuy != nil
-                ? "Getting the price from the App Store…"
-                : "The price is shown by the App Store before you pay."
-        }
-        return trial == nil
-            ? "Renews each month until you cancel. Cancel anytime in Settings."
-            : "Then \(monthly.displayPrice) a month. Cancel anytime in Settings."
+        ProSheetCopy.priceLine(trial: trial, price: offered.product?.displayPrice, unit: offered.unit,
+                               loading: pro.loadingProducts || pro.waitingToBuy != nil)
     }
 
     var body: some View {
@@ -924,11 +943,11 @@ struct ProFeatureSheet: View {
                         .accessibilityIdentifier("pro-sheet-found")
                 }
                 Button {
-                    Task { await pro.buy(ProStore.monthlyID) }
+                    Task { await pro.buy(offered.id) }
                 } label: {
                     HStack(spacing: 8) {
                         Text(buttonTitle)
-                        if pro.monthly == nil && (pro.loadingProducts || pro.waitingToBuy != nil) {
+                        if offered.product == nil && (pro.loadingProducts || pro.waitingToBuy != nil) {
                             ProgressView().tint(ArchiveStyle.onAction).accessibilityLabel("Getting the price")
                         }
                     }
@@ -936,9 +955,11 @@ struct ProFeatureSheet: View {
                 .buttonStyle(ArchiveButtonStyle())
                 .disabled(pro.busy)
                 .accessibilityIdentifier("pro-sheet-start")
+                // The amount charged is as prominent as the trial: the same size and weight as the
+                // button's label, in the main text colour (App Review guideline 3.1.2).
                 Text(priceLine)
-                    .font(.footnote)
-                    .foregroundStyle(Brand.muted)
+                    .font(offered.product == nil ? Font.footnote : Font.body.weight(.semibold))
+                    .foregroundStyle(offered.product == nil ? Brand.muted : Brand.ink)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
                     .accessibilityIdentifier("pro-sheet-price")
