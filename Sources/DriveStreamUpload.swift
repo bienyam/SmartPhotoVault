@@ -15,10 +15,28 @@ final class DriveStreamUpload: @unchecked Sendable {
         let md5Checksum: String?
     }
 
-    /// Sends one piece to the upload session and returns the HTTP status and body.
-    typealias Transport = @Sendable (_ body: Data, _ contentRange: String) throws -> (status: Int, body: Data)
+    /// What the upload session answered: the HTTP status, the body, and on a 308 the Range header,
+    /// which says how much of the file Drive holds so far.
+    struct Reply {
+        let status: Int
+        let body: Data
+        var range: String? = nil
+    }
+
+    /// Sends one piece to the upload session (or, with an empty body and `bytes */...`, asks how much
+    /// Drive holds) and returns its answer.
+    typealias Transport = @Sendable (_ body: Data, _ contentRange: String) throws -> Reply
+
+    /// What an answer from the upload session means.
+    enum Step: Equatable {
+        /// Drive has the whole file; the body describes it.
+        case finished
+        /// Drive holds this many bytes of the file so far.
+        case holds(Int64)
+    }
 
     private let transport: Transport
+    private let pause: @Sendable (Int) -> Void
     private let lock = NSLock()
     private var buffer = Data()
     private var sent: Int64 = 0
@@ -27,8 +45,32 @@ final class DriveStreamUpload: @unchecked Sendable {
     private var failure: Error?
     private var uploaded: Uploaded?
 
-    init(transport: @escaping Transport) {
+    /// `pause` waits before retry number 1, 2 and so on; tests pass one that doesn't wait.
+    init(transport: @escaping Transport, pause: @escaping @Sendable (Int) -> Void = { UploadRetry.wait($0) }) {
         self.transport = transport
+        self.pause = pause
+    }
+
+    /// How many bytes a 308's Range header says Drive holds: "bytes=0-1048575" is 1,048,576. Nil when
+    /// the header can't be read. (No header at all means Drive holds nothing yet.)
+    static func held(range: String) -> Int64? {
+        let text = range.trimmingCharacters(in: .whitespaces)
+        guard text.hasPrefix("bytes=") else { return nil }
+        let bounds = text.dropFirst("bytes=".count).split(separator: "-", omittingEmptySubsequences: false)
+        guard bounds.count == 2, Int64(bounds[0]) == 0, let last = Int64(bounds[1]), last >= 0 else { return nil }
+        return last + 1
+    }
+
+    /// Reads one answer. Anything but "finished" or "keep going" throws, so it can be retried or reported.
+    static func step(status: Int, range: String?) throws -> Step {
+        switch status {
+        case 200, 201: return .finished
+        case 308:
+            guard let range else { return .holds(0) }
+            guard let count = Self.held(range: range) else { throw GoogleDriveError.server(status) }
+            return .holds(count)
+        default: throw GoogleDriveError.server(status)
+        }
     }
 
     /// The Content-Range header for a piece. The total is unknown ("*") until the last piece.
@@ -79,18 +121,56 @@ final class DriveStreamUpload: @unchecked Sendable {
         return (uploaded, ArchiveFingerprint(bytes: sent, digest: digest))
     }
 
+    /// Sends one piece. After each answer Drive says how much of the file it holds, and whatever it
+    /// didn't keep is sent again from there. A dropped connection or a busy server is retried a few
+    /// times, each time after asking Drive how much it already has; then the item fails as before.
     private func send(_ piece: Data, last: Bool) {
-        let range = Self.contentRange(start: sent, count: piece.count, total: last ? sent + Int64(piece.count) : nil)
+        let start = sent
+        let end = start + Int64(piece.count)
+        let total: Int64? = last ? end : nil
+        var held = start
+        var tries = 0
+        var asking = false
         do {
-            let response = try transport(piece, range)
-            if last {
-                guard (200...201).contains(response.status) else { throw GoogleDriveError.server(response.status) }
-                uploaded = try JSONDecoder().decode(Uploaded.self, from: response.body)
-            } else {
-                // 308 means "keep going".
-                guard response.status == 308 else { throw GoogleDriveError.server(response.status) }
+            while true {
+                let rest = asking ? Data() : Data(piece[(piece.startIndex + Int(held - start))...])
+                let range = Self.contentRange(start: held, count: rest.count, total: total)
+                let reply: Reply
+                let step: Step
+                do {
+                    reply = try transport(rest, range)
+                    step = try Self.step(status: reply.status, range: reply.range)
+                } catch {
+                    guard tries < UploadRetry.attempts, UploadRetry.retryable(error) else { throw error }
+                    tries += 1
+                    pause(tries)
+                    asking = true
+                    continue
+                }
+                switch step {
+                case .finished:
+                    // Only the last piece can finish the file.
+                    guard last else { throw GoogleDriveError.server(reply.status) }
+                    uploaded = try JSONDecoder().decode(Uploaded.self, from: reply.body)
+                    sent = end
+                    return
+                case let .holds(count):
+                    // Drive can't hold bytes it was never sent, and bytes before this piece are gone from here.
+                    guard count >= start, count <= end else { throw GoogleDriveError.server(reply.status) }
+                    let moved = asking || count > held
+                    held = count
+                    asking = false
+                    if !last, held == end {
+                        sent = end
+                        return
+                    }
+                    if !moved {
+                        guard tries < UploadRetry.attempts else { throw GoogleDriveError.server(reply.status) }
+                        tries += 1
+                        pause(tries)
+                    }
+                }
             }
-            sent += Int64(piece.count)
         } catch {
             failure = error
         }
@@ -122,7 +202,9 @@ extension GoogleDriveClient {
             request.httpMethod = "PUT"
             request.timeoutInterval = 600
             request.setValue(range, forHTTPHeaderField: "Content-Range")
-            return try syncSend(request, body: body)
+            var held: String?
+            let reply = try syncSend(request, body: body) { held = $0.value(forHTTPHeaderField: "Range") }
+            return DriveStreamUpload.Reply(status: reply.status, body: reply.body, range: held)
         }
         switch item.source {
         case let .photo(id, expected):

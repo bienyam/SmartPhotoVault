@@ -58,4 +58,20 @@ final class CloudStreamingTests: XCTestCase {
         let known = ArchiveItem(id: "2", name: "b.heic", source: .photo("p", expected: nil), size: 1_234)
         XCTAssertEqual(CloudStream.knownSize(of: known), 1_234)
     }
+
+    // MARK: - Resuming OneDrive (1.0.2, D5)
+
+    func testReadsWhereOneDriveWantsToCarryOn() {
+        XCTAssertEqual(UploadRetry.oneDriveNext(Data(#"{"expirationDateTime":"2026-11-28T10:00:00Z","nextExpectedRanges":["26214400-"]}"#.utf8)), 26_214_400)
+        XCTAssertEqual(UploadRetry.oneDriveNext(Data(#"{"nextExpectedRanges":["12345-55555","60000-"]}"#.utf8)), 12_345,
+                       "The first gap is where it carries on.")
+        XCTAssertNil(UploadRetry.oneDriveNext(Data(#"{"nextExpectedRanges":[]}"#.utf8)))
+        XCTAssertNil(UploadRetry.oneDriveNext(Data(#"{"id":"item"}"#.utf8)))
+        XCTAssertNil(UploadRetry.oneDriveNext(Data("not json".utf8)))
+    }
+
+    func testOnlyBusyAnswersAreRetried() {
+        for status in [408, 429, 500, 502, 503, 504] { XCTAssertTrue(UploadRetry.transient(status), "\(status)") }
+        for status in [200, 202, 400, 401, 403, 404, 409, 413, 416] { XCTAssertFalse(UploadRetry.transient(status), "\(status)") }
+    }
 }

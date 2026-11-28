@@ -30,6 +30,73 @@ struct ArchiveItem: Identifiable, Sendable {
             else { "Photos" }
         }
     }
+
+    /// The same item stored under another name.
+    func named(_ name: String) -> ArchiveItem {
+        ArchiveItem(id: id, name: name, source: source, size: size, part: part, expectedParts: expectedParts)
+    }
+}
+
+/// Free names for an item's files in an archive folder. Nothing already there is ever overwritten, and
+/// two items of this run with the same name never pick the same one.
+enum ArchiveNames {
+    /// How many numbers are tried before giving up with "a file with that name already exists".
+    static let limit = 9_999
+
+    /// "IMG_0001.HEIC" as number 2 is "IMG_0001 (2).HEIC"; number 1 is the name itself.
+    static func numbered(_ name: String, _ number: Int) -> String {
+        guard number > 1 else { return name }
+        let whole = name as NSString
+        let ending = whole.pathExtension
+        guard !ending.isEmpty else { return "\(name) (\(number))" }
+        return "\(whole.deletingPathExtension) (\(number)).\(ending)"
+    }
+
+    private static let lock = NSLock()
+    /// Names being written right now, so two copies running side by side never take the same one.
+    private static var writing: Set<String> = []
+
+    private static func key(_ name: String, in folder: URL) -> String {
+        // Drives are often case-insensitive: "img_0001.heic" and "IMG_0001.HEIC" count as one name.
+        folder.appendingPathComponent(name).standardizedFileURL.path.lowercased()
+    }
+
+    /// The first number whose names (`names`) are all free: not in the folder and not being written
+    /// by another copy. A number whose names are partly taken is used only if `reuse` accepts it.
+    /// The names are held until `release`.
+    static func reserve(_ names: (Int) throws -> [String], in folder: URL,
+                        reuse: (Int) throws -> Bool = { _ in false },
+                        exists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) }) throws -> (number: Int, names: [String]) {
+        for number in 1...limit {
+            let candidate = try names(number)
+            let keys = candidate.map { key($0, in: folder) }
+            lock.lock()
+            guard !keys.contains(where: writing.contains) else {
+                lock.unlock()
+                continue
+            }
+            let taken = candidate.contains { exists(folder.appendingPathComponent($0)) }
+            writing.formUnion(keys)
+            lock.unlock()
+            guard taken else { return (number, candidate) }
+            let usable: Bool
+            do {
+                usable = try reuse(number)
+            } catch {
+                release(candidate, in: folder)
+                throw error
+            }
+            if usable { return (number, candidate) }
+            release(candidate, in: folder)
+        }
+        throw ArchiveError.conflict
+    }
+
+    static func release(_ names: [String], in folder: URL) {
+        lock.lock()
+        defer { lock.unlock() }
+        writing.subtract(names.map { key($0, in: folder) })
+    }
 }
 
 struct ArchiveFingerprint: Equatable, Sendable {
@@ -138,11 +205,58 @@ enum VerifiedArchive {
     /// Copies every file of an item to the folder. A single-file item goes exactly the way it always
     /// has. A Live Photo or edited photo is copied file by file, each streamed and checked like a
     /// single file, and counts only when all of them are there: the first failure stops the item.
+    ///
+    /// A name already used in the folder (IMG_0001 comes back every 10,000 shots) is never overwritten:
+    /// the item is stored under the next free number, "IMG_0001 (2).HEIC", and every file of a Live
+    /// Photo or edited photo takes the same number ("IMG_0001 (2).MOV", "IMG_0001 (2)_edited.JPG"). The
+    /// receipt carries the name actually used.
     static func copyEvery(_ item: ArchiveItem, to folder: URL, wifi: ArchiveWiFi? = nil,
                           flush: Bool = true) throws -> (receipt: ArchiveReceipt, parts: [ArchivedPart]) {
-        guard let files = try ArchiveParts.files(of: item) else {
-            return (try copy(item, to: folder, wifi: wifi, flush: flush), [])
+        try scoped(folder) { try copyEveryNamed(item, to: folder, wifi: wifi, flush: flush) }
+    }
+
+    private static func copyEveryNamed(_ item: ArchiveItem, to folder: URL, wifi: ArchiveWiFi?,
+                                       flush: Bool) throws -> (receipt: ArchiveReceipt, parts: [ArchivedPart]) {
+        guard let unnumbered = try ArchiveParts.files(of: item) else {
+            let chosen = try ArchiveNames.reserve({ [ArchiveNames.numbered(item.name, $0)] }, in: folder)
+            defer { ArchiveNames.release(chosen.names, in: folder) }
+            return (try copy(item.named(chosen.names[0]), to: folder, wifi: wifi, flush: flush), [])
         }
+        var numbered: [Int: [ArchiveItem]] = [1: unnumbered]
+        func files(_ number: Int) throws -> [ArchiveItem] {
+            if let known = numbered[number] { return known }
+            guard let found = try ArchiveParts.files(of: item.named(ArchiveNames.numbered(item.name, number))) else {
+                throw ArchiveError.unsupportedPhoto
+            }
+            numbered[number] = found
+            return found
+        }
+        // A number whose files are partly there already is used again only when each of those is
+        // exactly this item's file, from a try that stopped before every file was copied.
+        let chosen = try ArchiveNames.reserve({ try files($0).map(\.name) }, in: folder,
+                                              reuse: { number in try files(number).allSatisfy { try holds($0, in: folder, wifi: wifi) } })
+        defer { ArchiveNames.release(chosen.names, in: folder) }
+        return try copyParts(try files(chosen.number), to: folder, wifi: wifi, flush: flush)
+    }
+
+    /// True when the file isn't there yet, or is already there holding exactly this part's original.
+    /// A different file under the name is someone else's and is left alone.
+    private static func holds(_ file: ArchiveItem, in folder: URL, wifi: ArchiveWiFi?) throws -> Bool {
+        let destination = folder.appendingPathComponent(file.name)
+        guard FileManager.default.fileExists(atPath: destination.path) else { return true }
+        guard case let .photo(id, expected) = file.source, file.part != nil else { return false }
+        // A different size can't be the same file; no need to read it.
+        if let expected, (try? storedSize(of: destination)) != expected.bytes { return false }
+        do {
+            _ = try alreadyStored(id, part: file.part, expected: expected, at: destination, wifi: wifi)
+            return true
+        } catch ArchiveError.conflict {
+            return false
+        }
+    }
+
+    private static func copyParts(_ files: [ArchiveItem], to folder: URL, wifi: ArchiveWiFi?,
+                                  flush: Bool) throws -> (receipt: ArchiveReceipt, parts: [ArchivedPart]) {
         let receipts = try ArchiveParts.every(files) { try copy($0, to: folder, wifi: wifi, flush: flush) }
         // An edit made while the files were being copied would leave parts of two different edits.
         try ArchiveParts.requireSameEdit(files, receipts.map { $0.fingerprint })
@@ -189,14 +303,17 @@ enum VerifiedArchive {
     /// Reads a whole archive copy back from where it is stored and compares it with the fingerprint taken
     /// when it was archived. Anything missing, different or not yet uploaded throws.
     /// `offDevice` is only ever false in tests, which have no second volume to write to.
+    /// `read` hears how many bytes of the copy have come back, for a progress line.
     static func checkCopy(named name: String, in folder: URL, expected: ArchiveFingerprint,
-                          wifi: ArchiveWiFi?, offDevice: Bool = true) throws -> CopyStamp {
+                          wifi: ArchiveWiFi?, offDevice: Bool = true, read progress: ((Int) -> Void)? = nil) throws -> CopyStamp {
         try wifi?.requireConnection()
         return try scoped(folder) {
             try coordinateRead(folder.appendingPathComponent(name)) { url in
                 let before = try stamp(url, offDevice: offDevice)
                 guard before.bytes == expected.bytes,
-                      try read(url, wifi: wifi, skipCache: true) == expected else { throw ArchiveProofError.copyDiffers }
+                      try read(url, wifi: wifi, skipCache: true, chunk: { progress?($0.count) }) == expected else {
+                    throw ArchiveProofError.copyDiffers
+                }
                 guard try stamp(url, offDevice: offDevice) == before else { throw ArchiveProofError.changedSinceCheck }
                 return before
             }
@@ -209,6 +326,35 @@ enum VerifiedArchive {
         return try scoped(folder) {
             try coordinateRead(folder.appendingPathComponent(name)) { try stamp($0, offDevice: offDevice) }
         }
+    }
+
+    /// The size of a copy as its folder describes it now, without opening or downloading it: only the
+    /// metadata already at hand is asked for. Nil when there is no regular file of that name.
+    /// An iCloud Drive copy still uploading counts as not there, as it does for removal. Unlike
+    /// `copyStamp`, a copy in another folder on this iPhone counts as there: this answers "is the copy
+    /// still there" (the not-backed-up check, and skipping items that are already archived), never
+    /// "may the original go".
+    static func presentSize(named name: String, in folder: URL, wifi: ArchiveWiFi?) throws -> Int64? {
+        try wifi?.requireConnection()
+        return try scoped(folder) {
+            try coordinateRead(folder.appendingPathComponent(name), options: .immediatelyAvailableMetadataOnly) { url in
+                guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+                var fresh = url
+                fresh.removeAllCachedResourceValues()
+                let values = try fresh.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey,
+                                                                .isUbiquitousItemKey, .ubiquitousItemIsUploadedKey])
+                return presentSize(regular: values.isRegularFile, link: values.isSymbolicLink, size: values.fileSize,
+                                   ubiquitous: values.isUbiquitousItem, uploaded: values.ubiquitousItemIsUploaded)
+            }
+        }
+    }
+
+    /// What `presentSize` makes of a file's metadata. An iCloud Drive copy that hasn't finished uploading
+    /// is only on this iPhone, so, as for removal, it is not there yet (1.0.2).
+    static func presentSize(regular: Bool?, link: Bool?, size: Int?, ubiquitous: Bool?, uploaded: Bool?) -> Int64? {
+        guard regular == true, link != true, let size else { return nil }
+        if ubiquitous == true, uploaded != true { return nil }
+        return Int64(size)
     }
 
     /// Reads the whole original from Photos again (downloading it from iCloud if needed) and hashes it.
@@ -532,10 +678,11 @@ enum VerifiedArchive {
         return try result.get()
     }
 
-    private static func coordinateRead<T>(_ url: URL, work: (URL) throws -> T) throws -> T {
+    private static func coordinateRead<T>(_ url: URL, options: NSFileCoordinator.ReadingOptions = [],
+                                          work: (URL) throws -> T) throws -> T {
         var error: NSError?
         var result: Result<T, Error>?
-        NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &error) { accessibleURL in
+        NSFileCoordinator().coordinate(readingItemAt: url, options: options, error: &error) { accessibleURL in
             result = Result { try work(accessibleURL) }
         }
         if let error { throw error }

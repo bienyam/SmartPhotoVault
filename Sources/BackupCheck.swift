@@ -33,6 +33,23 @@ struct BackupCheck: Identifiable {
 
     var total: Int { backedUp.count + notBackedUp.count }
     var notBackedUpBytes: Int64 { notBackedUp.reduce(0) { $0 + $1.displayBytes } }
+    /// What is left of the free 5 GB of archiving. Nil with Pro: no limit.
+    var freeLeft: Int64? = nil
+
+    /// Whether Copy first can copy everything that isn't backed up without passing the free 5 GB.
+    var copyFits: Bool {
+        guard let freeLeft else { return true }
+        return notBackedUpBytes <= freeLeft
+    }
+
+    /// Said in the alert when the free 5 GB can't hold these, so Copy first never lands on a limit
+    /// the person wasn't told about (1.0.2, B5). Nil when they fit.
+    var allowanceLine: String? {
+        guard !copyFits, let freeLeft else { return nil }
+        return freeLeft <= 0
+            ? "Your free 5 GB of archiving is used. Archiving more needs TidyAway Pro."
+            : "Only \(freeLeft.fileSize) of your free 5 GB of archiving is left, not enough for these. Archiving more needs TidyAway Pro."
+    }
 
     /// The alert shows only when something could really be lost.
     var needsAlert: Bool { !notBackedUp.isEmpty }
@@ -101,25 +118,70 @@ enum BackupLedger {
     }
 
     /// The items with at least one record that still covers them. `now` holds each item as it is
-    /// in Photos; an item missing from it has no usable original and is not backed up.
+    /// in Photos; an item missing from it has no usable original and is not backed up. A copy the
+    /// drive hasn't confirmed writing out is not a backup yet.
     static func photoIDs(in records: [ArchivedRecord], now: [String: OriginalNow]) -> Set<String> {
-        var ids: Set<String> = []
-        for record in records {
-            guard let id = record.photoID, let state = now[id], covers(record, state) else { continue }
-            ids.insert(id)
-        }
-        return ids
+        Set(covering(records, now: now).compactMap(\.photoID))
     }
 
-    /// Which of the selected items are backed up, read from the archive list on this iPhone and
-    /// from Photos. If the list can't be read, nothing counts as backed up, so the check errs on
-    /// the side of asking. Reads Photos, so call it off the main thread.
-    static func verifiedPhotoIDs(among selected: [String]) -> Set<String> {
+    /// The confirmed records that still stand for their item as it is in Photos now.
+    static func covering(_ records: [ArchivedRecord], now: [String: OriginalNow]) -> [ArchivedRecord] {
+        records.filter { record in
+            guard record.confirmed, let id = record.photoID, let state = now[id] else { return false }
+            return covers(record, state)
+        }
+    }
+
+    /// Which of the selected items are backed up: a confirmed record in the archive list on this
+    /// iPhone still stands for the item as it is in Photos, AND its copy is still where it was saved,
+    /// at the recorded size (`ArchiveProver.copyStillThere`). A copy deleted from Google Drive, a
+    /// reformatted drive or a server that is gone no longer counts. If the list can't be read, or a
+    /// destination can't be reached in time, the item is not backed up, so the check errs on the side
+    /// of asking. Photos and the destinations are read off the main thread.
+    static func verifiedPhotoIDs(among selected: [String]) async -> Set<String> {
+        let candidates = await Task.detached(priority: .userInitiated) { coveringRecords(among: selected) }.value
+        guard !candidates.isEmpty else { return [] }
+        let wifi = ArchiveWiFi()
+        if candidates.contains(where: \.viaHomeServer) {
+            // The Wi-Fi check needs a moment to learn the connection.
+            try? await Task.sleep(nanoseconds: 800_000_000)
+        }
+        return await present(candidates) { await ArchiveProver.copyStillThere($0, wifi: wifi) }
+    }
+
+    /// The selected items' confirmed records that still cover them. Reads the archive list and Photos,
+    /// so it blocks: call it off the main thread.
+    static func coveringRecords(among selected: [String]) -> [ArchivedRecord] {
         guard let records = try? InventoryStore.openDefault().archived() else { return [] }
         let wanted = Set(selected)
         let mine = records.filter { record in record.photoID.map { wanted.contains($0) } ?? false }
         guard !mine.isEmpty else { return [] }
-        return photoIDs(in: mine, now: originals(Array(Set(mine.compactMap(\.photoID)))))
+        return covering(mine, now: originals(Array(Set(mine.compactMap(\.photoID)))))
+    }
+
+    /// The items whose copy `isThere` finds, a few destinations asked at once, newest copy first. An
+    /// item needs only one copy that is still there; its other records aren't asked. Checks not
+    /// started within `deadline` seconds are skipped, and those items count as not backed up.
+    static func present(_ records: [ArchivedRecord], deadline: TimeInterval = ArchiveDeadline.wholeCheck, atOnce: Int = 8,
+                        isThere: @escaping @Sendable (ArchivedRecord) async -> Bool) async -> Set<String> {
+        let started = Date()
+        var found: Set<String> = []
+        var waiting = records.filter { $0.photoID != nil }.sorted { $0.date > $1.date }[...]
+        await withTaskGroup(of: (String, Bool).self) { group in
+            var running = 0
+            while true {
+                while running < atOnce, Date().timeIntervalSince(started) < deadline, let record = waiting.popFirst() {
+                    guard let id = record.photoID, !found.contains(id) else { continue }
+                    running += 1
+                    group.addTask { (id, await isThere(record)) }
+                }
+                guard let next = await group.next() else { break }
+                let (id, there) = next
+                running -= 1
+                if there { found.insert(id) }
+            }
+        }
+        return found
     }
 
     /// Each item as Photos describes it now. No file is opened or downloaded.
@@ -182,6 +244,14 @@ struct BackupAlert: View {
                 .foregroundStyle(Brand.muted)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
+            if let allowance = check.allowanceLine {
+                Text(allowance)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Brand.ink)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("backup-allowance")
+            }
             VStack(alignment: .leading, spacing: 0) {
                 line(symbol: "checkmark", color: Brand.safe, bold: check.backedUpLine, rest: "verified copy in your archive")
                     .accessibilityIdentifier("backup-have")
@@ -201,6 +271,15 @@ struct BackupAlert: View {
                 .frame(maxWidth: .infinity, minHeight: 44)
                 .accessibilityHint("Apple asks you to confirm next")
                 .accessibilityIdentifier("backup-delete-anyway")
+            if !check.copyFits {
+                // Tapping outside is Cancel too; when the free 5 GB can't hold these, it is also a button.
+                Button("Cancel", action: cancel)
+                    .font(.body.weight(.semibold))
+                    .tint(Brand.muted)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .accessibilityHint("Nothing is deleted")
+                    .accessibilityIdentifier("backup-cancel")
+            }
         }
         .padding(20)
         .frame(maxWidth: 420)

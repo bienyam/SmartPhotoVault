@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Progress of one archive run, and the request to stop after the current item.
 @MainActor
@@ -9,6 +10,8 @@ final class ArchiveRun: ObservableObject {
     @Published var bytes: Int64 = 0
     @Published var currentID: String?
     @Published var stopping = false
+    /// Items not copied because their copy is already in this place, unchanged (1.0.2).
+    @Published var alreadyHere = 0
     @Published var outcome: ArchiveOutcome?
     /// What the run is doing once every item is done, such as making sure a drive saved everything.
     @Published var phase: String?
@@ -18,6 +21,25 @@ final class ArchiveRun: ObservableObject {
     var failures: Int { reasons.values.reduce(0, +) }
 
     func failed(_ error: Error) { reasons[Self.reason(for: error), default: 0] += 1 }
+
+    private var background: UIBackgroundTaskIdentifier = .invalid
+
+    /// Asks iOS for the short extra time it allows when the app is switched away mid-run, so the piece
+    /// being copied isn't cut off. Ends by itself when iOS says time is up; the run then stops the way
+    /// it always did when the app was suspended.
+    func holdBackgroundTime() {
+        guard background == .invalid else { return }
+        background = UIApplication.shared.beginBackgroundTask(withName: "Archive copy") {
+            // iOS calls this on the main thread.
+            MainActor.assumeIsolated { self.releaseBackgroundTime() }
+        }
+    }
+
+    func releaseBackgroundTime() {
+        guard background != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(background)
+        background = .invalid
+    }
 
     /// A few plain words for why an item couldn't be copied.
     static func reason(for error: Error) -> String {
@@ -29,6 +51,7 @@ final class ArchiveRun: ObservableObject {
         case CloudError.server(let name, _): return "\(name) didn't accept them"
         case GoogleDriveError.server: return "Google Drive didn't accept them"
         case ArchiveError.editedDuringCopy: return "Edited while it was being copied"
+        case is OverFreeArchive: return "Over the free 5 GB of archiving"
         case ArchiveError.wifi: return "Wi-Fi to the file server dropped"
         case ArchiveError.unavailable, ArchiveError.missingFile: return "The destination couldn't be reached"
         case GoogleDriveError.noSpace: return "Not enough space on this \(Device.name)"
@@ -50,6 +73,7 @@ final class ArchiveRun: ObservableObject {
         bytes = 0
         currentID = nil
         stopping = false
+        alreadyHere = 0
         outcome = nil
         reasons = [:]
         phase = nil
@@ -64,6 +88,8 @@ struct ArchiveOutcome {
     /// Not tried, because the run was stopped. They stay selected.
     let left: Int
     let place: String
+    /// Not copied again: their copy is already in this place, unchanged and still there (1.0.2).
+    var alreadyHere = 0
 }
 
 /// Copying, with a real count. Nothing here can be missed or left halfway by accident.
@@ -92,7 +118,7 @@ struct ArchiveProgressView: View {
             Text("\(run.tried.formatted()) of \(run.total.formatted())")
                 .font(.largeTitle.bold()).monospacedDigit()
                 .accessibilityIdentifier("archive-progress")
-            Text("done · \(run.copied.formatted()) copied and checked (\(run.bytes.fileSize))\(run.failures > 0 ? " · \(run.failures.formatted()) failed" : "")")
+            Text("done · \(run.copied.formatted()) copied and checked (\(run.bytes.fileSize))\(run.alreadyHere > 0 ? " · \(run.alreadyHere.formatted()) already archived here" : "")\(run.failures > 0 ? " · \(run.failures.formatted()) failed" : "")")
                 .foregroundStyle(ArchiveStyle.muted)
                 .multilineTextAlignment(.center)
                 .accessibilityIdentifier("archive-progress-split")
@@ -169,7 +195,9 @@ struct ArchiveDoneView: View {
     @State private var shown = false
 
     private var copied: Int { outcome.completion?.count ?? 0 }
-    private var worked: Bool { copied > 0 }
+    /// Nothing new to copy: every item was already archived here, and nothing failed.
+    private var allHere: Bool { copied == 0 && outcome.alreadyHere > 0 && outcome.failures.isEmpty && outcome.left == 0 }
+    private var worked: Bool { copied > 0 || allHere }
 
     var body: some View {
         ZStack {
@@ -185,7 +213,7 @@ struct ArchiveDoneView: View {
                         .scaleEffect(shown ? 1 : 0.4)
                         .padding(.top, 36)
                         .accessibilityHidden(true)
-                    Text(worked ? "\(copied.formatted()) copied and checked" : "Nothing was copied")
+                    Text(copied > 0 ? "\(copied.formatted()) copied and checked" : allHere ? "Already archived here" : "Nothing was copied")
                         .font(.largeTitle.bold())
                         .accessibilityAddTraits(.isHeader)
                         .accessibilityIdentifier("completion-title")
@@ -201,6 +229,11 @@ struct ArchiveDoneView: View {
                             }
                         }
                         .accessibilityHidden(true)
+                    }
+                    if outcome.alreadyHere > 0 {
+                        Text("\(outcome.alreadyHere.formatted()) already archived here, unchanged, so \(outcome.alreadyHere == 1 ? "it wasn't" : "they weren't") copied again.")
+                            .font(.subheadline.weight(.semibold))
+                            .accessibilityIdentifier("completion-already-here")
                     }
                     if !outcome.failures.isEmpty {
                         Label("\(outcome.failures.count.formatted()) need attention. They stay on your \(Device.name).", systemImage: "exclamationmark.circle.fill")

@@ -24,6 +24,38 @@ struct ArchivedRecord: Codable, Identifiable, Equatable {
     /// same way. Everything above then describes the original still. Nil for a single-file copy and in
     /// every record saved before these could be archived.
     var parts: [ArchivedPart]? = nil
+    /// True while a copy to a drive or folder is waiting for the drive to confirm it wrote everything
+    /// out. It is listed in Get back, but it never counts as a backup, as already archived or as safe to
+    /// remove until it is confirmed. Nil in every confirmed record, and in every record saved before
+    /// this was kept, so those still count exactly as they did.
+    var unflushed: Bool? = nil
+    /// How the item was in Photos when it was archived (1.0.2, D4), so Get back puts it back with the
+    /// same date, place, albums and favorite. Kept on this iPhone only. Nil in every record saved
+    /// before, and those come back exactly as they did.
+    var originalDate: Date? = nil
+    /// The location as Photos recorded it.
+    var latitude: Double? = nil
+    var longitude: Double? = nil
+    /// Photos' identifiers of the person's own albums the item was in.
+    var albumIDs: [String]? = nil
+    var favorite: Bool? = nil
+    /// Which place the copy went to, by identity rather than name (1.0.2): the drive's volume and the
+    /// folder's path for a drive, folder or server; the folder ID for Google Drive; the folder inside
+    /// TidyAway's app folder for OneDrive and Dropbox. Two folders with the same name are different
+    /// places. Nil in records saved before, which are never taken as already archived in a place.
+    var folderID: String? = nil
+}
+
+extension ArchivedRecord {
+    /// The destination confirmed this copy. Only these count as backups or prove an original may go.
+    var confirmed: Bool { unflushed != true }
+
+    /// The same record, now that the destination confirmed it.
+    var confirming: ArchivedRecord {
+        var record = self
+        record.unflushed = nil
+        return record
+    }
 }
 
 /// Archived items grouped by the day they were archived.
@@ -64,7 +96,7 @@ struct ArchivedView: View {
                         Image(systemName: "arrow.uturn.backward.circle.fill")
                             .font(.system(size: 72)).foregroundStyle(ArchiveStyle.link).accessibilityHidden(true)
                         Text("Nothing archived yet.").font(.title3.bold())
-                        Text("What you move out appears here by day, ready to put back.")
+                        Text("What you move out appears here by day, ready to get back.")
                             .foregroundStyle(ArchiveStyle.muted)
                     }
                     .multilineTextAlignment(.center)
@@ -206,7 +238,7 @@ struct ArchivedDayView: View {
                 }
             }
             if !problems.isEmpty {
-                Section("Couldn't put back") {
+                Section("Couldn't get back") {
                     ForEach(problems, id: \.self) { Text($0).font(.footnote).foregroundStyle(Brand.caution) }
                 }
             }
@@ -225,7 +257,7 @@ struct ArchivedDayView: View {
         .safeAreaInset(edge: .bottom) {
             if !chosen.isEmpty {
                 VStack(spacing: 8) {
-                    Picker("Put back to", selection: $target) {
+                    Picker("Get back to", selection: $target) {
                         ForEach(Target.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                     }
                     .pickerStyle(.segmented)
@@ -240,7 +272,7 @@ struct ArchivedDayView: View {
                     Toggle(consentText, isOn: $consent)
                         .font(.footnote)
                         .accessibilityIdentifier("restore-consent")
-                    Button(busy ? progress : "Put back \(chosen.count.formatted()) \(chosen.count == 1 ? "item" : "items")") { restore() }
+                    Button(busy ? progress : "Get back \(chosen.count.formatted()) \(chosen.count == 1 ? "item" : "items")") { restore() }
                         .buttonStyle(ArchiveButtonStyle())
                         .disabled(!consent || busy || (target == .folder && folder == nil))
                         .accessibilityIdentifier("restore-go")
@@ -255,7 +287,7 @@ struct ArchivedDayView: View {
         .fullScreenCover(isPresented: Binding(get: { done != nil }, set: { if !$0 { done = nil } })) {
             if let done {
                 CompletionView(
-                    title: done.target == .photos ? "Back in Photos" : "Put back",
+                    title: done.target == .photos ? "Back in Photos" : "Back in your folder",
                     detail: "\(done.count) \(done.count == 1 ? "item is" : "items are") back \(done.target == .photos ? "in your Photos library" : "in \(folder?.lastPathComponent ?? "your folder")"), checked against the archive. The archive copies stay where they are.",
                     actions: [])
             }
@@ -287,14 +319,14 @@ struct ArchivedDayView: View {
         busy = true
         problems = []
         let operation = UUID()
-        try? InventoryStore.openDefault().log("Authorized putting back \(records.count) archived item(s) to \(target == .photos ? "Apple Photos" : "a Files folder") (\(operation)), disclosure v1.")
+        try? InventoryStore.openDefault().log("Authorized getting back \(records.count) archived item(s) to \(target == .photos ? "Apple Photos" : "a Files folder") (\(operation)), disclosure v1.")
         Task {
             var restored = 0
             if target == .photos, PHPhotoLibrary.authorizationStatus(for: .readWrite) == .notDetermined {
                 _ = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
             }
             for (index, record) in records.enumerated() {
-                progress = "Putting back \(index + 1) of \(records.count)…"
+                progress = "Getting back \(index + 1) of \(records.count)…"
                 do {
                     switch target {
                     case .photos: try await ArchiveRestore.toPhotos(record, wifi: wifiCheck)
@@ -307,7 +339,7 @@ struct ArchivedDayView: View {
                     problems.append("\(record.name) — \(error.localizedDescription)")
                 }
             }
-            try? InventoryStore.openDefault().log("Put back \(operation) finished: \(restored) of \(records.count) verified.")
+            try? InventoryStore.openDefault().log("Get back \(operation) finished: \(restored) of \(records.count) verified.")
             busy = false
             selected = []
             if restored > 0 { done = (restored, target) }
@@ -396,6 +428,7 @@ enum ArchiveRestore {
                 if index == 0 { options.originalFilename = record.name }
                 request.addResource(with: type, fileURL: file, options: options)
             }
+            PhotoDetails.apply(record, to: request)
             created.id = request.placeholderForCreatedAsset?.localIdentifier
         }
         guard let id = created.id,
@@ -425,6 +458,7 @@ enum ArchiveRestore {
             let options = PHAssetResourceCreationOptions()
             options.originalFilename = record.name
             request.addResource(with: video ? .video : .photo, fileURL: file, options: options)
+            PhotoDetails.apply(record, to: request)
         }
     }
 
@@ -491,9 +525,9 @@ enum ArchiveRestoreError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .photosCannotRebuild:
-            "Photos on this \(Device.name) can't rebuild this Live Photo or edited photo as one item. Put it back to a folder in Files instead to get every part. The archive copies stay where they are."
+            "Photos on this \(Device.name) can't rebuild this Live Photo or edited photo as one item. Get it back to a folder in Files instead to keep every part. The archive copies stay where they are."
         case .partsMissing:
-            "Photos took the picture but didn't keep its Live Photo or edit part. The archive copies are unchanged: put it back to a folder in Files to get every part."
+            "Photos took the picture but didn't keep its Live Photo or edit part. The archive copies are unchanged: get it back to a folder in Files to keep every part."
 
         case let .folderGone(folder, name):
             "TidyAway can no longer open that archive folder. Your copy is still in \(folder): open it in Files to find \(name)."

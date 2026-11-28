@@ -166,7 +166,8 @@ struct PhotoPreview: View {
             // Whether a verified copy already exists, read off the main thread.
             archived = await Task.detached(priority: .utility) { () -> [String: ArchivedRecord] in
                 var found: [String: ArchivedRecord] = [:]
-                for copy in (try? InventoryStore.openDefault().archived()) ?? [] {
+                // A copy the drive hasn't confirmed writing out isn't "copy checked" yet.
+                for copy in (try? InventoryStore.openDefault().archived()) ?? [] where copy.confirmed {
                     if let photo = copy.photoID, found[photo] == nil { found[photo] = copy }
                 }
                 return found

@@ -191,20 +191,22 @@ final class ArchivePartsIntegrationTests: XCTestCase {
             }
         }
 
-        // A different file already under one of the names: refused, and left exactly as it was.
+        // A different file already under one of the names: it never counts as the copy and is left
+        // exactly as it was. The item goes under the next free number, every file with the same one.
         let taken = files.temporaryDirectory.appendingPathComponent("TidyAwayTaken-\(UUID().uuidString)", isDirectory: true)
         try files.createDirectory(at: taken, withIntermediateDirectories: true)
         defer { try? files.removeItem(at: taken) }
         let theirs = Data("someone else's file".utf8)
         let clash = taken.appendingPathComponent(record.files[1].name)
         try theirs.write(to: clash)
-        do {
-            _ = try await Task.detached { try VerifiedArchive.copyEvery(item, to: taken) }.value
-            XCTFail("A different file with the same name must never count as the copy.")
-        } catch {
-            XCTAssertEqual(error as? ArchiveError, .conflict)
-        }
+        let beside = try await Task.detached { try VerifiedArchive.copyEvery(item, to: taken) }.value
         XCTAssertEqual(try Data(contentsOf: clash), theirs)
+        XCTAssertEqual(beside.receipt.url.lastPathComponent, ArchiveNames.numbered(name, 2))
+        let stem = ((ArchiveNames.numbered(name, 2) as NSString).deletingPathExtension)
+        XCTAssertTrue(beside.parts.allSatisfy { $0.name.hasPrefix(stem) }, "Every file of the item takes the same number.")
+        XCTAssertEqual(beside.parts.map(\.digest), stored.parts.map(\.digest))
+        XCTAssertEqual(Set(try files.contentsOfDirectory(atPath: taken.path)),
+                       Set([clash.lastPathComponent, beside.receipt.url.lastPathComponent] + beside.parts.map(\.name)))
 
         // Copying again never overwrites: the files already there count only because they match.
         let again = try await Task.detached { try VerifiedArchive.copyEvery(item, to: archive) }.value
