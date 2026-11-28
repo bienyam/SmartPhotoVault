@@ -147,6 +147,7 @@ enum CheckInRunner {
             for alert in result.alerts {
                 await post(id: alert.identifier, title: alert.title, body: alert.body, at: nil)
             }
+            await checkLongVideos(settings: settings, store: store, now: reading.date)
             if CheckInPlan.isDue(now: reading.date, last: store.history.last?.date, settings: settings) {
                 store.record(reading)
                 var state = store.alertState
@@ -156,6 +157,38 @@ enum CheckInRunner {
         }
         await planReminder(settings: settings, store: store)
         await planEvents(settings: settings, reading: reading)
+    }
+
+    /// Long videos (free): tells once about new videos over the chosen length. Reads Photos only.
+    static func checkLongVideos(settings: CheckInSettings, store: CheckInStore, now: Date) async {
+        var videos: [LongVideoCandidate] = []
+        if settings.longVideoOn, let since = store.alertState.longVideoSince {
+            videos = recentLongVideos(since: since, minutes: settings.longVideoMinutes)
+        }
+        let result = LongVideoAlerts.evaluate(videos, settings: settings, state: store.alertState, now: now)
+        store.alertState = result.state
+        if let alert = result.alert {
+            await post(id: alert.identifier, title: alert.title, body: alert.body, at: nil)
+        }
+    }
+
+    /// Videos recorded after `since` that run at least `minutes`, newest first, at most 20.
+    static func recentLongVideos(since: Date, minutes: Int) -> [LongVideoCandidate] {
+        let access = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        guard access == .authorized || access == .limited else { return [] }
+        let options = PHFetchOptions()
+        options.predicate = NSPredicate(format: "mediaType == %d AND creationDate > %@ AND duration >= %f",
+                                        PHAssetMediaType.video.rawValue, since as NSDate, Double(max(1, minutes) * 60))
+        options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+        options.fetchLimit = 20
+        var found: [LongVideoCandidate] = []
+        PHAsset.fetchAssets(with: options).enumerateObjects { asset, _, _ in
+            guard let recorded = asset.creationDate else { return }
+            found.append(LongVideoCandidate(id: asset.localIdentifier, recorded: recorded, seconds: asset.duration,
+                                            bytes: DuplicateScanner.reportedSize(of: PHAssetResource.assetResources(for: asset)),
+                                            favorite: asset.isFavorite))
+        }
+        return found
     }
 
     /// Free space now, with the last check's totals.

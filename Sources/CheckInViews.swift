@@ -50,6 +50,23 @@ struct CheckInsView: View {
             }
 
             Section {
+                Toggle(isOn: binding(\.longVideoOn)) {
+                    rowLabel("A long video is recorded", detail: "Like one recorded by accident in a pocket",
+                             info: "When this is on, TidyAway looks for new videos longer than the length you choose each time it checks: when you open the app, and when your \(Device.name) lets it check in the background, usually overnight while charging. It tells you once about each one. Favorites are skipped. It only reads your library; nothing is removed unless you choose, with your sign-off and Apple's confirmation.")
+                }
+                .tint(Brand.safe)
+                .accessibilityIdentifier("checkins-longvideo")
+                if settings.longVideoOn {
+                    choice("Longer than", values: CheckInSettings.longVideoChoices, value: \.longVideoMinutes) {
+                        $0 == 60 ? "1 hour" : "\($0) min"
+                    }
+                    .accessibilityIdentifier("checkins-longvideo-length")
+                }
+            } header: {
+                Text("Tell me when")
+            }
+
+            Section {
                 proToggle("Free space drops below", detail: nil, isOn: \.lowSpaceOn, id: "checkins-low")
                 if pro.allows(.extraCheckIns) && settings.lowSpaceOn {
                     choice("Alert below", values: CheckInSettings.lowSpaceChoices, value: \.lowSpaceGB) { "\($0) GB" }
